@@ -84,6 +84,26 @@ export class EngineAudio {
     this.noiseGain.gain.setTargetAtTime(wind * 0.1 + Math.min(1, (car.slip || 0) / 6) * 0.08, t, 0.1);
   }
 
+  /** Arena crowd: band-passed noise with a slow swell, 0..2 */
+  crowd(level) {
+    if (!this.ctx) return;
+    if (!this.crowdGain) {
+      const ctx = this.ctx;
+      const src = ctx.createBufferSource();
+      src.buffer = this.noise.buffer;
+      src.loop = true;
+      const bp = ctx.createBiquadFilter();
+      bp.type = 'bandpass';
+      bp.frequency.value = 1300;
+      bp.Q.value = 0.6;
+      this.crowdGain = ctx.createGain();
+      this.crowdGain.gain.value = 0;
+      src.connect(bp).connect(this.crowdGain).connect(this.master);
+      src.start();
+    }
+    this.crowdGain.gain.setTargetAtTime(Math.min(0.6, level * 0.22), this.ctx.currentTime, 0.4);
+  }
+
   /** Jet roar for cutscenes, 0..1 */
   jet(level) {
     if (!this.ctx) return;

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { curbTexture, facadeMaterial } from '../materials.js';
+import { curbTexture, facadeMaterial, label } from '../materials.js';
 import { pbr, instanced } from '../assets.js';
 
 // ---------- sky, sun, environment ----------
@@ -370,4 +370,35 @@ export function buildingDetails(blocks, roads, { floor = 3.2, awningColors = [0x
   const g = new THREE.Group();
   g.add(instancedBoxes(cornices, stone), instancedBoxes(ledges, stone), instancedBoxes(shops, glass, { cast: false }), instancedBoxes(awnings, canvas), instancedBoxes(stripes, canvas, { cast: false }));
   return g;
+}
+
+// ---------- jet parks ----------
+
+/** Lay jets out in a row along +z, noses pointing -x (toward a runway on the west side). */
+export function jetRow(ids, JETS, x0, z0, gap = 7) {
+  let cursor = z0;
+  return ids.map((id) => {
+    const j = JETS[id];
+    const item = { id, x: x0 + j.L / 2, z: cursor + j.span / 2, rot: -Math.PI / 2 };
+    cursor += j.span + gap;
+    return item;
+  });
+}
+
+/** Park jets with nameplates; fuselage-only colliders so you can walk under the wings. */
+export function parkJets(scene, colliders, items, JETS, buildJet, { labels = true } = {}) {
+  for (const it of items) {
+    const spec = JETS[it.id];
+    const jet = buildJet(spec);
+    jet.position.set(it.x, 0, it.z);
+    jet.rotation.y = it.rot;
+    scene.add(jet);
+    const along = Math.abs(Math.sin(it.rot)) > 0.5; // fuselage along x
+    colliders.box(it.x, it.z, along ? spec.L : spec.R * 2 + 0.6, along ? spec.R * 2 + 0.6 : spec.L);
+    if (labels) {
+      const tag = label(`${spec.maker} ${spec.model}`, { size: 0.9, sub: spec.note || spec.range });
+      tag.position.set(it.x, spec.R * 2 + spec.L * 0.2 + 4, it.z);
+      scene.add(tag);
+    }
+  }
 }

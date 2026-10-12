@@ -38,7 +38,8 @@ export class Hud {
       this.set('speed', this.speed, String(Math.round(car.speedKmh)));
       this.set('car', this.carName, car.name);
     }
-    const keys = mode === 'car'
+    const keys = mode === 'talk' ? '<kbd>←</kbd><kbd>→</kbd> slides · <kbd>E</kbd> finish · <kbd>M</kbd> mute'
+      : mode === 'car'
       ? '<kbd>W</kbd><kbd>S</kbd> drive · <kbd>A</kbd><kbd>D</kbd> steer · <kbd>Space</kbd> handbrake · <kbd>E</kbd> get out · <kbd>C</kbd> camera · <kbd>M</kbd> mute'
       : '<kbd>W</kbd><kbd>S</kbd> walk · <kbd>A</kbd><kbd>D</kbd> turn · <kbd>Shift</kbd> run · <kbd>E</kbd> interact · <kbd>M</kbd> mute';
     this.set('keys', this.keys, keys, 'innerHTML');

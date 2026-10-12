@@ -41,16 +41,27 @@ export const TRAFFIC = [
   { loft: 'revuelto', dims: { L: 4.7, W: 2.0 }, colors: [0xf2c200, 0xffffff, 0x0b0b0c, 0x1c4fb0, 0xa30b12, 0x2f7d3a], topSpeed: 300, accel: 10, grip: 8, steer: 0.6, engine: 'v8', type: 'super' },
 ];
 
+// Real dimensions (m), cruise Mach, range. engines: rear2 | rear3 | wing2. tail: T | cross | low.
 export const JETS = {
-  g700: {
-    maker: 'Gulfstream', model: 'G700', stripe: 0xc9a24a,
-    range: '7,750 nm', speed: 'Mach 0.925', seats: 'Up to 19 passengers',
-  },
-  global7500: {
-    maker: 'Bombardier', model: 'Global 7500', stripe: 0x14161b,
-    range: '7,700 nm', speed: 'Mach 0.925', seats: 'Up to 19 passengers',
-  },
+  g700: { maker: 'Gulfstream', model: 'G700', L: 33.5, span: 31.4, R: 1.45, engines: 'rear2', tail: 'T', win: 10, winW: 0.62, winH: 0.46, stripe: 0xc9a24a, mach: 0.925, range: '7,750 nm', seats: 19 },
+  g650er: { maker: 'Gulfstream', model: 'G650ER', L: 30.4, span: 30.4, R: 1.4, engines: 'rear2', tail: 'T', win: 8, winW: 0.6, winH: 0.45, stripe: 0x1b2a44, mach: 0.925, range: '7,500 nm', seats: 19 },
+  global7500: { maker: 'Bombardier', model: 'Global 7500', L: 33.8, span: 31.7, R: 1.45, engines: 'rear2', tail: 'T', win: 14, winW: 0.36, winH: 0.42, stripe: 0x14161b, mach: 0.925, range: '7,700 nm', seats: 19 },
+  global6500: { maker: 'Bombardier', model: 'Global 6500', L: 30.7, span: 28.7, R: 1.42, engines: 'rear2', tail: 'T', win: 12, winW: 0.36, winH: 0.42, stripe: 0x7a1f2b, mach: 0.9, range: '6,600 nm', seats: 17 },
+  falcon10x: { maker: 'Dassault', model: 'Falcon 10X', L: 33.4, span: 33.6, R: 1.55, engines: 'rear2', tail: 'cross', win: 19, winW: 0.4, winH: 0.4, stripe: 0x111111, mach: 0.925, range: '7,500 nm', seats: 16 },
+  falcon8x: { maker: 'Dassault', model: 'Falcon 8X', L: 24.5, span: 26.3, R: 1.3, engines: 'rear3', tail: 'cross', win: 14, winW: 0.34, winH: 0.4, stripe: 0x8a6d3b, mach: 0.9, range: '6,450 nm', seats: 16 },
+  challenger650: { maker: 'Bombardier', model: 'Challenger 650', L: 20.9, span: 19.6, R: 1.25, engines: 'rear2', tail: 'T', win: 6, winW: 0.4, winH: 0.46, stripe: 0x2b4e8c, mach: 0.85, range: '4,000 nm', seats: 12 },
+  praetor600: { maker: 'Embraer', model: 'Praetor 600', L: 20.7, span: 21.5, R: 1.2, engines: 'rear2', tail: 'T', win: 6, winW: 0.4, winH: 0.46, stripe: 0x3a6b8f, mach: 0.83, range: '4,018 nm', seats: 12 },
+  longitude: { maker: 'Cessna', model: 'Citation Longitude', L: 22.3, span: 20.7, R: 1.2, engines: 'rear2', tail: 'T', win: 6, winW: 0.42, winH: 0.46, stripe: 0x8c1c1c, mach: 0.84, range: '3,500 nm', seats: 12 },
+  bbj: { maker: 'Boeing', model: 'BBJ 737 MAX 7', L: 35.6, span: 35.9, R: 1.9, engines: 'wing2', tail: 'low', win: 16, winW: 0.28, winH: 0.38, stripe: 0x0d2340, mach: 0.79, range: '7,000 nm', seats: 19 },
+  acj220: { maker: 'Airbus', model: 'ACJ TwoTwenty', L: 35.0, span: 35.1, R: 1.75, engines: 'wing2', tail: 'low', win: 15, winW: 0.32, winH: 0.4, stripe: 0x35aee2, tailColor: 0x050607, mach: 0.82, range: '5,650 nm', seats: 18, note: 'JesusInTech livery' },
 };
+
+// Nice/Monaco <-> Dubai is about 5,200 km
+export function flightTime(jet) {
+  const hours = 5200 / (jet.mach * 0.93 * 1062) + 0.35;
+  const h = Math.floor(hours), m = Math.round((hours - h) * 60 / 5) * 5;
+  return `${h}h ${String(m).padStart(2, '0')}m`;
+}
 
 export const ROUTES = {
   monaco: { to: 'dubai', label: 'Dubai', time: '6h 05m' },

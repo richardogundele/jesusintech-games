@@ -6,7 +6,9 @@ import { buildPlayer, buildJet } from './models.js';
 import { EngineAudio } from './audio.js';
 import { Hud } from './hud.js';
 import { state, save } from './state.js';
-import { JETS, ROUTES } from './catalog.js';
+import { JETS, ROUTES, flightTime } from './catalog.js';
+import { buildCabin } from './worlds/cabin.js';
+import { buildArena } from './worlds/arena.js';
 import { loadAll, updateCulling } from './assets.js';
 import { createPipeline } from './render.js';
 import { Traffic } from './traffic.js';
@@ -29,14 +31,18 @@ window.addEventListener('resize', () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
   pipeline.setSize(window.innerWidth, window.innerHeight);
 });
-const draw = () => { updateCulling(camera.position); pipeline.render(world.scene); };
+const draw = () => {
+  if (!renderer.domElement.width || !renderer.domElement.height) return; // minimised / zero-size window
+  updateCulling(camera.position);
+  pipeline.render(world.scene);
+};
 
 const hud = new Hud();
 const audio = new EngineAudio();
 const $ = (id) => document.getElementById(id);
 
 // ---------- worlds ----------
-const builders = { monaco: buildMonaco, dubai: buildDubai };
+const builders = { monaco: buildMonaco, dubai: buildDubai, arena: buildArena };
 const worlds = {};
 function getWorld(id) {
   if (!worlds[id]) {
@@ -46,7 +52,13 @@ function getWorld(id) {
       w.scene.add(c.model.root);
       return c;
     });
-    w.traffic = new Traffic(w.scene, w.life);
+    w.traffic = new Traffic(w.scene, w.life || {});
+    w.interactions = w.interactions || [];
+    if (w.terminal) w.interactions.push({ ...w.terminal, car: true, label: () => `Choose a jet to ${ROUTES[w.id].label}`, action: openJets });
+    if (w.jetPark) w.interactions.push({ ...w.jetPark, car: true, label: () => `Open the jet park (${Object.keys(JETS).length} aircraft)`, action: openJets });
+    if (w.arenaDoor) w.interactions.push({ ...w.arenaDoor, car: true, label: () => 'Enter Dubai Arena', action: enterArena });
+    if (w.exit) w.interactions.push({ ...w.exit, r: 1.6, label: () => 'Leave the arena', action: leaveArena });
+    if (w.stageMark) w.interactions.push({ ...w.stageMark, r: 1.2, label: () => 'Start your talk', action: startTalk });
     worlds[id] = w;
   }
   return worlds[id];
@@ -60,18 +72,19 @@ let car = null;
 let camMode = 0;
 let cutscene = null;
 
-function enterWorld(id) {
-  world = getWorld(id);
+function enterWorld(target, spawn) {
+  world = typeof target === 'string' ? getWorld(target) : target;
   world.scene.add(player.mesh);
-  const s = world.spawn;
+  camera.near = world.near ?? 0.3; // tight interiors need a closer clipping plane
+  camera.updateProjectionMatrix();
+  const s = spawn || world.spawn;
   player.pos.set(s.x, 0, s.z);
   player.heading = s.heading;
   player.speed = 0;
   player.mesh.visible = true;
   car = null;
   mode = 'foot';
-  state.world = id;
-  save();
+  if (world.id === 'monaco' || world.id === 'dubai') { state.world = world.id; save(); }
   snapCamera();
 }
 
@@ -83,6 +96,7 @@ window.addEventListener('keydown', (e) => {
   keys.add(e.code);
   if (e.repeat) return;
   if (e.code === 'KeyE') interact();
+  if (mode === 'talk' && (e.code === 'ArrowRight' || e.code === 'ArrowLeft')) world.nextSlide(e.code === 'ArrowRight' ? 1 : -1);
   if (e.code === 'KeyC' && mode === 'car') camMode = (camMode + 1) % 3;
   if (e.code === 'KeyM') hud.toast(audio.toggleMute() ? 'Sound off' : 'Sound on', 1200);
   if (e.code === 'Escape' && mode === 'jets') closeJets();
@@ -110,25 +124,35 @@ function nearestCar(maxDist) {
   return best;
 }
 
-function nearTerminal(pos, extra = 0) {
-  const t = world.terminal;
-  return Math.hypot(pos.x - t.x, pos.z - t.z) < t.r + extra;
+function nearIt(it, pos, extra) {
+  return Math.hypot(pos.x - it.x, pos.z - it.z) < it.r + extra;
+}
+function activeInteraction() {
+  const list = world.interactions || [];
+  if (mode === 'foot') return list.find((it) => nearIt(it, player.pos, 2));
+  if (mode === 'car') return list.find((it) => it.car && nearIt(it, car.pos, 4));
+  return null;
 }
 
 function currentPrompt() {
-  const dest = ROUTES[world.id].label;
+  if (mode === 'talk') return `<kbd>←</kbd><kbd>→</kbd> Change slide · <kbd>E</kbd> Finish your talk`;
+  const it = activeInteraction();
+  if (it) return `<kbd>E</kbd> ${it.label()}`;
   if (mode === 'foot') {
-    if (nearTerminal(player.pos, 2)) return `<kbd>E</kbd> Fly to ${dest}`;
     const c = nearestCar(4.5);
     if (c) return `<kbd>E</kbd> Drive the ${c.name}`;
   }
-  if (mode === 'car' && nearTerminal(car.pos, 4)) return `<kbd>E</kbd> Fly to ${dest}`;
   return '';
 }
 
 function interact() {
+  if (mode === 'talk') return finishTalk();
+  const it = activeInteraction();
+  if (it && (mode !== 'car' || car.speedKmh < 40)) {
+    if (car) car.park();
+    return it.action();
+  }
   if (mode === 'foot') {
-    if (nearTerminal(player.pos, 2)) return openJets();
     const c = nearestCar(4.5);
     if (c) {
       car = c;
@@ -139,7 +163,6 @@ function interact() {
       hud.toast(`${c.spec.maker} ${c.spec.model} · ${c.spec.topSpeed} km/h top speed`, 2600);
     }
   } else if (mode === 'car') {
-    if (nearTerminal(car.pos, 4) && car.speedKmh < 40) return openJets();
     if (car.speedKmh > 20) return hud.toast('Slow down to get out', 1400);
     const side = new THREE.Vector3(Math.cos(car.heading), 0, -Math.sin(car.heading)); // driver's left
     player.pos.copy(car.pos).addScaledVector(side, car.model.width / 2 + 1.1);
@@ -165,8 +188,8 @@ function openJets() {
     const b = document.createElement('button');
     b.className = 'card';
     b.innerHTML = `<div class="maker">${j.maker}</div><div class="model">${j.model}</div>
-      <div class="spec">Range ${j.range}<br>${j.speed}<br>${j.seats}</div>
-      <div class="dest">${world.name.charAt(0) + world.name.slice(1).toLowerCase()} → ${route.label} · ${route.time}</div>`;
+      <div class="spec">Range ${j.range} · Mach ${j.mach}<br>Up to ${j.seats} passengers${j.note ? `<br>${j.note}` : ''}</div>
+      <div class="dest">${world.name.charAt(0) + world.name.slice(1).toLowerCase()} → ${route.label} · ${flightTime(j)}</div>`;
     b.onclick = () => { closeJets(true); travel(id); };
     list.appendChild(b);
   }
@@ -249,10 +272,14 @@ function landing(w, jetId) {
   };
 }
 
+let flight = null;
+const titleCase = (n) => n.charAt(0) + n.slice(1).toLowerCase();
+
 async function travel(jetId) {
   const from = world;
   const route = ROUTES[from.id];
   const j = JETS[jetId];
+  const time = flightTime(j);
   if (car) car.park();
   car = null;
   mode = 'cutscene';
@@ -263,24 +290,82 @@ async function travel(jetId) {
   await fade(1);
   $('card-eyebrow').textContent = 'Wheels up';
   $('card-title').textContent = `${from.name} → ${route.label.toUpperCase()}`;
-  $('card-sub').textContent = `${j.maker} ${j.model} · ${route.time}`;
+  $('card-sub').textContent = `${j.maker} ${j.model} · ${time}`;
   $('card').classList.remove('hidden');
-  await wait(400);
-  const to = getWorld(route.to); // build while the screen is black
-  world = to;
-  to.scene.add(player.mesh);
-  await wait(2200);
+  await wait(300);
+  // build the cabin for this jet while the card is up
+  const cabin = buildCabin(renderer, j, { fromName: titleCase(from.name), toName: route.label, time });
+  cabin.cars = [];
+  cabin.traffic = null;
+  cabin.interactions.push({ ...cabin.mySeat, r: 0.9, label: () => `Take your seat and land in ${route.label}`, action: land });
+  renderer.compile(cabin.scene, camera);
+  flight = { jetId, to: route.to, cabin };
+  await wait(1500);
   $('card').classList.add('hidden');
-  const landed = runCutscene(landing(to, jetId));
+  enterWorld(cabin);
+  hud.show(true);
+  await fade(0);
+  hud.toast(`Cruising at 45,000 ft in your ${j.model}. Have a walk around, then take your seat to land.`, 5500);
+}
+
+async function land() {
+  if (!flight) return;
+  const { jetId, to } = flight;
+  mode = 'cutscene';
+  hud.show(false);
+  await fade(1);
+  const dest = getWorld(to);
+  world = dest;
+  dest.scene.add(player.mesh);
+  player.mesh.visible = false;
+  const landed = runCutscene(landing(dest, jetId));
   await fade(0);
   await landed;
   await fade(1);
   audio.jet(0);
-  enterWorld(to.id);
+  flight = null;
+  enterWorld(dest.id);
   hud.show(true);
   await fade(0);
-  const names = to.cars.map((c) => c.spec.maker).join(' and the ');
-  hud.toast(to.id === 'monaco' ? 'Chauffeured home to the villa. Welcome back.' : `Chauffeured to your Dubai Hills mansion. The ${names} are waiting.`, 4200);
+  const names = dest.cars.map((c) => c.spec.maker).join(' and the ');
+  hud.toast(dest.id === 'monaco' ? 'Chauffeured home to the villa. Welcome back.' : `Chauffeured to your Dubai Hills mansion. The ${names} are waiting.`, 4200);
+}
+
+// ---------- the arena ----------
+let talkT = 0;
+async function enterArena() {
+  mode = 'cutscene';
+  if (car) { car.park(); car = null; }
+  await fade(1);
+  enterWorld('arena');
+  await fade(0);
+  hud.toast('Backstage at Dubai Arena. Thousands are waiting. Walk out to the glowing mark on the catwalk.', 5000);
+}
+async function leaveArena() {
+  mode = 'cutscene';
+  await fade(1);
+  enterWorld('dubai', { x: 238, z: -560, heading: -Math.PI / 2 });
+  await fade(0);
+}
+function startTalk() {
+  mode = 'talk';
+  talkT = 0;
+  player.pos.set(world.stageMark.x, 0, world.stageMark.z);
+  player.heading = 0; // face the crowd
+  player.speed = 0;
+  player.mesh.position.copy(player.pos);
+  player.mesh.rotation.y = 0;
+  world.startTalk();
+  hud.toast('You are live. Use the arrow keys to move through your slides.', 3500);
+}
+function finishTalk() {
+  world.endTalk();
+  mode = 'foot';
+  const reached = world.crowdSize;
+  state.reached = (state.reached || 0) + reached;
+  save();
+  snapCamera();
+  hud.toast(`Standing ovation. ${reached.toLocaleString('en-GB')} people heard you tonight · ${state.reached.toLocaleString('en-GB')} reached so far.`, 6000);
 }
 
 // ---------- camera ----------
@@ -307,6 +392,12 @@ function camRig() {
     desired.copy(target).addScaledVector(f, -dist).setY(height);
     look.copy(target).addScaledVector(f, 4).setY(m.height * 0.6);
     return { fov: 58 + Math.min(12, v * 0.12) };
+  }
+  if (world.cameraRig) {
+    const r = world.cameraRig;
+    desired.copy(target).addScaledVector(f, -r.dist).setY(r.height);
+    look.copy(target).addScaledVector(f, 3).setY(r.look);
+    return { fov: r.fov };
   }
   if (world.indoors?.(target.x, target.z)) {
     // tighter camera inside so it stays within the rooms
@@ -397,11 +488,21 @@ function step(dt) {
   world.tick(elapsed);
   const obstacle = mode === 'car' ? { x: car.pos.x, z: car.pos.z, r: car.model.radius * 0.6 }
     : mode === 'foot' ? { x: player.pos.x, z: player.pos.z, r: 0.5 } : null;
-  world.traffic.update(dt, obstacle, camera.position);
+  world.traffic?.update(dt, obstacle, camera.position);
+  audio.crowd(world.id === 'arena' ? world.excite : 0);
   const input = readInput();
 
   if (mode === 'menu') {
     updateMenuCamera(dt);
+  } else if (mode === 'talk') {
+    talkT += dt;
+    const shot = world.talkCamera(talkT);
+    camera.position.copy(shot.pos);
+    camera.fov = shot.fov;
+    camera.updateProjectionMatrix();
+    camera.lookAt(shot.look);
+    player.mesh.userData.animate(0, dt);
+    hud.update({ world, x: player.pos.x, z: player.pos.z, car: null, balance: state.balance, prompt: currentPrompt(), mode });
   } else if (mode === 'cutscene') {
     if (cutscene) {
       cutscene.t += dt;
@@ -416,10 +517,10 @@ function step(dt) {
   } else {
     if (mode === 'car') {
       car.update(dt, input, world);
-      if (world.traffic.collide(car)) car.sync(0);
+      if (world.traffic?.collide(car)) car.sync(0);
       audio.update(car, input.up ? 1 : 0);
     } else {
-      audio.update(null, 0);
+      if (world.id === 'cabin') audio.jet(0.22); else audio.update(null, 0);
       if (mode === 'foot') updateFoot(dt, input);
     }
     updateCamera(dt);

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { setupSky, buildRoad, distToRoads, buildingBlocks, buildingDetails, roofs, streetLamps, Colliders } from './common.js';
+import { setupSky, buildRoad, distToRoads, buildingBlocks, buildingDetails, roofs, streetLamps, Colliders, parkJets } from './common.js';
 import { M, waterMaterial, groundTexture, label, facadeMaterial } from '../materials.js';
 import { buildYacht, buildJet, palms, planExtrude, mesh, rocks, stonePines } from '../models.js';
 import { JETS } from '../catalog.js';
@@ -263,15 +263,12 @@ export function buildMonaco(renderer) {
   const termLabel = label('Private Terminal', { size: 1.6, sub: 'Jets to Dubai' });
   termLabel.position.set(300, 12, -42);
   scene.add(termLabel);
-  const parked = [];
-  [['g700', 368, -55], ['global7500', 372, -100]].forEach(([id, x, z]) => {
-    const j = buildJet(JETS[id]);
-    j.position.set(x, 0, z);
-    j.rotation.y = -Math.PI / 2;
-    scene.add(j);
-    parked.push(j);
-    colliders.box(x, z, 34, 30);
-  });
+  parkJets(scene, colliders, [
+    { id: 'g700', x: 368, z: -55, rot: -Math.PI / 2 },
+    { id: 'global7500', x: 372, z: -100, rot: -Math.PI / 2 },
+    { id: 'falcon8x', x: 376, z: -196, rot: -Math.PI / 2 },
+    { id: 'praetor600', x: 372, z: 16, rot: -Math.PI / 2 },
+  ], JETS, buildJet);
   // gold marker ring at the terminal trigger
   const ring = mesh(new THREE.TorusGeometry(4, 0.18, 8, 48), new THREE.MeshStandardMaterial({ color: 0xe8c77a, emissive: 0xe8c77a, emissiveIntensity: 1.2 }), { cast: false });
   ring.rotation.x = -Math.PI / 2;

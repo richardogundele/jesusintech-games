@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { M } from './materials.js';
-import { gltf as loadGltf, misc } from './assets.js';
+import { gltf as loadGltf, misc, pbr } from './assets.js';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 
 // ---------- helpers ----------
@@ -330,125 +330,308 @@ export function buildCar(spec) {
 // ---------- jets ----------
 
 export function buildJet(spec) {
+  const { L, span, R } = spec;
+  const airliner = spec.engines === 'wing2';
+  const yc = R + (airliner ? 1.15 : 0.95); // fuselage centre height
   const root = new THREE.Group();
   const white = M.hull;
-  const stripe = new THREE.MeshPhysicalMaterial({ color: spec.stripe, metalness: 0.6, roughness: 0.3, clearcoat: 1 });
+  const stripe = new THREE.MeshPhysicalMaterial({ color: spec.stripe, metalness: 0.55, roughness: 0.3, clearcoat: 1 });
+  const tailMat = spec.tailColor != null ? new THREE.MeshPhysicalMaterial({ color: spec.tailColor, metalness: 0.4, roughness: 0.3, clearcoat: 1 }) : stripe;
+  const darkMetal = new THREE.MeshStandardMaterial({ color: 0x2c2f33, metalness: 0.8, roughness: 0.35 });
 
-  // fuselage (lathe around Y, then laid along Z)
-  const prof = [[0, -16.5], [0.35, -16.2], [0.75, -14.5], [1.15, -11], [1.3, -6], [1.3, 9], [1.22, 12.5], [0.95, 14.6], [0.5, 16.1], [0.05, 16.6]];
-  const fus = new THREE.LatheGeometry(prof.map(([r, y]) => new THREE.Vector2(r, y)), 28);
+  // fuselage: lathe through fractional profile (r of R, y of L), laid along +z
+  const prof = [[0, -0.5], [0.16, -0.494], [0.4, -0.472], [0.66, -0.41], [0.88, -0.32], [0.99, -0.2], [1, -0.1], [1, 0.27], [0.97, 0.335], [0.87, 0.395], [0.68, 0.444], [0.4, 0.481], [0.12, 0.498], [0, 0.5]];
+  const fus = new THREE.LatheGeometry(prof.map(([r, y]) => new THREE.Vector2(r * R, y * L)), 36);
   fus.rotateX(Math.PI / 2);
   const fuselage = mesh(fus, white);
-  fuselage.position.y = 2.6;
+  fuselage.position.y = yc;
   root.add(fuselage);
 
-  // cockpit glass + cabin windows
-  const cockpit = mesh(new THREE.SphereGeometry(1, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2), M.glass, { cast: false });
-  cockpit.scale.set(1.13, 0.55, 1.4);
-  cockpit.position.set(0, 3.0, 13.6);
+  // cockpit windscreen band
+  const cockpit = mesh(new THREE.SphereGeometry(1, 20, 10, 0, Math.PI * 2, 0, Math.PI / 2), M.glass, { cast: false });
+  cockpit.scale.set(R * 0.9, R * 0.42, R * 1.15);
+  cockpit.position.set(0, yc + R * 0.18, L * 0.405);
   root.add(cockpit);
-  const winGeo = new THREE.BoxGeometry(0.05, 0.34, 0.42);
-  const wins = new THREE.InstancedMesh(winGeo, M.glass, 22);
-  const tmp = new THREE.Object3D();
+
+  // cabin windows (ovals)
+  const winGeo = new THREE.CylinderGeometry(1, 1, 0.05, 18);
+  winGeo.rotateZ(Math.PI / 2);
+  const wins = new THREE.InstancedMesh(winGeo, M.glass, spec.win * 2);
+  const o = new THREE.Object3D();
+  const z0 = L * 0.27, z1 = L * (airliner ? -0.3 : -0.17);
   let k = 0;
-  for (const s of [-1, 1]) {
-    for (let i = 0; i < 11; i++) {
-      tmp.position.set(s * 1.28, 2.85, -6 + i * 1.65);
-      tmp.updateMatrix();
-      wins.setMatrixAt(k++, tmp.matrix);
-    }
+  for (const s of [-1, 1]) for (let i = 0; i < spec.win; i++) {
+    o.position.set(s * R * 0.985, yc + R * 0.14, z0 + (z1 - z0) * (i / Math.max(1, spec.win - 1)));
+    o.scale.set(1, spec.winH / 2, spec.winW / 2);
+    o.updateMatrix();
+    wins.setMatrixAt(k++, o.matrix);
   }
   root.add(wins);
+  // livery: cheatline + belly accent
   for (const s of [-1, 1]) {
-    const st = mesh(new THREE.BoxGeometry(0.04, 0.22, 27), stripe, { cast: false });
-    st.position.set(s * 1.3, 2.3, -1);
+    const st = mesh(new THREE.BoxGeometry(0.03, R * 0.12, L * 0.72), stripe, { cast: false });
+    st.position.set(s * R * 0.99, yc - R * 0.22, -L * 0.02);
     root.add(st);
   }
 
-  // wings
-  const wingPts = [[0, 3.2], [0, -2.5], [14.5, -8.2], [15.2, -8.2], [15.2, -6.6], [3, 1]];
-  const wingGeo = planExtrude(wingPts, 0.28, 0.05);
+  // wings (swept), winglets
+  const sweep = airliner ? 0.47 : 0.55;
+  const sh = span / 2 - R * 0.1, cr = L * (airliner ? 0.2 : 0.21), ct = L * 0.065;
+  const zLE = L * (airliner ? 0.06 : 0.02);
+  const tipLE = zLE - sh * Math.tan(sweep);
+  const wingGeo = planExtrude([[0, zLE], [sh, tipLE], [sh, tipLE - ct], [0, zLE - cr]], airliner ? 0.38 : 0.28, 0.06);
   for (const s of [-1, 1]) {
     const w = mesh(wingGeo, white);
     w.scale.x = s;
-    w.position.set(0, 1.8, 0.5);
-    w.rotation.z = s * 0.07;
+    w.position.set(0, yc - R * 0.62, 0);
+    w.rotation.z = s * 0.06;
     root.add(w);
-    const winglet = mesh(new THREE.BoxGeometry(0.15, 2.0, 1.6), stripe);
-    winglet.position.set(s * 15.3, 3.6, -7.0);
-    winglet.rotation.x = -0.35;
+    const winglet = mesh(new THREE.BoxGeometry(0.14, span * 0.07, ct * 0.85), tailMat);
+    winglet.position.set(s * (sh + 0.05), yc - R * 0.62 + sh * 0.06 + span * 0.035, tipLE - ct * 0.5);
+    winglet.rotation.set(-0.35, 0, s * 0.18);
     root.add(winglet);
   }
 
   // engines
-  for (const s of [-1, 1]) {
-    const nac = mesh(new THREE.CylinderGeometry(0.8, 0.68, 4.8, 18), white);
-    nac.rotation.x = Math.PI / 2;
-    nac.position.set(s * 2.75, 3.3, -9.2);
-    root.add(nac);
-    const intake = mesh(new THREE.CylinderGeometry(0.62, 0.62, 0.1, 18), M.trim, { cast: false });
-    intake.rotation.x = Math.PI / 2;
-    intake.position.set(s * 2.75, 3.3, -6.78);
-    root.add(intake);
-    const pylon = mesh(new THREE.BoxGeometry(1.4, 0.25, 2.2), white);
-    pylon.position.set(s * 1.9, 3.1, -9.2);
-    root.add(pylon);
+  const nacelle = (nr, len, x, y, z) => {
+    const g = new THREE.Group();
+    const n = mesh(new THREE.CylinderGeometry(nr, nr * 0.82, len, 22), white);
+    n.rotation.x = Math.PI / 2;
+    const lip = mesh(new THREE.TorusGeometry(nr * 0.93, nr * 0.09, 8, 24), M.chrome, { cast: false });
+    lip.position.z = len / 2;
+    const fan = mesh(new THREE.CylinderGeometry(nr * 0.86, nr * 0.86, 0.05, 22), darkMetal, { cast: false });
+    fan.rotation.x = Math.PI / 2;
+    fan.position.z = len / 2 - 0.1;
+    const exhaust = mesh(new THREE.CylinderGeometry(nr * 0.55, nr * 0.4, 0.5, 18), darkMetal);
+    exhaust.rotation.x = Math.PI / 2;
+    exhaust.position.z = -len / 2 - 0.2;
+    g.add(n, lip, fan, exhaust);
+    g.position.set(x, y, z);
+    root.add(g);
+    return g;
+  };
+  if (airliner) {
+    const nr = 1.0, len = 4.0;
+    for (const s of [-1, 1]) {
+      const x = s * sh * 0.34;
+      const zAt = zLE - Math.abs(x) * Math.tan(sweep);
+      nacelle(nr, len, x, yc - R * 0.62 - nr - 0.15, zAt + 1.2);
+      const py = mesh(new THREE.BoxGeometry(0.35, 0.8, 2.8), white);
+      py.position.set(x, yc - R * 0.62 - 0.45, zAt);
+      root.add(py);
+    }
+  } else {
+    const nr = R * 0.5, len = L * 0.14, ez = -L * 0.3;
+    for (const s of [-1, 1]) {
+      nacelle(nr, len, s * (R + nr + 0.12), yc + R * 0.38, ez);
+      const py = mesh(new THREE.BoxGeometry(nr * 1.6, 0.22, len * 0.5), white);
+      py.position.set(s * (R + 0.1), yc + R * 0.34, ez);
+      root.add(py);
+    }
+    if (spec.engines === 'rear3') nacelle(nr * 0.95, len * 0.9, 0, yc + R * 0.95, -L * 0.37);
   }
 
-  // tail: fin + T stabiliser
+  // tail fin
+  const finH = L * (airliner ? 0.22 : 0.19);
+  const fb = -L * 0.5 + L * 0.035, ff = -L * 0.5 + L * (airliner ? 0.2 : 0.18);
   const fin = new THREE.Shape();
-  fin.moveTo(-16.0, 3.3); fin.lineTo(-11.5, 3.3); fin.lineTo(-14.2, 8.6); fin.lineTo(-16.3, 8.6); fin.lineTo(-16.6, 3.3);
-  const finGeo = new THREE.ExtrudeGeometry(fin, { depth: 0.3, bevelEnabled: false });
-  finGeo.translate(0, 0, -0.15);
+  const finBase = yc + R * 0.55;
+  fin.moveTo(fb, finBase); fin.lineTo(ff, finBase); fin.lineTo(fb + L * 0.06, finBase + finH); fin.lineTo(fb - L * 0.015, finBase + finH);
+  const finGeo = new THREE.ExtrudeGeometry(fin, { depth: 0.32, bevelEnabled: true, bevelSize: 0.05, bevelThickness: 0.05 });
+  finGeo.translate(0, 0, -0.16);
   finGeo.rotateY(-Math.PI / 2);
-  root.add(mesh(finGeo, stripe));
-  const stab = mesh(planExtrude([[0, -13.6], [0, -15.6], [5.2, -17.2], [5.2, -16.0]], 0.22), white);
-  const stab2 = stab.clone();
-  stab2.scale.x = -1;
-  stab.position.y = stab2.position.y = 8.5;
-  root.add(stab, stab2);
-
-  // gear
-  for (const [x, z] of [[0, 12], [-2.2, -1.5], [2.2, -1.5]]) {
-    const leg = mesh(new THREE.CylinderGeometry(0.08, 0.08, 1.4), M.lamp);
-    leg.position.set(x, 1.0, z);
-    const tire = mesh(new THREE.CylinderGeometry(0.42, 0.42, 0.3, 14), M.tire);
-    tire.rotation.z = Math.PI / 2;
-    tire.position.set(x, 0.42, z);
-    root.add(leg, tire);
+  root.add(mesh(finGeo, tailMat));
+  // horizontal stabiliser
+  const stabSpan = span * (airliner ? 0.38 : 0.3);
+  const stabY = spec.tail === 'T' ? finBase + finH - 0.1 : spec.tail === 'cross' ? finBase + finH * 0.42 : yc + R * 0.1;
+  const stabZ = spec.tail === 'T' ? fb + L * 0.02 : spec.tail === 'cross' ? fb + L * 0.05 : -L * 0.42;
+  const sc = L * 0.08;
+  const stabGeo = planExtrude([[0, stabZ + sc * 0.5], [stabSpan / 2, stabZ - stabSpan * 0.32], [stabSpan / 2, stabZ - stabSpan * 0.32 - sc * 0.45], [0, stabZ - sc * 0.5]], 0.2);
+  for (const s of [-1, 1]) {
+    const st = mesh(stabGeo, white);
+    st.scale.x = s;
+    st.position.y = stabY;
+    root.add(st);
   }
 
-  root.userData.blob = blobShadow(30, 34, 0.35);
+  // landing gear
+  const mainX = airliner ? R * 1.5 : R * 1.15;
+  for (const [x, z, front] of [[0, L * 0.37, true], [-mainX, zLE - cr * 0.62, false], [mainX, zLE - cr * 0.62, false]]) {
+    const h = yc - R;
+    const leg = mesh(new THREE.CylinderGeometry(0.09, 0.09, h), darkMetal);
+    leg.position.set(x, h / 2 + 0.2, z);
+    root.add(leg);
+    for (const dx of front ? [-0.2, 0.2] : [-0.28, 0.28]) {
+      const r = front ? 0.36 : (airliner ? 0.58 : 0.45);
+      const tyre = mesh(new THREE.CylinderGeometry(r, r, 0.3, 16), M.tire);
+      tyre.rotation.z = Math.PI / 2;
+      tyre.position.set(x + dx, r, z);
+      root.add(tyre);
+    }
+  }
+  root.userData.dims = { L, span, R, yc };
+  root.userData.blob = blobShadow(span * 0.9, L * 1.05, 0.32);
   root.add(root.userData.blob);
   return root;
 }
 
 // ---------- yacht ----------
 
+// Superyacht: lofted hull (raked bow, flared topsides, transom), three-tier superstructure
+// with dark glass bands and overhanging roofs, teak decks, helipad, radar arch, jacuzzi.
+const HULL = [ // [zFrac, halfBeamFrac, deckY, keelY]
+  [-0.5, 0.86, 2.55, -0.25], [-0.42, 0.96, 2.6, -0.95], [-0.2, 1, 2.66, -1.45], [0.08, 0.99, 2.78, -1.55],
+  [0.28, 0.9, 2.98, -1.45], [0.4, 0.66, 3.18, -1.05], [0.47, 0.34, 3.36, -0.2], [0.5, 0.04, 3.46, 1.2],
+];
+const yachtDeck = { mat: null };
+function hullAt(zf) {
+  let k = 0;
+  while (k < HULL.length - 2 && HULL[k + 1][0] < zf) k++;
+  const a = HULL[Math.max(0, k - 1)], b = HULL[k], c = HULL[k + 1], d = HULL[Math.min(HULL.length - 1, k + 2)];
+  const t = THREE.MathUtils.clamp((zf - b[0]) / (c[0] - b[0]), 0, 1);
+  return { hw: catmull(a[1], b[1], c[1], d[1], t), deck: catmull(a[2], b[2], c[2], d[2], t), keel: catmull(a[3], b[3], c[3], d[3], t) };
+}
+
+function yachtHull(L, W, hullColor, bootColor) {
+  const rings = 40, around = 36;
+  const pos = [], col = [], idx = [];
+  const cHull = new THREE.Color(hullColor), cBoot = new THREE.Color(bootColor);
+  for (let r = 0; r <= rings; r++) {
+    const zf = -0.5 + r / rings;
+    const { hw: hwf, deck, keel } = hullAt(zf);
+    const hw = hwf * W / 2;
+    const bow = THREE.MathUtils.smoothstep(zf, 0.28, 0.5);
+    const ctrl = [[0, keel], [hw * 0.72, keel * 0.42], [hw * 0.94, 0.05], [hw * 1.0, deck * 0.62], [hw, deck], [0, deck + 0.12], [-hw, deck], [-hw * 1.0, deck * 0.62], [-hw * 0.94, 0.05], [-hw * 0.72, keel * 0.42]]
+      .map(([x, y]) => new THREE.Vector3(x, y, 0));
+    const ring = new THREE.CatmullRomCurve3(ctrl, true, 'centripetal').getSpacedPoints(around);
+    ring.pop();
+    for (const p of ring) {
+      const z = zf * L - bow * 1.4 * (deck - p.y) * 0.5; // raked stem: lower hull sits further aft
+      pos.push(p.x, p.y, z);
+      const c = p.y < 0.32 ? cBoot : cHull;
+      col.push(c.r, c.g, c.b);
+    }
+  }
+  for (let r = 0; r < rings; r++) for (let i = 0; i < around; i++) {
+    const a = r * around + i, b = r * around + ((i + 1) % around), c = a + around, d = b + around;
+    idx.push(a, b, c, b, d, c);
+  }
+  // transom cap (rear faces -z)
+  const ci = pos.length / 3;
+  let cy = 0;
+  for (let i = 0; i < around; i++) cy += pos[i * 3 + 1];
+  pos.push(0, cy / around, pos[2]);
+  col.push(cHull.r, cHull.g, cHull.b);
+  for (let i = 0; i < around; i++) idx.push(ci, (i + 1) % around, i);
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  return geo;
+}
+
+/** Deck-house plan: straight sides, elliptical nose. zb/zf = back/front, w = width. */
+function deckHousePlan(zb, zf, w, nose = 0.55) {
+  const pts = [];
+  const nl = Math.min(w * nose, (zf - zb) * 0.5);
+  pts.push([-w / 2, zb], [w / 2, zb], [w / 2, zf - nl]);
+  for (let i = 1; i < 12; i++) {
+    const a = (i / 12) * Math.PI;
+    pts.push([Math.cos(a) * w / 2, zf - nl + Math.sin(a) * nl]);
+  }
+  pts.push([-w / 2, zf - nl]);
+  return pts;
+}
+
 export function buildYacht(L = 50, W = 9, accent = 0x14213d) {
   const root = new THREE.Group();
-  const plan = (s) => [[-L / 2 * s, -W / 2 * s], [L * 0.22 * s, -W / 2 * s], [L * 0.42 * s, -W * 0.3 * s], [L / 2 * s, 0], [L * 0.42 * s, W * 0.3 * s], [L * 0.22 * s, W / 2 * s], [-L / 2 * s, W / 2 * s]];
-  const navy = new THREE.MeshPhysicalMaterial({ color: accent, roughness: 0.2, clearcoat: 1 });
-  const lower = mesh(planExtrude(plan(1), 1.6), navy);
-  lower.position.y = -1.4;
-  const upper = mesh(planExtrude(plan(1), 2.4), M.hull);
-  upper.position.y = 0.2;
-  root.add(lower, upper);
-  const deck = mesh(planExtrude(plan(0.97), 0.1), M.wood, { cast: false });
-  deck.position.y = 2.6;
-  root.add(deck);
-  let y = 2.7;
-  for (const [s, off] of [[0.72, -0.08], [0.55, -0.12], [0.36, -0.14]]) {
-    const g = mesh(planExtrude(plan(s * 0.97), 1.9), M.glass);
-    g.position.set(off * L, y, 0);
-    const slab = mesh(planExtrude(plan(s), 0.35), M.hull);
-    slab.position.set(off * L, y + 1.9, 0);
-    root.add(g, slab);
-    y += 2.25;
+  const yacht = new THREE.Group();
+  yacht.position.y = -0.55; // waterline sits on the sea
+  root.add(yacht);
+  const white = new THREE.MeshPhysicalMaterial({ color: 0xffffff, roughness: 0.22, clearcoat: 1, clearcoatRoughness: 0.08 });
+  const hullMat = new THREE.MeshPhysicalMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.18, clearcoat: 1, clearcoatRoughness: 0.05 });
+  const darkGlass = new THREE.MeshPhysicalMaterial({ color: 0x05080c, metalness: 0.2, roughness: 0.05, clearcoat: 1, envMapIntensity: 0.35 });
+  if (!yachtDeck.mat) yachtDeck.mat = pbr('wood_floor_deck', { repeat: [2, 8], color: 0xc9b39a });
+  const hullColor = accent === 0xffffff ? 0xf7f7f5 : (Math.random() < 0.35 ? accent : 0xf7f7f5);
+  yacht.add(mesh(yachtHull(L, W, hullColor, accent === 0xffffff ? 0x1b2a40 : accent), hullMat));
+
+  // teak main deck (aft half) + swim platform
+  const aft = hullAt(-0.3);
+  const teak = mesh(new THREE.BoxGeometry(aft.hw * W * 0.92, 0.08, L * 0.36), yachtDeck.mat, { cast: false });
+  teak.position.set(0, aft.deck + 0.05, -L * 0.3);
+  yacht.add(teak);
+  const swim = mesh(new THREE.BoxGeometry(W * 0.78, 0.18, 2.2), yachtDeck.mat);
+  swim.position.set(0, 0.45, -L / 2 - 0.9);
+  yacht.add(swim);
+
+  // hull windows
+  const winGeo = new THREE.BoxGeometry(0.06, 0.42, 1.5);
+  const hullWins = new THREE.InstancedMesh(winGeo, darkGlass, 16);
+  const o = new THREE.Object3D();
+  let k = 0;
+  for (const s of [-1, 1]) for (let i = 0; i < 8; i++) {
+    const zf = -0.3 + i * 0.07;
+    const h = hullAt(zf);
+    o.position.set(s * (h.hw * W / 2 * 0.995), 1.45, zf * L);
+    o.updateMatrix();
+    hullWins.setMatrixAt(k++, o.matrix);
   }
-  const mast = mesh(new THREE.CylinderGeometry(0.15, 0.2, 4), M.hull);
-  mast.position.set(-0.16 * L, y + 2, 0);
-  root.add(mast);
+  yacht.add(hullWins);
+
+  // three-tier superstructure: white base, long glass band, overhanging roof
+  const tiers = [[-0.33, 0.27, 0.8], [-0.26, 0.17, 0.66], [-0.13, 0.07, 0.5]];
+  let base = hullAt(0).deck - 0.05;
+  tiers.forEach(([zb, zf, wf], t) => {
+    const w = W * wf;
+    const solid = mesh(planExtrude(deckHousePlan(zb * L, zf * L, w), 0.65), white);
+    solid.position.y = base;
+    const glass = mesh(planExtrude(deckHousePlan(zb * L + 0.2, zf * L - 0.15, w * 0.97), 1.55), darkGlass);
+    glass.position.y = base + 0.65;
+    const roof = mesh(planExtrude(deckHousePlan(zb * L - (t === 0 ? 3 : 2), zf * L + 0.35, w * 1.05), 0.26), white);
+    roof.position.y = base + 2.2;
+    yacht.add(solid, glass, roof);
+    base += 2.46;
+  });
+  // sundeck: radar arch, domes, jacuzzi, loungers
+  const archMat = white;
+  for (const s of [-1, 1]) {
+    const leg = mesh(new THREE.BoxGeometry(0.35, 2.6, 1.1), archMat);
+    leg.position.set(s * W * 0.2, base + 1.1, -0.04 * L);
+    leg.rotation.z = -s * 0.25;
+    yacht.add(leg);
+  }
+  const bar = mesh(new THREE.BoxGeometry(W * 0.55, 0.35, 1.3), archMat);
+  bar.position.set(0, base + 2.35, -0.04 * L);
+  yacht.add(bar);
+  for (const s of [-1, 1]) {
+    const dome = mesh(new THREE.SphereGeometry(0.42, 14, 10), archMat);
+    dome.position.set(s * 1.1, base + 2.85, -0.04 * L);
+    yacht.add(dome);
+  }
+  const tub = mesh(new THREE.CylinderGeometry(1.25, 1.25, 0.45, 24), white);
+  tub.position.set(0, base + 0.22, -0.11 * L);
+  const tubWater = mesh(new THREE.CylinderGeometry(1.1, 1.1, 0.05, 24), M.pool, { cast: false });
+  tubWater.position.set(0, base + 0.46, -0.11 * L);
+  yacht.add(tub, tubWater);
+  for (const s of [-1, 1]) for (let i = 0; i < 2; i++) {
+    const l = mesh(new THREE.BoxGeometry(0.75, 0.3, 1.9), white);
+    l.position.set(s * (W * 0.32), hullAt(-0.3).deck + 0.2, -L * (0.4 - i * 0.07));
+    yacht.add(l);
+  }
+  // foredeck helipad
+  const fd = hullAt(0.36);
+  const pad = mesh(new THREE.CylinderGeometry(Math.min(3.2, fd.hw * W * 0.42), Math.min(3.2, fd.hw * W * 0.42), 0.06, 32), M.trim, { cast: false });
+  pad.position.set(0, fd.deck + 0.14, 0.33 * L);
+  const ring = mesh(new THREE.TorusGeometry(Math.min(3.0, fd.hw * W * 0.4), 0.06, 6, 40), new THREE.MeshStandardMaterial({ color: 0xe8c22a, emissive: 0x3a3000 }), { cast: false });
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.set(0, fd.deck + 0.18, 0.33 * L);
+  yacht.add(pad, ring);
+  for (const [w, d, x] of [[0.18, 1.6, -0.45], [0.18, 1.6, 0.45], [0.9, 0.18, 0]]) {
+    const hb = mesh(new THREE.BoxGeometry(w, 0.02, d), M.white, { cast: false });
+    hb.position.set(x, fd.deck + 0.18, 0.33 * L);
+    yacht.add(hb);
+  }
   return root;
 }
 

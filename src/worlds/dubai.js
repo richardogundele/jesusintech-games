@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { setupSky, buildRoad, buildingBlocks, streetLamps, Colliders } from './common.js';
+import { setupSky, buildRoad, buildingBlocks, streetLamps, Colliders, parkJets, jetRow } from './common.js';
 import { M, waterMaterial, groundTexture, label, facadeMaterial } from '../materials.js';
 import { buildJet, palms, mesh } from '../models.js';
 import { JETS } from '../catalog.js';
@@ -76,6 +76,7 @@ export function buildDubai(renderer) {
         const bz = z + rand(-5, 5);
         if (side > 0 && Math.abs(bz - 600) < 26) continue;
         if (side > 0 && Math.abs(bz - (HOME.z + 70)) < 26) continue;
+        if (side > 0 && Math.abs(bz + 560) < 26) continue; // arena road
         blocks.push({ x, z: bz, w, d, h, color: pick(tones) });
         if (front && Math.random() < 0.5) blocks.push({ x, z: bz, y: h, w: w * 0.6, d: d * 0.6, h: rand(12, 40), color: pick(tones) });
         colliders.box(x, bz, w, d);
@@ -156,11 +157,59 @@ export function buildDubai(renderer) {
   const termLabel = label('Private Jet Terminal', { size: 1.6, sub: 'Jets to Monaco' });
   termLabel.position.set(198, 13, 600);
   scene.add(termLabel);
-  const j = buildJet(JETS.global7500);
-  j.position.set(262, 0, 560);
-  j.rotation.y = Math.PI;
-  scene.add(j);
-  colliders.box(262, 560, 30, 34);
+  // Richard's jet park: the whole fleet in a row along the east side of the runway
+  const parkApron = new THREE.Mesh(new THREE.PlaneGeometry(110, 560), pbr('concrete_floor_02', { repeat: [28, 140], polygonOffset: true, polygonOffsetFactor: -1 }));
+  parkApron.rotation.x = -Math.PI / 2;
+  parkApron.position.set(380, 0.02, 450);
+  parkApron.receiveShadow = true;
+  scene.add(parkApron);
+  parkJets(scene, colliders, jetRow(Object.keys(JETS), JETS, 336, 175, 6), JETS, buildJet);
+  const parkSign = label("Richard's Jet Park", { size: 3, sub: `${Object.keys(JETS).length} aircraft` });
+  parkSign.position.set(380, 30, 160);
+  scene.add(parkSign);
+  const parkRing = mesh(new THREE.TorusGeometry(4, 0.18, 8, 48), new THREE.MeshStandardMaterial({ color: 0xe8c77a, emissive: 0xe8c77a, emissiveIntensity: 1.2 }), { cast: false });
+  parkRing.rotation.x = -Math.PI / 2;
+  parkRing.position.set(345, 0.2, 165);
+  scene.add(parkRing);
+  tickers.push((t) => { parkRing.scale.setScalar(1 + Math.sin(t * 3) * 0.06); });
+
+  // ---- Dubai Arena (JesusInTech Live) ----
+  const ARENA = { x: 330, z: -560 };
+  const arenaRoad = buildRoad(new THREE.CatmullRomCurve3([V(22, ARENA.z), V(150, ARENA.z), V(246, ARENA.z)]), { width: 14, curbs: false, y: 0.025 });
+  scene.add(arenaRoad.mesh);
+  roads.push(arenaRoad);
+  const bandTex = (() => {
+    const cv = document.createElement('canvas'); cv.width = 4096; cv.height = 512;
+    const ctx = cv.getContext('2d'); ctx.fillStyle = '#050607'; ctx.fillRect(0, 0, 4096, 512);
+    ctx.font = '800 300px Helvetica Neue, Arial'; ctx.fillStyle = '#35aee2';
+    ctx.fillText('JESUSINTECH LIVE  ·  TONIGHT  ·', 40, 380);
+    const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; t.wrapS = THREE.RepeatWrapping; return t;
+  })();
+  const arenaBody = mesh(new THREE.CylinderGeometry(70, 74, 30, 72, 1), facadeMaterial({ winSize: [3, 30], winColor: 0x1a2a38, amount: 0.9, roughness: 0.3, metalness: 0.5 }), { receive: true });
+  arenaBody.material.color.set(0xd9dde0);
+  arenaBody.scale.set(1, 1, 0.8);
+  arenaBody.position.set(ARENA.x, 15, ARENA.z);
+  bandTex.repeat.set(3, 1);
+  const band = new THREE.Mesh(new THREE.CylinderGeometry(70.8, 70.8, 11, 72, 1, true), new THREE.MeshBasicMaterial({ map: bandTex, toneMapped: false, color: new THREE.Color(1.6, 1.6, 1.6) }));
+  band.scale.set(1, 1, 0.8);
+  band.position.set(ARENA.x, 22, ARENA.z);
+  const roofDome = mesh(new THREE.SphereGeometry(72, 48, 16, 0, Math.PI * 2, 0, Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0xe8ebee, metalness: 0.6, roughness: 0.3 }));
+  roofDome.scale.set(1, 0.18, 0.8);
+  roofDome.position.set(ARENA.x, 30, ARENA.z);
+  scene.add(arenaBody, band, roofDome);
+  tickers.push((t) => { bandTex.offset.x = (t * 0.02) % 1; });
+  colliders.box(ARENA.x, ARENA.z, 144, 118);
+  const doors = mesh(new THREE.BoxGeometry(2, 9, 26), new THREE.MeshPhysicalMaterial({ color: 0x10161c, metalness: 0.6, roughness: 0.05 }));
+  doors.position.set(ARENA.x - 73, 4.5, ARENA.z);
+  scene.add(doors);
+  const arenaSign = label('Dubai Arena', { size: 3.5, sub: 'JesusInTech Live' });
+  arenaSign.position.set(ARENA.x, 46, ARENA.z);
+  scene.add(arenaSign);
+  const arenaRing = mesh(new THREE.TorusGeometry(4, 0.18, 8, 48), new THREE.MeshStandardMaterial({ color: 0x35aee2, emissive: 0x35aee2, emissiveIntensity: 1.4 }), { cast: false });
+  arenaRing.rotation.x = -Math.PI / 2;
+  arenaRing.position.set(ARENA.x - 80, 0.2, ARENA.z);
+  scene.add(arenaRing);
+  tickers.push((t) => { arenaRing.scale.setScalar(1 + Math.sin(t * 3) * 0.06); });
   const ring = mesh(new THREE.TorusGeometry(4, 0.18, 8, 48), new THREE.MeshStandardMaterial({ color: 0xe8c77a, emissive: 0xe8c77a, emissiveIntensity: 1.2 }), { cast: false });
   ring.rotation.x = -Math.PI / 2;
   ring.position.set(198, 0.2, 600);
@@ -194,9 +243,13 @@ export function buildDubai(renderer) {
     garage: mansion.garage,
     indoors: (x, z) => mansion.indoors(x, z),
     terminal: { x: 198, z: 600, r: 7 },
+    jetPark: { x: 345, z: 165, r: 7 },
+    arenaDoor: { x: 250, z: -560, r: 7 },
     runway: { x: 300, z0: 170, z1: 710 },
     landmarks: [
       { x: HOME.x, z: HOME.z, color: '#e8c77a', name: 'Home' },
+      { x: 250, z: -560, color: '#35aee2', name: 'Arena' },
+      { x: 345, z: 165, color: '#ffffff', name: 'Jet Park' },
       { x: 300, z: -260, color: '#5f9c86', name: 'Burj' },
       { x: 198, z: 600, color: '#ffffff', name: 'Jets' },
     ],
