@@ -218,13 +218,15 @@ export function streetLamps(points, offset, every, material, { double = false } 
 
 export class Colliders {
   constructor() { this.boxes = []; }
-  box(cx, cz, w, d, pad = 0) {
-    this.boxes.push({ minX: cx - w / 2 - pad, maxX: cx + w / 2 + pad, minZ: cz - d / 2 - pad, maxZ: cz + d / 2 + pad });
+  /** carOnly boxes block cars but let people walk through (e.g. the front door). */
+  box(cx, cz, w, d, pad = 0, carOnly = false) {
+    this.boxes.push({ minX: cx - w / 2 - pad, maxX: cx + w / 2 + pad, minZ: cz - d / 2 - pad, maxZ: cz + d / 2 + pad, carOnly });
   }
   /** Push a circle out of all boxes. Returns the summed push normal (zero if none). */
-  resolve(pos, r) {
+  resolve(pos, r, isCar = false) {
     const n = new THREE.Vector2();
     for (const b of this.boxes) {
+      if (b.carOnly && !isCar) continue;
       if (pos.x < b.minX - r || pos.x > b.maxX + r || pos.z < b.minZ - r || pos.z > b.maxZ + r) continue;
       const cx = Math.max(b.minX, Math.min(pos.x, b.maxX));
       const cz = Math.max(b.minZ, Math.min(pos.z, b.maxZ));

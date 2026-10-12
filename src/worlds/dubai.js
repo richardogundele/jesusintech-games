@@ -3,6 +3,7 @@ import { setupSky, buildRoad, buildingBlocks, streetLamps, Colliders } from './c
 import { M, waterMaterial, groundTexture, label, facadeMaterial } from '../materials.js';
 import { buildJet, palms, mesh } from '../models.js';
 import { JETS } from '../catalog.js';
+import { buildMansion } from './mansion.js';
 
 const rand = (a, b) => a + Math.random() * (b - a);
 const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
@@ -51,7 +52,9 @@ export function buildDubai(renderer) {
   // ---- Sheikh Zayed Road ----
   const szr = buildRoad(new THREE.LineCurve3(V(0, -720), V(0, 720)), { width: 44, lanes: 8, step: 6 });
   const spur = buildRoad(new THREE.CatmullRomCurve3([V(22, 600), V(110, 600), V(196, 600)]), { width: 14, curbs: false, y: 0.025 });
-  const roads = [szr, spur];
+  const HOME = { x: 470, z: 20 };
+  const homeRoad = buildRoad(new THREE.CatmullRomCurve3([V(22, HOME.z + 70), V(250, HOME.z + 70), V(HOME.x, HOME.z + 70)]), { width: 14, curbs: false, y: 0.025 });
+  const roads = [szr, spur, homeRoad];
   roads.forEach((r) => scene.add(r.mesh));
   const median = mesh(new THREE.BoxGeometry(1.2, 1, 1440), M.stone);
   median.position.set(0, 0.5, 0);
@@ -72,6 +75,7 @@ export function buildDubai(renderer) {
         const h = front ? rand(90, 300) : rand(50, 180);
         const bz = z + rand(-5, 5);
         if (side > 0 && Math.abs(bz - 600) < 26) continue;
+        if (side > 0 && Math.abs(bz - (HOME.z + 70)) < 26) continue;
         blocks.push({ x, z: bz, w, d, h, color: pick(tones) });
         if (front && Math.random() < 0.5) blocks.push({ x, z: bz, y: h, w: w * 0.6, d: d * 0.6, h: rand(12, 40), color: pick(tones) });
         colliders.box(x, bz, w, d);
@@ -165,24 +169,27 @@ export function buildDubai(renderer) {
 
   scene.add(palms(palmSpots));
 
+  const mansion = buildMansion({ scene, colliders, tickers, origin: HOME });
+
   return {
     id: 'dubai',
     name: 'DUBAI',
     scene, env, colliders, roads,
     bounds: { minX: -320, maxX: 700, minZ: -700, maxZ: 700 },
     tick: (t) => tickers.forEach((f) => f(t)),
-    spawn: { x: 214, z: 583, heading: -Math.PI / 2 },
-    garage: [
-      { id: 'chiron', x: 199, z: 587, heading: -Math.PI / 2 },
-      { id: 'g63', x: 199, z: 577, heading: -Math.PI / 2 },
-    ],
+    spawn: mansion.spawn,
+    garage: mansion.garage,
+    indoors: (x, z) => mansion.indoors(x, z),
     terminal: { x: 198, z: 600, r: 7 },
     runway: { x: 300, z0: 170, z1: 710 },
     landmarks: [
-      { x: 300, z: -260, color: '#e8c77a', name: 'Burj' },
+      { x: HOME.x, z: HOME.z, color: '#e8c77a', name: 'Home' },
+      { x: 300, z: -260, color: '#5f9c86', name: 'Burj' },
       { x: 198, z: 600, color: '#ffffff', name: 'Jets' },
     ],
     place(x, z) {
+      const m = mansion.place(x, z);
+      if (m) return m;
       if (x > 170 && z > 500) return 'Private Jet Terminal';
       if (Math.abs(x) < 30) return 'Sheikh Zayed Road';
       if (x > 200 && z < -100 && z > -420) return 'Downtown Dubai';

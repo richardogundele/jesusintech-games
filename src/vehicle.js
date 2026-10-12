@@ -81,7 +81,7 @@ export class Car {
     for (const off of [this.model.length * 0.28, -this.model.length * 0.28]) {
       probe.set(this.pos.x + fwd.x * off, 0, this.pos.z + fwd.y * off);
       const before = probe.clone();
-      const n = world.colliders.resolve(probe, r);
+      const n = world.colliders.resolve(probe, r, true);
       if (n.lengthSq() > 0) {
         this.pos.x += probe.x - before.x;
         this.pos.z += probe.z - before.z;

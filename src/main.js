@@ -273,7 +273,7 @@ async function travel(jetId) {
   hud.show(true);
   await fade(0);
   const names = to.cars.map((c) => c.spec.maker).join(' and the ');
-  hud.toast(to.id === 'monaco' ? 'Chauffeured home to the villa. Welcome back.' : `Welcome to Dubai. The ${names} are waiting.`, 4200);
+  hud.toast(to.id === 'monaco' ? 'Chauffeured home to the villa. Welcome back.' : `Chauffeured to your Dubai Hills mansion. The ${names} are waiting.`, 4200);
 }
 
 // ---------- camera ----------
@@ -300,6 +300,12 @@ function camRig() {
     desired.copy(target).addScaledVector(f, -dist).setY(height);
     look.copy(target).addScaledVector(f, 4).setY(m.height * 0.6);
     return { fov: 58 + Math.min(12, v * 0.12) };
+  }
+  if (world.indoors?.(target.x, target.z)) {
+    // tighter camera inside so it stays within the rooms
+    desired.copy(target).addScaledVector(f, -2.7).setY(2.2);
+    look.copy(target).addScaledVector(f, 3).setY(1.5);
+    return { fov: 68 };
   }
   desired.copy(target).addScaledVector(f, -4.6).setY(2.5);
   look.copy(target).addScaledVector(f, 2).setY(1.45);
@@ -366,7 +372,7 @@ $('start').onclick = () => {
   $('title').classList.add('hidden');
   enterWorld(state.world in builders ? state.world : 'monaco');
   hud.show(true);
-  hud.toast(world.id === 'monaco' ? 'Welcome home. Your cars are on the driveway.' : 'Welcome back to Dubai.', 4000);
+  hud.toast(world.id === 'monaco' ? 'Welcome home. Your cars are on the driveway.' : 'Welcome home to Dubai Hills.', 4000);
 };
 
 // ---------- loop ----------
@@ -374,7 +380,8 @@ const clock = new THREE.Clock();
 let elapsed = 0;
 function frame() {
   requestAnimationFrame(frame);
-  step(Math.min(clock.getDelta(), 0.05));
+  const dt = Math.min(clock.getDelta(), 0.05);
+  if (!window.__game?.paused) step(dt);
   renderer.render(world.scene, camera);
 }
 
