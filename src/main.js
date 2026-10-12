@@ -282,9 +282,10 @@ const desired = new THREE.Vector3();
 const look = new THREE.Vector3();
 
 function camRig() {
-  const target = mode === 'car' ? car.pos : player.pos;
+  // key off `car`, not `mode`: the jet picker can open while you're still in the car
+  const target = car ? car.pos : player.pos;
   const f = new THREE.Vector3(Math.sin(camYaw), 0, Math.cos(camYaw));
-  if (mode === 'car') {
+  if (car) {
     const m = car.model;
     const v = Math.abs(car.vF);
     if (camMode === 2) {
@@ -315,10 +316,10 @@ function snapCamera() {
 }
 
 function updateCamera(dt) {
-  const heading = mode === 'car' ? car.heading : player.heading;
+  const heading = car ? car.heading : player.heading;
   let diff = heading - camYaw;
   diff = Math.atan2(Math.sin(diff), Math.cos(diff));
-  camYaw += diff * Math.min(1, dt * (mode === 'car' ? 3.2 : 5));
+  camYaw += diff * Math.min(1, dt * (car ? 3.2 : 5));
   const r = camRig();
   if (r.snap) camera.position.copy(desired);
   else camera.position.lerp(desired, 1 - Math.exp(-dt * 9));
@@ -416,7 +417,7 @@ frame();
 
 // debug handle for testing in the console
 window.__game = {
-  get world() { return world; }, get car() { return car; }, get mode() { return mode; }, player, keys,
+  get world() { return world; }, get car() { return car; }, get mode() { return mode; }, player, keys, camera,
   // advance the simulation by `seconds` at 60 Hz, then render once (works even when the tab is hidden)
   advance(seconds) {
     for (let i = 0; i < Math.round(seconds * 60); i++) step(1 / 60);
