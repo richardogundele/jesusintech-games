@@ -125,7 +125,7 @@ export class Car {
     body.rotation.z += (roll - body.rotation.z) * Math.min(1, dt * 6);
     body.rotation.x += (pitch - body.rotation.x) * Math.min(1, dt * 6);
     for (const w of wheels) {
-      w.spin.rotation.x += (this.vF / wheelR) * dt;
+      w.spin.rotation.x += (w.spinSign ?? 1) * (this.vF / wheelR) * dt;
       if (w.front) w.pivot.rotation.y = -this.steer;
     }
   }

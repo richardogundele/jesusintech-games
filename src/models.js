@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { M } from './materials.js';
+import { gltf as loadGltf, misc } from './assets.js';
 
 // ---------- helpers ----------
 
@@ -108,6 +109,7 @@ function wheel(r, accentRim) {
 }
 
 export function buildCar(spec) {
+  if (spec.gltf) return buildGltfCar(spec);
   const P = PROFILES[spec.type];
   const { L, W } = spec.dims;
   const root = new THREE.Group();
@@ -524,4 +526,101 @@ export function stonePines(placements) {
   cm.computeBoundingSphere();
   g.add(tm, cm);
   return g;
+}
+
+// ---------- real glTF cars ----------
+
+/** Ferrari 458 Italia (three.js example model). Same interface as the procedural cars. */
+function buildGltfCar(spec) {
+  const { scene } = loadGltf(spec.gltf);
+  const root = new THREE.Group();
+  const body = new THREE.Group();
+  root.add(body);
+  const holder = new THREE.Group();
+  holder.rotation.y = Math.PI; // the model faces -z; ours face +z
+  body.add(holder);
+  holder.add(scene);
+
+  const paint = new THREE.MeshPhysicalMaterial({ color: spec.color, metalness: 0.9, roughness: 0.42, clearcoat: 1, clearcoatRoughness: 0.03, envMapIntensity: 1.1 });
+  const details = new THREE.MeshStandardMaterial({ color: 0xffffff, metalness: 1, roughness: 0.35 });
+  const glass = new THREE.MeshPhysicalMaterial({ color: 0x111418, metalness: 0.2, roughness: 0.02, transparent: true, opacity: 0.55, clearcoat: 1 });
+  scene.traverse((o) => {
+    if (!o.isMesh) return;
+    o.castShadow = true;
+    o.receiveShadow = true;
+    if (o.name === 'body') o.material = paint;
+    else if (/^rim_|^trim$/.test(o.name)) o.material = details;
+    else if (o.name === 'glass') o.material = glass;
+  });
+
+  // wheels: put each wheel node under a pivot so the fronts can steer and all can spin
+  const wheels = [];
+  for (const [name, front] of [['wheel_fl', true], ['wheel_fr', true], ['wheel_rl', false], ['wheel_rr', false]]) {
+    const w = scene.getObjectByName(name);
+    if (!w) continue;
+    const pivot = new THREE.Group();
+    pivot.position.copy(w.position);
+    w.parent.add(pivot);
+    pivot.add(w);
+    w.position.set(0, 0, 0);
+    // the pivot lives in the flipped model space, so spin runs the other way
+    wheels.push({ pivot, spin: w, front, spinSign: -1 });
+  }
+  const box = new THREE.Box3().setFromObject(scene);
+  const size = box.getSize(new THREE.Vector3());
+
+  // baked ambient-occlusion shadow that ships with the model
+  const ao = new THREE.Mesh(
+    new THREE.PlaneGeometry(0.655 * 4, 1.3 * 4),
+    new THREE.MeshBasicMaterial({ map: misc('ferrariAO'), blending: THREE.MultiplyBlending, toneMapped: false, transparent: true, depthWrite: false })
+  );
+  ao.rotation.x = -Math.PI / 2;
+  ao.position.y = 0.02;
+  ao.renderOrder = 2;
+  root.add(ao);
+
+  return { root, body, wheels, wheelR: 0.34, radius: Math.max(size.x, size.z) * 0.48, length: size.z, width: Math.min(size.x, spec.dims.W + 0.1), height: size.y };
+}
+
+// ---------- animated character (Mixamo, via the three.js examples) ----------
+
+export function buildSoldier({ outfit = 0x4a5a80 } = {}) {
+  const { scene, animations } = loadGltf('soldier');
+  const root = new THREE.Group();
+  scene.rotation.y = Math.PI; // model faces -z; ours face +z
+  root.add(scene);
+  scene.traverse((o) => {
+    if (!o.isMesh) return;
+    o.castShadow = true;
+    o.receiveShadow = true;
+    o.frustumCulled = false; // skinned bounds don't follow the animation
+    if (o.name === 'vanguard_Mesh') {
+      o.material = o.material.clone();
+      o.material.color.set(outfit); // beige armour -> navy suit tone (texture detail kept)
+      o.material.roughness = 0.55;
+    }
+  });
+  root.add(blobShadow(0.9, 0.9, 0.45));
+
+  const mixer = new THREE.AnimationMixer(scene);
+  const clip = (n) => animations.find((a) => a.name === n);
+  const actions = { idle: mixer.clipAction(clip('Idle')), walk: mixer.clipAction(clip('Walk')), run: mixer.clipAction(clip('Run')) };
+  for (const a of Object.values(actions)) { a.play(); a.setEffectiveWeight(0); }
+  actions.idle.setEffectiveWeight(1);
+  const weights = { idle: 1, walk: 0, run: 0 };
+
+  root.userData.animate = (speed, dt) => {
+    // blend by speed: idle < 0.3 m/s, walk around 1.5-4, run from ~6
+    const target = speed < 0.3 ? { idle: 1, walk: 0, run: 0 }
+      : speed < 5 ? { idle: 0, walk: 1, run: 0 }
+      : { idle: 0, walk: Math.max(0, 1 - (speed - 5) / 2), run: Math.min(1, (speed - 5) / 2) };
+    for (const k of Object.keys(weights)) {
+      weights[k] += (target[k] - weights[k]) * Math.min(1, dt * 8);
+      actions[k].setEffectiveWeight(weights[k]);
+    }
+    actions.walk.timeScale = THREE.MathUtils.clamp(speed / 1.6, 0.6, 2.4);
+    actions.run.timeScale = THREE.MathUtils.clamp(speed / 6.5, 0.7, 1.5);
+    mixer.update(dt);
+  };
+  return root;
 }

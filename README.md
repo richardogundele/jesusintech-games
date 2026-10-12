@@ -22,6 +22,12 @@ npm run dev
 - `src/vehicle.js`: driving physics
 - `src/state.js`: saved balance; `addFunds()` is the hook for real-life rewards (not wired yet)
 
+## Credits
+
+- Skies, textures and scenery models: [Poly Haven](https://polyhaven.com) (CC0)
+- Ferrari 458 Italia model by vicent091036, via the three.js examples (original Sketchfab listing no longer online; keep this build private)
+- Player character and animations: Mixamo "Vanguard" soldier, via the three.js examples (Soldier.glb)
+
 ## Privacy
 
 Not deployed. Real brand names are used, so keep it private: put it behind auth before it goes on the `games` subdomain.

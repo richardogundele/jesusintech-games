@@ -44,6 +44,7 @@ export function createPipeline(renderer, camera) {
   const output = new OutputPass();
   const grade = new ShaderPass(GradeShader);
   composer.addPass(renderPass);
+  // (GTAO ambient occlusion was tried: 6-17 ms on an M5 because it re-renders the scene for normals. Not worth it.)
   composer.addPass(bloom);
   composer.addPass(output);
   composer.addPass(grade);

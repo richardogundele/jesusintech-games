@@ -7,10 +7,10 @@ export const CARS = {
     color: 0x9fd13a, topSpeed: 350, accel: 11.5, grip: 7.5, steer: 0.62, engine: 'v12',
     dims: { L: 4.95, W: 2.05 },
   },
-  sf90: {
-    maker: 'Ferrari', model: 'SF90 Stradale', type: 'super',
-    color: 0xc4111b, topSpeed: 340, accel: 12, grip: 8, steer: 0.64, engine: 'v8',
-    dims: { L: 4.71, W: 1.97 },
+  f458: {
+    maker: 'Ferrari', model: '458 Italia', type: 'super', gltf: 'ferrari',
+    color: 0xa30b12, topSpeed: 325, accel: 11.5, grip: 8, steer: 0.64, engine: 'v8',
+    dims: { L: 4.53, W: 1.94 },
   },
   cullinan: {
     maker: 'Rolls-Royce', model: 'Cullinan', type: 'suv',

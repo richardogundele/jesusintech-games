@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { setupSky, buildRoad, distToRoads, buildingBlocks, roofs, streetLamps, Colliders } from './common.js';
+import { setupSky, buildRoad, distToRoads, buildingBlocks, buildingDetails, roofs, streetLamps, Colliders } from './common.js';
 import { M, waterMaterial, groundTexture, label, facadeMaterial } from '../materials.js';
 import { buildYacht, buildJet, palms, planExtrude, mesh, rocks, stonePines } from '../models.js';
 import { JETS } from '../catalog.js';
@@ -62,7 +62,7 @@ export function buildMonaco(renderer) {
 
   // ---- harbour: piers, yachts, breakwater ----
   const piers = [];
-  const pierMat = pbr('wood_floor_deck', { repeat: [1, 14], color: 0xa89a8c });
+  const pierMat = pbr('wood_floor_deck', { repeat: [1, 14], color: 0x8d8579 });
   for (const x of [-180, -120, -60, 0, 60, 120, 180]) {
     const p = mesh(new THREE.BoxGeometry(5, 1, 70), pierMat, { receive: true });
     p.position.set(x, -0.2, 95);
@@ -155,6 +155,7 @@ export function buildMonaco(renderer) {
   blocks.push({ x: -160, z: -276, y: 14, w: 20, d: 18, h: 90, color: '#e3dccd' });
   scene.add(buildingBlocks(blocks, { winSize: [2.8, 3.2], winColor: 0x1a2530, amount: 0.92, tex: texSet('painted_plaster_wall'), texScale: 0.35, shutters: 0x4d6b54, brighten: 1.35 }));
   scene.add(roofs(blocks.filter((_, i) => i % 3 === 0), pbr('clay_roof_tiles_02', { repeat: [3, 2] })));
+  scene.add(buildingDetails(blocks.filter((b) => b.h < 100), roads));
 
   // ---- Casino de Monte-Carlo ----
   const casino = new THREE.Group();
@@ -335,7 +336,7 @@ export function buildMonaco(renderer) {
     spawn: { x: -292, z: -34, heading: -Math.PI / 2 },
     garage: [
       { id: 'revuelto', x: -308, z: -24, heading: Math.PI / 2 },
-      { id: 'sf90', x: -308, z: -36, heading: Math.PI / 2 },
+      { id: 'f458', x: -308, z: -36, heading: Math.PI / 2 },
       { id: 'cullinan', x: -308, z: -50, heading: Math.PI / 2 },
     ],
     terminal: { x: 300, z: -42, r: 7 },

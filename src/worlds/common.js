@@ -167,8 +167,11 @@ export function buildRoad(curve, { width = 14, lanes = 2, closed = false, y = 0.
 let _roadMat = null;
 function roadMaterial() {
   if (!_roadMat) {
-    _roadMat = pbr('asphalt_02', { repeat: [1, 1], color: 0x8c8c8c, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+    _roadMat = pbr('clean_asphalt', { repeat: [1, 1], color: 0x55575a, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
     _roadMat.normalScale.set(0.6, 0.6);
+    _roadMat.roughnessMap = null; // matte asphalt: don't mirror the bright sky
+    _roadMat.roughness = 0.88;
+    _roadMat.envMapIntensity = 0.55;
   }
   return _roadMat;
 }
@@ -296,4 +299,75 @@ export class Colliders {
     }
     return n;
   }
+}
+
+// ---------- street-level building detail ----------
+
+function instancedBoxes(items, material, { cast = true } = {}) {
+  const geo = new THREE.BoxGeometry(1, 1, 1);
+  geo.translate(0, 0.5, 0);
+  const im = new THREE.InstancedMesh(geo, material, items.length);
+  const o = new THREE.Object3D();
+  const c = new THREE.Color();
+  items.forEach((it, i) => {
+    o.position.set(it.x, it.y, it.z);
+    o.rotation.set(it.rx || 0, it.ry || 0, it.rz || 0);
+    o.scale.set(it.w, it.h, it.d);
+    o.updateMatrix();
+    im.setMatrixAt(i, o.matrix);
+    if (it.color != null) im.setColorAt(i, c.set(it.color));
+  });
+  im.castShadow = cast;
+  im.receiveShadow = true;
+  im.computeBoundingSphere();
+  return im;
+}
+
+/**
+ * Cornices, floor ledges, glass shopfronts and awnings for box buildings.
+ * Shopfronts/awnings only on street-level blocks (y = 0); the awning goes on the side facing the nearest road.
+ */
+export function buildingDetails(blocks, roads, { floor = 3.2, awningColors = [0x7a1f2b, 0x1f3a5f, 0x2f5d3a, 0xe9e1cf, 0x2b2b2b] } = {}) {
+  const ledges = [], cornices = [], shops = [], awnings = [], stripes = [];
+  for (const b of blocks) {
+    const base = b.y || 0;
+    cornices.push({ x: b.x, y: base + b.h - 0.1, z: b.z, w: b.w + 0.7, h: 0.55, d: b.d + 0.7 });
+    for (let fy = floor * 2; fy < b.h - 1.5; fy += floor * (b.h > 40 ? 2 : 1)) {
+      ledges.push({ x: b.x, y: base + fy - 0.12, z: b.z, w: b.w + 0.35, h: 0.16, d: b.d + 0.35 });
+    }
+    if (base > 0 || !roads) continue;
+    shops.push({ x: b.x, y: 0, z: b.z, w: b.w + 0.14, h: 3.0, d: b.d + 0.14 });
+    ledges.push({ x: b.x, y: 3.0, z: b.z, w: b.w + 0.5, h: 0.35, d: b.d + 0.5 }); // shop fascia
+    // which side faces the street?
+    let best = null, bd = Infinity;
+    for (const r of roads) for (const p of r.points) {
+      const d = (p.x - b.x) ** 2 + (p.z - b.z) ** 2;
+      if (d < bd) { bd = d; best = p; }
+    }
+    const dx = best.x - b.x, dz = best.z - b.z;
+    const alongX = Math.abs(dx) > Math.abs(dz);
+    const s = alongX ? Math.sign(dx) : Math.sign(dz);
+    const faceLen = alongX ? b.d : b.w;
+    const n = Math.max(1, Math.floor(faceLen / 4.2));
+    const color = awningColors[Math.floor(Math.abs(b.x * 7 + b.z * 13)) % awningColors.length];
+    for (let k = 0; k < n; k++) {
+      const off = -faceLen / 2 + (k + 0.5) * (faceLen / n);
+      const w = (faceLen / n) * 0.82;
+      // sloped down toward the street, hung just under the shop fascia
+      const item = alongX
+        ? { x: b.x + s * (b.w / 2 + 0.85), y: 2.55, z: b.z + off, w: 1.9, h: 0.06, d: w, rz: -0.38 * s, color }
+        : { x: b.x + off, y: 2.55, z: b.z + s * (b.d / 2 + 0.85), w, h: 0.06, d: 1.9, rx: 0.38 * s, color };
+      awnings.push(item);
+      const valance = alongX
+        ? { x: b.x + s * (b.w / 2 + 1.72), y: 1.98, z: b.z + off, w: 0.04, h: 0.32, d: w, color }
+        : { x: b.x + off, y: 1.98, z: b.z + s * (b.d / 2 + 1.72), w, h: 0.32, d: 0.04, color };
+      stripes.push(valance);
+    }
+  }
+  const stone = new THREE.MeshStandardMaterial({ color: 0xece4d4, roughness: 0.8 });
+  const glass = new THREE.MeshPhysicalMaterial({ color: 0x1a232b, roughness: 0.05, metalness: 0.5, clearcoat: 1, emissive: 0x6b4a26, emissiveIntensity: 0.35 });
+  const canvas = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9, side: THREE.DoubleSide });
+  const g = new THREE.Group();
+  g.add(instancedBoxes(cornices, stone), instancedBoxes(ledges, stone), instancedBoxes(shops, glass, { cast: false }), instancedBoxes(awnings, canvas), instancedBoxes(stripes, canvas, { cast: false }));
+  return g;
 }

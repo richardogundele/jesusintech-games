@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { RGBELoader } from 'three/examples/jsm/loaders/RGBELoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
+import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
+import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 
 // Everything from Poly Haven (CC0). Raw downloads live in assets-src/ (not served);
 // models here were simplified + meshopt/webp compressed with gltf-transform.
@@ -10,13 +12,15 @@ const HDRIS = {
   monaco: 'ph/hdri/kloofendal_48d_partly_cloudy_puresky_4k.hdr',
   dubai: 'ph/hdri/kloofendal_43d_clear_puresky_4k.hdr',
 };
-const TEXTURES = ['asphalt_02', 'rectangular_paving', 'marble_01', 'painted_plaster_wall', 'clay_roof_tiles_02',
+const TEXTURES = ['clean_asphalt', 'asphalt_02', 'rectangular_paving', 'marble_01', 'painted_plaster_wall', 'clay_roof_tiles_02',
   'white_sandstone_blocks_02', 'coast_sand_01', 'leafy_grass', 'wood_floor_deck', 'granite_tile', 'dark_wood', 'concrete_floor_02'];
 export const MODEL_NAMES = ['lamp_lo', 'shrub2_lo', 'island_tree_01', 'island_tree_02', 'island_tree_03', 'shrub_01', 'shrub_02', 'shrub_04', 'potted_plant_01', 'potted_plant_02',
   'coastal_cliff_01', 'coastal_cliff_02', 'mountainside', 'coast_rocks_01', 'coast_rocks_02', 'boulder_01', 'street_lamp_01',
   'modern_arm_chair_01', 'sofa_03', 'modern_coffee_table_01', 'outdoor_table_chair_set_01'];
 
-const store = { hdri: {}, tex: {}, model: {} };
+const store = { hdri: {}, tex: {}, model: {}, gltf: {}, misc: {} };
+// full glTFs (keep animations / named parts): three.js example models, see README credits
+const GLTFS = { ferrari: 'models/ferrari.glb', soldier: 'models/soldier.glb' };
 let renderer = null;
 
 export async function loadAll(r, onProgress = () => {}) {
@@ -27,6 +31,9 @@ export async function loadAll(r, onProgress = () => {}) {
   const hdrLoader = new RGBELoader(manager);
   const gltfLoader = new GLTFLoader(manager);
   gltfLoader.setMeshoptDecoder(MeshoptDecoder);
+  const draco = new DRACOLoader(manager);
+  draco.setDecoderPath('/draco/');
+  gltfLoader.setDRACOLoader(draco);
 
   const jobs = [];
   for (const [k, p] of Object.entries(HDRIS)) {
@@ -49,6 +56,10 @@ export async function loadAll(r, onProgress = () => {}) {
   for (const name of MODEL_NAMES) {
     jobs.push(gltfLoader.loadAsync(`${BASE}/models/${name}.glb`).then((g) => { store.model[name] = g.scene; }));
   }
+  for (const [k, p] of Object.entries(GLTFS)) {
+    jobs.push(gltfLoader.loadAsync(`${BASE}/${p}`).then((g) => { store.gltf[k] = g; }));
+  }
+  jobs.push(texLoader.loadAsync(`${BASE}/models/ferrari_ao.png`).then((t) => { store.misc.ferrariAO = t; }));
   await Promise.all(jobs);
 }
 
@@ -170,3 +181,10 @@ export function modelMaterial(name) {
 export function modelSize(name) {
   return new THREE.Box3().setFromObject(store.model[name]).getSize(new THREE.Vector3());
 }
+
+/** A full glTF: { scene (fresh clone, skinning-safe), animations }. */
+export function gltf(name) {
+  const g = store.gltf[name];
+  return { scene: cloneSkinned(g.scene), animations: g.animations };
+}
+export const misc = (k) => store.misc[k];

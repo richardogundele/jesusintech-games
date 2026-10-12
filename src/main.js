@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { buildMonaco } from './worlds/monaco.js';
 import { buildDubai } from './worlds/dubai.js';
 import { Car } from './vehicle.js';
-import { buildPerson, buildJet } from './models.js';
+import { buildSoldier, buildJet } from './models.js';
 import { EngineAudio } from './audio.js';
 import { Hud } from './hud.js';
 import { state, save } from './state.js';
@@ -51,7 +51,7 @@ function getWorld(id) {
 }
 
 // ---------- player ----------
-const player = { mesh: buildPerson(), pos: new THREE.Vector3(), heading: 0, speed: 0 };
+const player = { mesh: null, pos: new THREE.Vector3(), heading: 0, speed: 0 };
 let world = null;
 let mode = 'menu'; // menu | foot | car | jets | cutscene
 let car = null;
@@ -429,6 +429,7 @@ const startBtn = $('start');
 startBtn.disabled = true;
 startBtn.textContent = 'Loading 0%';
 await loadAll(renderer, (p) => { startBtn.textContent = `Loading ${Math.round(p * 100)}%`; });
+player.mesh = buildSoldier();
 getWorld('monaco');
 getWorld('dubai'); // build both up front so the flight never waits on a build
 world = getWorld(state.world in builders ? state.world : 'monaco');
