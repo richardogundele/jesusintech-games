@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>The Dream Life</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <canvas id="game"></canvas>
+
+    <!-- Title screen -->
+    <div id="title" class="screen">
+      <div class="title-inner">
+        <div class="eyebrow">Private build · v0.1</div>
+        <h1>THE DREAM LIFE</h1>
+        <p class="sub">Monaco &middot; Dubai</p>
+        <button id="start" class="btn-primary">Enter</button>
+        <p class="hint">Headphones on. Best on a laptop with a keyboard.</p>
+      </div>
+    </div>
+
+    <!-- HUD -->
+    <div id="hud" class="hidden">
+      <div class="hud-top-left">
+        <div id="loc-city">MONACO</div>
+        <div id="loc-place">Port Hercule</div>
+      </div>
+      <div class="hud-top-right">
+        <div id="money">€0</div>
+        <canvas id="minimap" width="200" height="200"></canvas>
+      </div>
+      <div id="prompt" class="hidden"></div>
+      <div id="toast" class="hidden"></div>
+      <div class="hud-bottom-left" id="keys"></div>
+      <div class="hud-bottom-right" id="speedo">
+        <div id="speed">0</div>
+        <div class="unit">km/h</div>
+        <div id="car-name"></div>
+      </div>
+    </div>
+
+    <!-- Jet select -->
+    <div id="jets" class="screen hidden">
+      <div class="modal">
+        <div class="eyebrow">Private Terminal</div>
+        <h2 id="jets-title">Choose your jet</h2>
+        <div id="jet-list" class="cards"></div>
+        <button id="jets-cancel" class="btn-ghost">Not now</button>
+      </div>
+    </div>
+
+    <!-- Fade + flight card -->
+    <div id="fade"></div>
+    <div id="card" class="hidden">
+      <div class="eyebrow" id="card-eyebrow"></div>
+      <div id="card-title"></div>
+      <div id="card-sub"></div>
+    </div>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
