@@ -358,40 +358,89 @@ export function buildPerson() {
 // ---------- palms (instanced) ----------
 
 let palmGeos = null;
-function makePalmGeos() {
-  const trunkParts = [];
-  let y = 0, x = 0;
-  for (let i = 0; i < 7; i++) {
-    const g = new THREE.CylinderGeometry(0.17 - i * 0.012, 0.2 - i * 0.012, 1.35, 7);
-    g.translate(x, y + 0.67, 0);
-    trunkParts.push(g);
-    y += 1.3;
-    x += 0.06 * i;
-  }
-  const leafParts = [];
-  for (let i = 0; i < 8; i++) {
-    const g = new THREE.PlaneGeometry(0.9, 4.2, 1, 6);
-    const pos = g.attributes.position;
-    for (let v = 0; v < pos.count; v++) {
-      const t = (pos.getY(v) + 2.1) / 4.2;
-      pos.setZ(v, -t * t * 1.6);
-      pos.setX(v, pos.getX(v) * (1 - t * 0.7));
+let palmMats = null;
+
+function palmTextures() {
+  const frond = document.createElement('canvas');
+  frond.width = 256; frond.height = 1024;
+  const f = frond.getContext('2d');
+  f.clearRect(0, 0, 256, 1024);
+  f.strokeStyle = '#6b6a2e';
+  f.lineWidth = 6;
+  f.beginPath(); f.moveTo(128, 1024); f.lineTo(128, 0); f.stroke();
+  for (let y = 1010; y > 16; y -= 9) {
+    const t = y / 1024; // 1 at base, 0 at tip
+    const len = 34 + 90 * Math.sin(Math.PI * Math.min(1, t * 1.1));
+    for (const side of [-1, 1]) {
+      const g = 75 + Math.random() * 45;
+      f.fillStyle = `rgb(${45 + Math.random() * 30},${g + 35},${28 + Math.random() * 22})`;
+      f.beginPath();
+      f.moveTo(128, y + 4);
+      f.quadraticCurveTo(128 + side * len * 0.55, y - 30, 128 + side * len, y - 52 - Math.random() * 10);
+      f.quadraticCurveTo(128 + side * len * 0.5, y - 6, 128, y - 9);
+      f.fill();
     }
-    g.translate(0, 2.1, 0);
-    g.rotateX(-1.15);
-    g.rotateY((i / 8) * Math.PI * 2);
-    g.translate(x, y, 0);
+  }
+  const bark = document.createElement('canvas');
+  bark.width = 64; bark.height = 256;
+  const b = bark.getContext('2d');
+  b.fillStyle = '#8a7356'; b.fillRect(0, 0, 64, 256);
+  for (let y = 0; y < 256; y += 16) {
+    b.fillStyle = 'rgba(60,45,30,0.55)'; b.fillRect(0, y, 64, 4);
+    b.fillStyle = 'rgba(190,170,140,0.35)'; b.fillRect(0, y + 5, 64, 3);
+  }
+  for (let i = 0; i < 400; i++) { b.fillStyle = `rgba(40,30,20,${Math.random() * 0.2})`; b.fillRect(Math.random() * 64, Math.random() * 256, 2, 2); }
+  const ft = new THREE.CanvasTexture(frond); ft.colorSpace = THREE.SRGBColorSpace; ft.anisotropy = 8;
+  const bt = new THREE.CanvasTexture(bark); bt.colorSpace = THREE.SRGBColorSpace; bt.wrapS = bt.wrapT = THREE.RepeatWrapping; bt.repeat.set(1, 6);
+  palmMats = {
+    leaves: new THREE.MeshStandardMaterial({ map: ft, alphaTest: 0.35, alphaToCoverage: true, side: THREE.DoubleSide, roughness: 0.7 }),
+    trunk: new THREE.MeshStandardMaterial({ map: bt, roughness: 0.95 }),
+  };
+}
+
+function makePalmGeos() {
+  // gently curved, tapered trunk
+  const H = 9, segs = 14;
+  const curve = new THREE.CatmullRomCurve3([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0.25, H * 0.35, 0), new THREE.Vector3(0.75, H * 0.7, 0), new THREE.Vector3(1.3, H, 0)]);
+  const trunk = new THREE.TubeGeometry(curve, segs, 0.22, 9, false);
+  const pos = trunk.attributes.position;
+  for (let i = 0; i < pos.count; i++) {
+    // taper: shrink toward the top around the curve centre
+    const ring = Math.floor(i / 10) / segs;
+    const c = curve.getPoint(Math.min(1, ring));
+    const k = 1.15 - ring * 0.45;
+    pos.setXYZ(i, c.x + (pos.getX(i) - c.x) * k, pos.getY(i), c.z + (pos.getZ(i) - c.z) * k);
+  }
+  trunk.computeVertexNormals();
+  const top = curve.getPoint(1);
+  const leafParts = [];
+  const n = 13;
+  for (let i = 0; i < n; i++) {
+    const g = new THREE.PlaneGeometry(2.0, 4.8, 4, 10);
+    const p = g.attributes.position;
+    for (let v = 0; v < p.count; v++) {
+      const t = (p.getY(v) + 2.4) / 4.8; // 0 base -> 1 tip
+      const x = p.getX(v);
+      p.setZ(v, -t * t * 2.2 + Math.abs(x) * 0.35); // droop + V fold
+    }
+    g.translate(0, 2.4, 0);
+    const up = i < 4 ? -0.55 : -1.25 - Math.random() * 0.35; // a few young fronds point up
+    g.rotateX(up);
+    g.rotateY((i / n) * Math.PI * 2 + Math.random() * 0.3);
+    g.translate(top.x, top.y, top.z);
     leafParts.push(g);
   }
-  palmGeos = { trunk: mergeGeometries(trunkParts), leaves: mergeGeometries(leafParts) };
-  palmGeos.leaves.computeVertexNormals();
+  const leaves = mergeGeometries(leafParts);
+  leaves.computeVertexNormals();
+  palmGeos = { trunk, leaves };
 }
 
 export function palms(positions) {
   if (!palmGeos) makePalmGeos();
+  if (!palmMats) palmTextures();
   const g = new THREE.Group();
-  const trunk = new THREE.InstancedMesh(palmGeos.trunk, M.palmTrunk, positions.length);
-  const leaves = new THREE.InstancedMesh(palmGeos.leaves, M.palmLeaf, positions.length);
+  const trunk = new THREE.InstancedMesh(palmGeos.trunk, palmMats.trunk, positions.length);
+  const leaves = new THREE.InstancedMesh(palmGeos.leaves, palmMats.leaves, positions.length);
   trunk.castShadow = leaves.castShadow = true;
   const o = new THREE.Object3D();
   positions.forEach(([x, z, y = 0], i) => {
@@ -408,3 +457,71 @@ export function palms(positions) {
 }
 
 export { planExtrude, sideExtrude, mesh };
+
+// ---------- cheap mass-placed scenery ----------
+
+/** Low-poly rocks (~320 tris) wearing a scanned rock material. */
+export function rocks(placements, material) {
+  const geo = new THREE.IcosahedronGeometry(1, 2);
+  const p = geo.attributes.position;
+  for (let i = 0; i < p.count; i++) {
+    const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
+    const n = 1 + 0.22 * Math.sin(x * 3.1 + z * 1.7) + 0.15 * Math.sin(y * 4.3 + x * 2.2) + 0.08 * Math.sin(z * 7.1);
+    p.setXYZ(i, x * n * 1.25, y * n * 0.75, z * n);
+  }
+  geo.computeVertexNormals();
+  const im = new THREE.InstancedMesh(geo, material, placements.length);
+  const o = new THREE.Object3D();
+  placements.forEach((q, i) => {
+    o.position.set(q.x, q.y || 0, q.z);
+    o.rotation.set(Math.random() * 0.4, q.rot ?? 0, Math.random() * 0.4);
+    o.scale.setScalar(q.scale ?? 1);
+    o.updateMatrix();
+    im.setMatrixAt(i, o.matrix);
+  });
+  im.castShadow = im.receiveShadow = true;
+  im.computeBoundingSphere();
+  return im;
+}
+
+/** Mediterranean stone pines: tall bare trunk, flat umbrella canopy (~600 tris). */
+export function stonePines(placements) {
+  const trunk = new THREE.CylinderGeometry(0.18, 0.32, 9, 7);
+  trunk.translate(0, 4.5, 0);
+  const parts = [];
+  for (const [x, y, z, s] of [[0, 9.6, 0, 1], [1.6, 9.2, 0.8, 0.7], [-1.4, 9.3, -0.9, 0.75], [0.4, 9.1, -1.7, 0.6], [-0.6, 9.4, 1.6, 0.6]]) {
+    const c = new THREE.IcosahedronGeometry(3.2 * s, 1);
+    c.scale(1.25, 0.42, 1.25);
+    c.translate(x, y, z);
+    parts.push(c);
+  }
+  const canopy = mergeGeometries(parts);
+  const cp = canopy.attributes.position;
+  const colors = new Float32Array(cp.count * 3);
+  const a = new THREE.Color(0x2f4a23), b = new THREE.Color(0x4f6b31), c = new THREE.Color();
+  for (let i = 0; i < cp.count; i++) {
+    cp.setY(i, cp.getY(i) + (Math.sin(cp.getX(i) * 2.3) + Math.cos(cp.getZ(i) * 1.9)) * 0.18);
+    c.copy(a).lerp(b, THREE.MathUtils.clamp((cp.getY(i) - 8.6) / 2, 0, 1) * (0.6 + Math.random() * 0.4));
+    colors.set([c.r, c.g, c.b], i * 3);
+  }
+  canopy.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  canopy.computeVertexNormals();
+  const g = new THREE.Group();
+  const tm = new THREE.InstancedMesh(trunk, new THREE.MeshStandardMaterial({ color: 0x6b5442, roughness: 1 }), placements.length);
+  const cm = new THREE.InstancedMesh(canopy, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, flatShading: true }), placements.length);
+  const o = new THREE.Object3D();
+  placements.forEach((q, i) => {
+    o.position.set(q.x, q.y || 0, q.z);
+    o.rotation.set(0, q.rot ?? 0, (Math.random() - 0.5) * 0.12);
+    o.scale.setScalar(q.scale ?? 1);
+    o.updateMatrix();
+    tm.setMatrixAt(i, o.matrix);
+    cm.setMatrixAt(i, o.matrix);
+  });
+  tm.castShadow = cm.castShadow = true;
+  tm.receiveShadow = cm.receiveShadow = true;
+  tm.computeBoundingSphere();
+  cm.computeBoundingSphere();
+  g.add(tm, cm);
+  return g;
+}

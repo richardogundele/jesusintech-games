@@ -7,23 +7,28 @@ import { EngineAudio } from './audio.js';
 import { Hud } from './hud.js';
 import { state, save } from './state.js';
 import { JETS, ROUTES } from './catalog.js';
+import { loadAll, updateCulling } from './assets.js';
+import { createPipeline } from './render.js';
 
 // ---------- renderer ----------
 const canvas = document.getElementById('game');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75));
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 0.72;
+renderer.toneMappingExposure = 1.0;
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
 const camera = new THREE.PerspectiveCamera(62, window.innerWidth / window.innerHeight, 0.3, 12000);
+const pipeline = createPipeline(renderer, camera);
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
+  pipeline.setSize(window.innerWidth, window.innerHeight);
 });
+const draw = () => { updateCulling(camera.position); pipeline.render(world.scene); };
 
 const hud = new Hud();
 const audio = new EngineAudio();
@@ -382,7 +387,7 @@ function frame() {
   requestAnimationFrame(frame);
   const dt = Math.min(clock.getDelta(), 0.05);
   if (!window.__game?.paused) step(dt);
-  renderer.render(world.scene, camera);
+  draw();
 }
 
 function step(dt) {
@@ -419,15 +424,25 @@ function step(dt) {
   }
 }
 
+// load every asset (skies, textures, models) before building any world
+const startBtn = $('start');
+startBtn.disabled = true;
+startBtn.textContent = 'Loading 0%';
+await loadAll(renderer, (p) => { startBtn.textContent = `Loading ${Math.round(p * 100)}%`; });
+getWorld('monaco');
+getWorld('dubai'); // build both up front so the flight never waits on a build
 world = getWorld(state.world in builders ? state.world : 'monaco');
+renderer.compile(world.scene, camera);
+startBtn.disabled = false;
+startBtn.textContent = 'Enter';
 frame();
 
 // debug handle for testing in the console
 window.__game = {
-  get world() { return world; }, get car() { return car; }, get mode() { return mode; }, player, keys, camera,
+  get world() { return world; }, get car() { return car; }, get mode() { return mode; }, player, keys, camera, pipeline, renderer,
   // advance the simulation by `seconds` at 60 Hz, then render once (works even when the tab is hidden)
   advance(seconds) {
     for (let i = 0; i < Math.round(seconds * 60); i++) step(1 / 60);
-    renderer.render(world.scene, camera);
+    draw();
   },
 };

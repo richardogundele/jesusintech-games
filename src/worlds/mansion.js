@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { mesh, planExtrude, palms } from '../models.js';
 import { label } from '../materials.js';
+import { pbr } from '../assets.js';
 
 // Dubai Hills mega mansion, inspired by the Luxe List $83M tour:
 // double-height great room (floating stair, crystal chandelier, white grand piano on a round stage),
@@ -104,10 +105,10 @@ export function buildMansion({ scene, colliders, tickers, origin }) {
 
   const std = (color, roughness = 0.6, metalness = 0, extra = {}) => new THREE.MeshStandardMaterial({ color, roughness, metalness, ...extra });
   const mat = {
-    travertine: std(0xd9ccb4, 0.85),
+    travertine: pbr('painted_plaster_wall', { repeat: [4, 2], color: 0xf6eedf }),
     white: std(0xf5f3ef, 0.55),
-    marble: new THREE.MeshPhysicalMaterial({ map: marbleTex(), color: 0xe6e2dc, roughness: 0.16, clearcoat: 0.6, clearcoatRoughness: 0.1, envMapIntensity: 0.6 }),
-    walnut: std(0x5b3a24, 0.5),
+    marble: pbr('marble_01', { repeat: [12, 7], envMapIntensity: 0.7 }),
+    walnut: pbr('dark_wood', { repeat: [1, 3] }),
     black: std(0x121316, 0.35, 0.3),
     gold: std(0xd0a94e, 0.22, 1),
     chrome: std(0xffffff, 0.06, 1),
@@ -119,7 +120,7 @@ export function buildMansion({ scene, colliders, tickers, origin }) {
     cream: std(0xeae0d0, 0.8),
     fabric: std(0x15161a, 0.95),
     pianoWhite: new THREE.MeshPhysicalMaterial({ color: 0xffffff, roughness: 0.1, clearcoat: 1 }),
-    granite: std(0x3b3b3e, 0.5),
+    granite: pbr('granite_tile', { repeat: [12, 9], color: 0x8a8a8c }),
     hedge: std(0x2e5a2a, 1),
     pool: new THREE.MeshPhysicalMaterial({ color: 0x2fc6da, roughness: 0.04, clearcoat: 1, emissive: 0x0c4f5a, emissiveIntensity: 0.5 }),
     onyx: new THREE.MeshBasicMaterial({ map: canvasTexture(256, 256, (ctx, w, h) => {
@@ -128,7 +129,7 @@ export function buildMansion({ scene, colliders, tickers, origin }) {
       ctx.fillStyle = gr; ctx.fillRect(0, 0, w, h);
       for (let i = 0; i < 30; i++) { ctx.strokeStyle = 'rgba(120,70,20,0.25)'; ctx.beginPath(); ctx.moveTo(0, Math.random() * h); ctx.bezierCurveTo(w * 0.3, Math.random() * h, w * 0.6, Math.random() * h, w, Math.random() * h); ctx.stroke(); }
     }) }),
-    lawn: new THREE.MeshStandardMaterial({ map: lawnTex(), roughness: 1 }),
+    lawn: pbr('leafy_grass', { repeat: [120, 90], color: 0xa6c98f }),
   };
 
   // box with its BASE at y; optional world collider

@@ -4,6 +4,7 @@ import { M, waterMaterial, groundTexture, label, facadeMaterial } from '../mater
 import { buildJet, palms, mesh } from '../models.js';
 import { JETS } from '../catalog.js';
 import { buildMansion } from './mansion.js';
+import { hdri, pbr } from '../assets.js';
 
 const rand = (a, b) => a + Math.random() * (b - a);
 const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
@@ -12,9 +13,8 @@ const V = (x, z) => new THREE.Vector3(x, 0, z);
 export function buildDubai(renderer) {
   const scene = new THREE.Scene();
   const env = setupSky(scene, renderer, {
-    elevation: 26, azimuth: 120, turbidity: 5.5, rayleigh: 1.6,
-    fog: 0xd8dccf, fogNear: 300, fogFar: 2400, sunColor: 0xfff0d6, sunIntensity: 4.2,
-    hemi: [0xcfe0ff, 0xc7a874, 0.45],
+    hdri: hdri('dubai'), sunAzimuth: 140, exposure: 1.0, envIntensity: 0.75,
+    sunColor: 0xfff4e4, sunIntensity: 3.4, fogDensity: 0.0006,
   });
   const colliders = new Colliders();
   const tickers = [];
@@ -31,12 +31,12 @@ export function buildDubai(renderer) {
   const land = new THREE.Mesh(new THREE.BoxGeometry(2400, 4, 3000), new THREE.MeshStandardMaterial({ color: 0xd2b98a, roughness: 1 }));
   land.position.set(820, -2.01, 0);
   scene.add(land);
-  const sand = new THREE.Mesh(new THREE.PlaneGeometry(2400, 3000), new THREE.MeshStandardMaterial({ map: sandTex, roughness: 1 }));
+  const sand = new THREE.Mesh(new THREE.PlaneGeometry(2400, 3000), pbr('coast_sand_01', { repeat: [600, 750] }));
   sand.rotation.x = -Math.PI / 2;
   sand.position.set(820, 0, 0);
   sand.receiveShadow = true;
   scene.add(sand);
-  const plaza = new THREE.Mesh(new THREE.PlaneGeometry(360, 1440), new THREE.MeshStandardMaterial({ color: 0xc9c1b2, roughness: 0.9 }));
+  const plaza = new THREE.Mesh(new THREE.PlaneGeometry(360, 1440), pbr('rectangular_paving', { repeat: [120, 480], color: 0xe2dccf }));
   plaza.rotation.x = -Math.PI / 2;
   plaza.position.set(0, 0.01, 0);
   plaza.receiveShadow = true;

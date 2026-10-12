@@ -24,20 +24,46 @@ function injectWorldVaryings(shader) {
 
 /**
  * Building facade: window grid drawn procedurally in world space, so any box size
- * gets correctly spaced windows. Windows are glossy so they pick up the sky.
+ * gets correctly spaced windows. With `tex` (a PBR texture set) the walls get a real
+ * material, mapped in world space too. `shutters` adds Riviera-style shutters.
  */
-export function facadeMaterial({ winSize = [2.6, 3.2], winColor = 0x1d2733, amount = 0.9, roughness = 0.85, metalness = 0 } = {}) {
+export function facadeMaterial({ winSize = [2.6, 3.2], winColor = 0x1d2733, amount = 0.9, roughness = 0.85, metalness = 0, tex = null, texScale = 0.25, shutters = null, frame = 0xece6da } = {}) {
   const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness, metalness });
+  if (tex) {
+    mat.map = tex.diff; mat.normalMap = tex.nor;
+    mat.roughnessMap = tex.arm; mat.aoMap = tex.arm;
+    mat.normalScale.set(0.8, 0.8);
+  }
   const uniforms = {
     uWinSize: { value: new THREE.Vector2(...winSize) },
     uWinColor: { value: new THREE.Color(winColor) },
     uWinAmount: { value: amount },
+    uTexScale: { value: texScale },
+    uShutter: { value: new THREE.Color(shutters ?? 0x000000) },
+    uShutterAmt: { value: shutters == null ? 0 : 1 },
+    uFrame: { value: new THREE.Color(frame) },
   };
   mat.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, uniforms);
     injectWorldVaryings(shader);
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nuniform float uTexScale;')
+      .replace('vWN = normalize(mat3(modelMatrix) * fwn);', `vWN = normalize(mat3(modelMatrix) * fwn);
+      vec2 wuv = (abs(vWN.y) > 0.5 ? vWPos.xz : (abs(vWN.x) > 0.5 ? vWPos.zy : vWPos.xy)) * uTexScale;
+      #ifdef USE_MAP
+        vMapUv = wuv;
+      #endif
+      #ifdef USE_NORMALMAP
+        vNormalMapUv = wuv;
+      #endif
+      #ifdef USE_ROUGHNESSMAP
+        vRoughnessMapUv = wuv;
+      #endif
+      #ifdef USE_AOMAP
+        vAoMapUv = wuv;
+      #endif`);
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', '#include <common>\nuniform vec2 uWinSize;\nuniform vec3 uWinColor;\nuniform float uWinAmount;')
+      .replace('#include <common>', '#include <common>\nuniform vec2 uWinSize;\nuniform vec3 uWinColor;\nuniform float uWinAmount;\nuniform vec3 uShutter;\nuniform float uShutterAmt;\nuniform vec3 uFrame;')
       .replace(
         '#include <color_fragment>',
         `#include <color_fragment>
@@ -46,15 +72,25 @@ export function facadeMaterial({ winSize = [2.6, 3.2], winColor = 0x1d2733, amou
           float u = abs(vWN.x) > 0.5 ? vWPos.z : vWPos.x;
           float fu = fract(u / uWinSize.x);
           float fv = fract(vWPos.y / uWinSize.y);
-          fw = step(0.18, fu) * step(fu, 0.82) * step(0.3, fv) * step(fv, 0.86) * step(2.4, vWPos.y);
-        }
-        fw *= uWinAmount;
-        diffuseColor.rgb = mix(diffuseColor.rgb, uWinColor, fw);`
+          float above = step(2.4, vWPos.y);
+          float row = step(0.28, fv) * step(fv, 0.86);
+          float win = step(0.3, fu) * step(fu, 0.7) * row * above;
+          float frameMask = step(0.27, fu) * step(fu, 0.73) * step(0.25, fv) * step(fv, 0.89) * above * (1.0 - win);
+          float shut = (step(0.14, fu) * step(fu, 0.27) + step(0.73, fu) * step(fu, 0.86)) * row * above * uShutterAmt;
+          // a few windows lit warm, a few with blinds, so the grid doesn't look printed
+          float cell = fract(sin(dot(floor(vec2(u / uWinSize.x, vWPos.y / uWinSize.y)), vec2(12.9898, 78.233))) * 43758.5453);
+          vec3 glass = mix(uWinColor, vec3(0.62, 0.58, 0.5), step(0.86, cell) * 0.5);
+          diffuseColor.rgb = mix(diffuseColor.rgb, uFrame, frameMask * uWinAmount);
+          diffuseColor.rgb = mix(diffuseColor.rgb, uShutter * (0.8 + 0.2 * fract(fv * 9.0)), shut * uWinAmount);
+          fw = win * uWinAmount;
+          diffuseColor.rgb = mix(diffuseColor.rgb, glass, fw);
+        }`
       )
-      .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = mix(roughnessFactor, 0.06, fw);')
-      .replace('#include <metalnessmap_fragment>', '#include <metalnessmap_fragment>\nmetalnessFactor = mix(metalnessFactor, 0.5, fw);');
+      .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = mix(roughnessFactor, 0.04, fw);')
+      .replace('#include <metalnessmap_fragment>', '#include <metalnessmap_fragment>\nmetalnessFactor = mix(metalnessFactor, 0.85, fw);')
+      .replace('#include <normal_fragment_maps>', '#include <normal_fragment_maps>\nnormal = normalize(mix(normal, nonPerturbedNormal, fw));');
   };
-  mat.customProgramCacheKey = () => `facade-${winSize.join('-')}-${amount}`;
+  mat.customProgramCacheKey = () => `facade-${winSize.join('-')}-${amount}-${tex ? 1 : 0}-${shutters ?? 'n'}`;
   return mat;
 }
 

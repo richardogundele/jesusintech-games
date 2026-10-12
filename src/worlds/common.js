@@ -1,51 +1,77 @@
 import * as THREE from 'three';
-import { Sky } from 'three/examples/jsm/objects/Sky.js';
-import { roadTexture, curbTexture, facadeMaterial } from '../materials.js';
+import { curbTexture, facadeMaterial } from '../materials.js';
+import { pbr, instanced } from '../assets.js';
 
 // ---------- sky, sun, environment ----------
 
-export function setupSky(scene, renderer, { elevation, azimuth, turbidity = 6, rayleigh = 1.6, fog = 0xd9c7a8, fogNear = 180, fogFar = 1400, sunColor = 0xffe2b8, sunIntensity = 3.2, hemi = [0xbfd6ff, 0x8a7a60, 0.6] }) {
-  const sky = new Sky();
-  sky.scale.setScalar(10000);
-  const u = sky.material.uniforms;
-  u.turbidity.value = turbidity;
-  u.rayleigh.value = rayleigh;
-  u.mieCoefficient.value = 0.005;
-  u.mieDirectionalG.value = 0.82;
-  const sunDir = new THREE.Vector3().setFromSphericalCoords(1, THREE.MathUtils.degToRad(90 - elevation), THREE.MathUtils.degToRad(azimuth));
-  u.sunPosition.value.copy(sunDir);
-  scene.add(sky);
+/** Find the sun in an equirect HDR: brightest pixel -> world direction (before rotation). */
+function findSun(tex) {
+  const { data, width, height } = tex.image;
+  const half = data instanceof Uint16Array;
+  const val = (i) => (half ? THREE.DataUtils.fromHalfFloat(data[i]) : data[i]);
+  let best = -1, bx = 0, by = 0;
+  const horizon = [0, 0, 0];
+  let hn = 0;
+  for (let y = 0; y < height / 2; y += 2) {
+    for (let x = 0; x < width; x += 2) {
+      const i = (y * width + x) * 4;
+      const l = val(i) * 0.2126 + val(i + 1) * 0.7152 + val(i + 2) * 0.0722;
+      if (l > best) { best = l; bx = x; by = y; }
+      if (y > height / 2 - 40 && y < height / 2 - 4 && x % 16 === 0) {
+        horizon[0] += val(i); horizon[1] += val(i + 1); horizon[2] += val(i + 2); hn++;
+      }
+    }
+  }
+  // flipY: data row 0 is the top of the image (v = 1)
+  const u = (bx + 0.5) / width, v = 1 - (by + 0.5) / height;
+  const lat = (v - 0.5) * Math.PI, lon = (u - 0.5) * Math.PI * 2;
+  const dir = new THREE.Vector3(Math.cos(lon) * Math.cos(lat), Math.sin(lat), Math.sin(lon) * Math.cos(lat));
+  return { dir, horizon: new THREE.Color(horizon[0] / hn, horizon[1] / hn, horizon[2] / hn) };
+}
 
-  // Environment map from the sky itself, so paint and glass reflect the real sky colours.
-  const pmrem = new THREE.PMREMGenerator(renderer);
-  const envScene = new THREE.Scene();
-  const envSky = new Sky();
-  envSky.scale.setScalar(10000);
-  Object.keys(u).forEach((k) => (envSky.material.uniforms[k].value = u[k].value));
-  envScene.add(envSky);
-  scene.environment = pmrem.fromScene(envScene, 0, 0.1, 20000).texture;
-  scene.environmentIntensity = 0.6;
-  pmrem.dispose();
+/**
+ * Photographed HDR sky as background + image-based lighting, with a directional sun
+ * aimed at the sun in the image so shadows match. rotation (deg) spins the sky.
+ */
+export function setupSky(scene, renderer, { hdri, rotation = 0, sunAzimuth = null, exposure = 1, envIntensity = 1, sunColor = 0xfff1dc, sunIntensity = 3.2, fogDensity = 0.0009, fogTint = 1 }) {
+  const found = findSun(hdri);
+  // sunAzimuth (deg, 0 = +z, 90 = +x) spins the whole sky so its real sun lands where we want it
+  let rot = THREE.MathUtils.degToRad(rotation);
+  if (sunAzimuth != null) rot = THREE.MathUtils.degToRad(sunAzimuth) - Math.atan2(found.dir.x, found.dir.z);
+  scene.background = hdri;
+  scene.environment = hdri;
+  scene.backgroundRotation.set(0, rot, 0);
+  scene.environmentRotation.set(0, rot, 0);
+  scene.backgroundIntensity = exposure;
+  scene.environmentIntensity = envIntensity;
 
-  scene.fog = new THREE.Fog(fog, fogNear, fogFar);
+  const { dir, horizon } = found;
+  const sunDir = dir.applyAxisAngle(new THREE.Vector3(0, 1, 0), rot).normalize();
+  if (sunDir.y < 0.12) sunDir.y = 0.12; // keep shadows a sensible length
+  sunDir.normalize();
+
+  // fog matches the sky at the horizon so distant hills melt into it
+  const fogColor = horizon.clone().multiplyScalar(exposure * fogTint);
+  const max = Math.max(fogColor.r, fogColor.g, fogColor.b);
+  if (max > 1) fogColor.multiplyScalar(1 / max);
+  scene.fog = new THREE.FogExp2(fogColor, fogDensity);
 
   const sun = new THREE.DirectionalLight(sunColor, sunIntensity);
   sun.castShadow = true;
-  sun.shadow.mapSize.set(2048, 2048);
+  sun.shadow.mapSize.set(3072, 3072);
   const sc = sun.shadow.camera;
   sc.left = sc.bottom = -70;
   sc.right = sc.top = 70;
   sc.near = 1;
-  sc.far = 500;
-  sun.shadow.bias = -0.0004;
-  sun.shadow.normalBias = 0.04;
+  sc.far = 600;
+  sun.shadow.bias = -0.0003;
+  sun.shadow.normalBias = 0.05;
   scene.add(sun, sun.target);
-  scene.add(new THREE.HemisphereLight(hemi[0], hemi[1], hemi[2]));
 
   return {
     sun, sunDir,
     follow(target) {
-      sun.position.copy(target).addScaledVector(sunDir, 200);
+      sun.position.copy(target).addScaledVector(sunDir, 250);
       sun.target.position.copy(target);
     },
   };
@@ -54,22 +80,19 @@ export function setupSky(scene, renderer, { elevation, azimuth, turbidity = 6, r
 // ---------- roads ----------
 
 /**
- * Builds a road ribbon along a curve. Returns the mesh plus sampled centre points
- * (used for the minimap and for keeping buildings off the road).
+ * Builds a road ribbon along a curve: PBR asphalt, painted lines as separate strips, optional curbs.
+ * Returns the mesh plus sampled centre points (minimap, keeping buildings off the road).
  */
-export function buildRoad(curve, { width = 14, lanes = 2, closed = false, y = 0.03, curbs = true, step = 2 } = {}) {
+export function buildRoad(curve, { width = 14, lanes = 2, closed = false, y = 0.03, curbs = true, step = 2, lines = true } = {}) {
   const length = curve.getLength();
   const n = Math.max(8, Math.floor(length / step));
   const pts = curve.getSpacedPoints(n);
   if (closed) pts.pop();
   const count = closed ? pts.length + 1 : pts.length;
 
-  const pos = [], uv = [], idx = [];
-  const curbPos = [], curbUv = [], curbIdx = [];
+  // frame (point, normal, distance) along the road
+  const frames = [];
   let dist = 0;
-  const tex = roadTexture(lanes);
-  const texLen = Math.min(width * 2.2, 26);
-
   for (let i = 0; i < count; i++) {
     const p = pts[i % pts.length];
     const prev = pts[(i - 1 + pts.length) % pts.length];
@@ -77,53 +100,77 @@ export function buildRoad(curve, { width = 14, lanes = 2, closed = false, y = 0.
     const a = !closed && i === 0 ? p : prev;
     const b = !closed && i === count - 1 ? p : next;
     const t = new THREE.Vector3().subVectors(b, a).setY(0).normalize();
-    const nrm = new THREE.Vector3(-t.z, 0, t.x);
     if (i > 0) dist += p.distanceTo(pts[(i - 1) % pts.length]);
-    const L = p.clone().addScaledVector(nrm, width / 2);
-    const R = p.clone().addScaledVector(nrm, -width / 2);
-    pos.push(L.x, y, L.z, R.x, y, R.z);
-    uv.push(0, dist / texLen, 1, dist / texLen);
-    if (curbs) {
-      for (const s of [1, -1]) {
-        const inner = p.clone().addScaledVector(nrm, s * width / 2);
-        const outer = p.clone().addScaledVector(nrm, s * (width / 2 + 1.0));
-        curbPos.push(inner.x, y + 0.05, inner.z, outer.x, y + 0.05, outer.z);
-        curbUv.push(0, dist / 3, 1, dist / 3);
-      }
-    }
-    if (i < count - 1) {
-      const k = i * 2;
-      idx.push(k, k + 2, k + 1, k + 1, k + 2, k + 3);
-      if (curbs) {
-        const c = i * 4;
-        curbIdx.push(c, c + 4, c + 1, c + 1, c + 4, c + 5);
-        curbIdx.push(c + 2, c + 3, c + 6, c + 3, c + 7, c + 6);
-      }
-    }
+    frames.push({ p, n: new THREE.Vector3(-t.z, 0, t.x), d: dist });
   }
 
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
-  geo.setIndex(idx);
-  geo.computeVertexNormals();
-  const mat = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.82, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+  /** ribbon between two lateral offsets; keep(d) can drop segments (for dashes) */
+  function ribbon(o0, o1, yy, uvScale, keep = () => true) {
+    if (o0 < o1) [o0, o1] = [o1, o0]; // keep winding facing up
+    const pos = [], uv = [], idx = [];
+    let v = 0;
+    for (let i = 0; i < frames.length; i++) {
+      const { p, n, d } = frames[i];
+      const A = p.clone().addScaledVector(n, o0), B = p.clone().addScaledVector(n, o1);
+      pos.push(A.x, yy, A.z, B.x, yy, B.z);
+      uv.push(0, d * uvScale, Math.abs(o1 - o0) * uvScale, d * uvScale);
+      if (i < frames.length - 1 && keep((d + frames[i + 1].d) / 2)) {
+        const k = v * 2;
+        idx.push(k, k + 2, k + 1, k + 1, k + 2, k + 3);
+      }
+      v++;
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    g.setIndex(idx);
+    g.computeVertexNormals();
+    return g;
+  }
+
   const group = new THREE.Group();
-  const road = new THREE.Mesh(geo, mat);
+  const road = new THREE.Mesh(ribbon(width / 2, -width / 2, y, 1 / 5), roadMaterial());
   road.receiveShadow = true;
   group.add(road);
 
+  if (lines) {
+    const parts = [];
+    const edge = width / 2 - 0.45;
+    parts.push(ribbon(edge, edge - 0.15, y + 0.01, 1), ribbon(-edge, -edge + 0.15, y + 0.01, 1));
+    const dash = (d) => d % 9 < 3.5;
+    for (let i = 1; i < lanes; i++) {
+      const o = -width / 2 + 0.6 + ((width - 1.2) * i) / lanes;
+      if (lanes > 2 && i === lanes / 2) continue;
+      parts.push(ribbon(o - 0.07, o + 0.07, y + 0.01, 1, dash));
+    }
+    const white = new THREE.MeshStandardMaterial({ color: 0xe9e7e0, roughness: 0.65, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 });
+    for (const g of parts) { const m = new THREE.Mesh(g, white); m.receiveShadow = true; group.add(m); }
+    if (lanes > 2) {
+      const yellow = new THREE.MeshStandardMaterial({ color: 0xd9a933, roughness: 0.6, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 });
+      for (const o of [-0.2, 0.2]) { const m = new THREE.Mesh(ribbon(o - 0.07, o + 0.07, y + 0.01, 1), yellow); m.receiveShadow = true; group.add(m); }
+    }
+  }
+
   if (curbs) {
-    const cg = new THREE.BufferGeometry();
-    cg.setAttribute('position', new THREE.Float32BufferAttribute(curbPos, 3));
-    cg.setAttribute('uv', new THREE.Float32BufferAttribute(curbUv, 2));
-    cg.setIndex(curbIdx);
-    cg.computeVertexNormals();
-    const curb = new THREE.Mesh(cg, new THREE.MeshStandardMaterial({ map: curbTexture(), roughness: 0.7, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 }));
-    curb.receiveShadow = true;
-    group.add(curb);
+    const curbMat = new THREE.MeshStandardMaterial({ map: curbTexture(), roughness: 0.6, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 });
+    curbMat.map.repeat.set(1, 1);
+    for (const s of [1, -1]) {
+      const g = ribbon(s * width / 2, s * (width / 2 + 1.0), y + 0.04, 1 / 3);
+      const c = new THREE.Mesh(g, curbMat);
+      c.receiveShadow = true;
+      group.add(c);
+    }
   }
   return { mesh: group, points: pts, width, closed };
+}
+
+let _roadMat = null;
+function roadMaterial() {
+  if (!_roadMat) {
+    _roadMat = pbr('asphalt_02', { repeat: [1, 1], color: 0x8c8c8c, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+    _roadMat.normalScale.set(0.6, 0.6);
+  }
+  return _roadMat;
 }
 
 export function distToRoads(x, z, roads) {
@@ -142,7 +189,7 @@ export function distToRoads(x, z, roads) {
 /**
  * blocks: [{x, z, w, d, h, y?, color}] -> one InstancedMesh (facade shader gives each one windows).
  */
-export function buildingBlocks(blocks, matOpts) {
+export function buildingBlocks(blocks, { brighten = 1, ...matOpts } = {}) {
   const geo = new THREE.BoxGeometry(1, 1, 1);
   geo.translate(0, 0.5, 0);
   const mesh = new THREE.InstancedMesh(geo, facadeMaterial(matOpts), blocks.length);
@@ -154,7 +201,7 @@ export function buildingBlocks(blocks, matOpts) {
     o.scale.set(b.w, b.h, b.d);
     o.updateMatrix();
     mesh.setMatrixAt(i, o.matrix);
-    mesh.setColorAt(i, c.set(b.color));
+    mesh.setColorAt(i, c.set(b.color).multiplyScalar(brighten));
   });
   mesh.castShadow = true;
   mesh.receiveShadow = true;
