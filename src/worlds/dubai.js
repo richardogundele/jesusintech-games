@@ -177,6 +177,19 @@ export function buildDubai(renderer) {
     scene, env, colliders, roads,
     bounds: { minX: -320, maxX: 700, minZ: -700, maxZ: 700 },
     tick: (t) => tickers.forEach((f) => f(t)),
+    life: (() => {
+      const szr = new THREE.LineCurve3(V(0, -700), V(0, 700));
+      return {
+        cars: [4, 8.5, 13].flatMap((o) => [
+          { curve: szr, closed: false, offset: o, dir: 1, count: 4, speed: [19, 27] },
+          { curve: szr, closed: false, offset: o, dir: -1, count: 4, speed: [19, 27] },
+        ]),
+        peds: [
+          { curve: szr, closed: false, offset: 27, count: 9 },
+          { curve: szr, closed: false, offset: -27, count: 9 },
+        ],
+      };
+    })(),
     spawn: mansion.spawn,
     garage: mansion.garage,
     indoors: (x, z) => mansion.indoors(x, z),

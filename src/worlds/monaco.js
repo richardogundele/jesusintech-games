@@ -333,6 +333,17 @@ export function buildMonaco(renderer) {
     scene, env, colliders, roads,
     bounds: { minX: -405, maxX: 405, minZ: -234, maxZ: 57 },
     tick: (t) => tickers.forEach((f) => f(t)),
+    life: {
+      cars: [
+        { curve: loop, closed: true, offset: 3.7, dir: 1, count: 7, speed: [11, 16] },
+        { curve: loop, closed: true, offset: 3.7, dir: -1, count: 7, speed: [11, 16] },
+      ],
+      peds: [
+        { curve: new THREE.LineCurve3(V(-250, 57.5), V(212, 57.5)), closed: false, offset: 0, count: 14 },
+        { curve: loop, closed: true, offset: 10.4, count: 10 },
+        { curve: loop, closed: true, offset: -10.4, count: 8 },
+      ],
+    },
     spawn: { x: -292, z: -34, heading: -Math.PI / 2 },
     garage: [
       { id: 'revuelto', x: -308, z: -24, heading: Math.PI / 2 },

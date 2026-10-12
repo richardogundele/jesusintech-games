@@ -2,13 +2,14 @@ import * as THREE from 'three';
 import { buildMonaco } from './worlds/monaco.js';
 import { buildDubai } from './worlds/dubai.js';
 import { Car } from './vehicle.js';
-import { buildSoldier, buildJet } from './models.js';
+import { buildPlayer, buildJet } from './models.js';
 import { EngineAudio } from './audio.js';
 import { Hud } from './hud.js';
 import { state, save } from './state.js';
 import { JETS, ROUTES } from './catalog.js';
 import { loadAll, updateCulling } from './assets.js';
 import { createPipeline } from './render.js';
+import { Traffic } from './traffic.js';
 
 // ---------- renderer ----------
 const canvas = document.getElementById('game');
@@ -45,6 +46,7 @@ function getWorld(id) {
       w.scene.add(c.model.root);
       return c;
     });
+    w.traffic = new Traffic(w.scene, w.life);
     worlds[id] = w;
   }
   return worlds[id];
@@ -393,6 +395,9 @@ function frame() {
 function step(dt) {
   elapsed += dt;
   world.tick(elapsed);
+  const obstacle = mode === 'car' ? { x: car.pos.x, z: car.pos.z, r: car.model.radius * 0.6 }
+    : mode === 'foot' ? { x: player.pos.x, z: player.pos.z, r: 0.5 } : null;
+  world.traffic.update(dt, obstacle, camera.position);
   const input = readInput();
 
   if (mode === 'menu') {
@@ -411,6 +416,7 @@ function step(dt) {
   } else {
     if (mode === 'car') {
       car.update(dt, input, world);
+      if (world.traffic.collide(car)) car.sync(0);
       audio.update(car, input.up ? 1 : 0);
     } else {
       audio.update(null, 0);
@@ -429,7 +435,7 @@ const startBtn = $('start');
 startBtn.disabled = true;
 startBtn.textContent = 'Loading 0%';
 await loadAll(renderer, (p) => { startBtn.textContent = `Loading ${Math.round(p * 100)}%`; });
-player.mesh = buildSoldier();
+player.mesh = buildPlayer();
 getWorld('monaco');
 getWorld('dubai'); // build both up front so the flight never waits on a build
 world = getWorld(state.world in builders ? state.world : 'monaco');
@@ -441,6 +447,22 @@ frame();
 // debug handle for testing in the console
 window.__game = {
   get world() { return world; }, get car() { return car; }, get mode() { return mode; }, player, keys, camera, pipeline, renderer,
+  // dev: render the current frame and save it to shots/<name>.jpg via the Vite dev server
+  async shot(name = 'live', w = 1280, h = 800) {
+    const prev = renderer.getSize(new THREE.Vector2());
+    renderer.setSize(w, h, false);
+    pipeline.setSize(w, h);
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+    draw();
+    const url = renderer.domElement.toDataURL('image/jpeg', 0.88);
+    renderer.setSize(prev.x, prev.y, false);
+    pipeline.setSize(prev.x, prev.y);
+    camera.aspect = prev.x / prev.y;
+    camera.updateProjectionMatrix();
+    await fetch(`/__shot?name=${encodeURIComponent(name)}`, { method: 'POST', body: url });
+    return name;
+  },
   // advance the simulation by `seconds` at 60 Hz, then render once (works even when the tab is hidden)
   advance(seconds) {
     for (let i = 0; i < Math.round(seconds * 60); i++) step(1 / 60);

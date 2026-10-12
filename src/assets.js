@@ -3,6 +3,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { RGBELoader } from 'three/examples/jsm/loaders/RGBELoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
+import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 
 // Everything from Poly Haven (CC0). Raw downloads live in assets-src/ (not served);
@@ -20,7 +21,7 @@ export const MODEL_NAMES = ['lamp_lo', 'shrub2_lo', 'island_tree_01', 'island_tr
 
 const store = { hdri: {}, tex: {}, model: {}, gltf: {}, misc: {} };
 // full glTFs (keep animations / named parts): three.js example models, see README credits
-const GLTFS = { ferrari: 'models/ferrari.glb', soldier: 'models/soldier.glb' };
+const GLTFS = { ferrari: 'models/ferrari.glb', soldier: 'models/soldier.glb', cesiumman: 'models/cesiumman.glb' };
 let renderer = null;
 
 export async function loadAll(r, onProgress = () => {}) {
@@ -60,6 +61,7 @@ export async function loadAll(r, onProgress = () => {}) {
     jobs.push(gltfLoader.loadAsync(`${BASE}/${p}`).then((g) => { store.gltf[k] = g; }));
   }
   jobs.push(texLoader.loadAsync(`${BASE}/models/ferrari_ao.png`).then((t) => { store.misc.ferrariAO = t; }));
+  jobs.push(loadMixamo(manager));
   await Promise.all(jobs);
 }
 
@@ -188,3 +190,29 @@ export function gltf(name) {
   return { scene: cloneSkinned(g.scene), animations: g.animations };
 }
 export const misc = (k) => store.misc[k];
+
+/**
+ * Optional: your own Mixamo character. Drop these into public/assets/character/
+ *   character.fbx (T-pose, "With Skin"), idle.fbx, walk.fbx, run.fbx ("Without Skin", walk/run "In Place")
+ * If they're missing, the game uses the built-in soldier. See CHARACTER.md.
+ */
+async function loadMixamo(manager) {
+  const base = `${BASE}/character`;
+  const exists = async (f) => {
+    try {
+      const r = await fetch(`${base}/${f}`, { method: 'HEAD' });
+      return r.ok && !(r.headers.get('content-type') || '').includes('text/html'); // dev server falls back to index.html
+    } catch { return false; }
+  };
+  if (!(await exists('character.fbx'))) return;
+  const loader = new FBXLoader(manager);
+  const model = await loader.loadAsync(`${base}/character.fbx`);
+  const clips = {};
+  for (const name of ['idle', 'walk', 'run']) {
+    if (!(await exists(`${name}.fbx`))) continue;
+    const a = await loader.loadAsync(`${base}/${name}.fbx`);
+    if (a.animations[0]) { clips[name] = a.animations[0]; clips[name].name = name; }
+  }
+  if (!clips.idle && model.animations[0]) clips.idle = model.animations[0];
+  store.misc.mixamo = { model, clips };
+}
