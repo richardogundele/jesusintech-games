@@ -3,6 +3,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { Colliders } from './common.js';
 import { hdri } from '../assets.js';
 import { mesh } from '../models.js';
+import { buildCrowdAtlas, crowdImpostors, crowd3D } from '../crowd.js';
 
 // JesusInTech Live: a 10,000-seat arena. Stage faces +z; the crowd fills a seating bowl and a standing pit.
 // Brand: black #050607, white, cyan #35AEE2.
@@ -52,16 +53,6 @@ function slideCanvas() {
     tex.needsUpdate = true;
   };
   return { tex, draw };
-}
-
-/** Low-poly person (body + head), merged. Origin at the feet. */
-function personGeometry() {
-  const body = new THREE.CapsuleGeometry(0.21, 0.72, 2, 7);
-  body.translate(0, 0.21 + 0.36 + 0.02, 0);
-  const head = new THREE.IcosahedronGeometry(0.12, 1);
-  head.translate(0, 1.5, 0);
-  const strip = (g) => { g.deleteAttribute('uv'); return g.index ? g.toNonIndexed() : g; };
-  return mergeGeometries([strip(body), strip(head)]);
 }
 
 export function buildArena(renderer) {
@@ -149,43 +140,28 @@ export function buildArena(renderer) {
     if (Math.abs(x) < 3 && z < 13.5) continue;
     spots.push([x, -1.5, z, Math.atan2(x, z) * 0.3]);
   }
-  const geo = personGeometry();
-  const phase = new Float32Array(spots.length);
-  const crowdMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.85 });
-  const uni = { uTime: { value: 0 }, uExcite: { value: 0.35 }, uStand: { value: 0 } };
-  crowdMat.onBeforeCompile = (sh) => {
-    Object.assign(sh.uniforms, uni);
-    sh.vertexShader = sh.vertexShader
-      .replace('#include <common>', '#include <common>\nattribute float aPhase;\nuniform float uTime, uExcite, uStand;')
-      .replace('#include <begin_vertex>', `#include <begin_vertex>
-        float h = clamp(position.y / 1.6, 0.0, 1.0);
-        float bounce = abs(sin(uTime * (5.0 + aPhase * 3.0) + aPhase * 40.0)) * 0.14 * uExcite;
-        transformed.y += bounce * (0.4 + 0.6 * h) + uStand * 0.0;
-        transformed.x += sin(uTime * 1.4 + aPhase * 31.0) * 0.05 * h * (0.3 + uExcite);`);
-  };
-  const crowd = new THREE.InstancedMesh(geo, crowdMat, spots.length);
-  const o = new THREE.Object3D();
-  const c = new THREE.Color();
-  const clothes = [0x1d2633, 0xe9e5dc, 0x2b2b2e, 0x7a2c2c, 0x35506b, 0x5d6b4a, 0xb59a6a, 0x111111, 0x6d4f86, 0xd8d0c0];
-  spots.forEach(([x, y, z, a], i) => {
-    o.position.set(x, y, z);
-    o.rotation.set(0, a + Math.PI, 0);
-    const s = 0.88 + Math.random() * 0.22;
-    o.scale.set(s, s, s);
-    o.updateMatrix();
-    crowd.setMatrixAt(i, o.matrix);
-    crowd.setColorAt(i, c.set(clothes[i % clothes.length]).multiplyScalar(0.7 + Math.random() * 0.5));
-    phase[i] = Math.random();
-  });
-  geo.setAttribute('aPhase', new THREE.InstancedBufferAttribute(phase, 1));
-  crowd.computeBoundingSphere();
-  scene.add(crowd);
+  // real people: a few in full 3D up front, everyone else as impostors rendered from the same models
+  const faceStage = (x, z) => Math.atan2(-x, -(z - 2));
+  const people = spots.map(([x, y, z]) => ({ x, y, z, face: faceStage(x, z), prefer: y < -1 ? 'michelle' : null }));
+  const front = people.filter((p) => p.y < -1 && p.z < 16.5 && Math.abs(p.x) < 13).slice(0, 24);
+  const frontSet = new Set(front);
+  const atlas = buildCrowdAtlas(renderer);
+  const impostors = crowdImpostors(atlas, people.filter((p) => !frontSet.has(p)), { light: 0.85 });
+  // soft wash from the stage over the audience, like house lights at a show
+  const wash = new THREE.DirectionalLight(0xffe7cc, 1.1);
+  wash.position.set(0, 18, -4);
+  wash.target.position.set(0, 0, 40);
+  scene.add(wash, wash.target);
+  scene.add(impostors);
+  const near = crowd3D(front);
+  scene.add(near);
   // phone lights
   const phones = [];
   spots.forEach(([x, y, z], i) => { if (i % 17 === 0) phones.push(x, y + 1.75, z); });
   const phoneGeo = new THREE.BufferGeometry();
   phoneGeo.setAttribute('position', new THREE.Float32BufferAttribute(phones, 3));
-  const phoneMat = new THREE.PointsMaterial({ color: new THREE.Color(1.6, 1.6, 1.8), size: 0.22, transparent: true, opacity: 0.8, depthWrite: false, toneMapped: false });
+  const dot = (() => { const c = document.createElement('canvas'); c.width = c.height = 32; const x = c.getContext('2d'); const g = x.createRadialGradient(16, 16, 0, 16, 16, 16); g.addColorStop(0, '#fff'); g.addColorStop(0.4, 'rgba(255,255,255,0.8)'); g.addColorStop(1, 'rgba(255,255,255,0)'); x.fillStyle = g; x.fillRect(0, 0, 32, 32); return new THREE.CanvasTexture(c); })();
+  const phoneMat = new THREE.PointsMaterial({ color: new THREE.Color(1.6, 1.6, 1.8), size: 0.14, map: dot, transparent: true, opacity: 0.8, depthWrite: false, toneMapped: false });
   scene.add(new THREE.Points(phoneGeo, phoneMat));
 
   // ---- truss, spots, moving beams ----
@@ -226,13 +202,17 @@ export function buildArena(renderer) {
 
   // ---- state + animation ----
   const state = { slide: 0, excite: 0.35, talking: false, ovation: 0, t: 0 };
+  let lastT = 0;
   tickers.push((t) => {
+    const dt = Math.min(0.1, Math.max(0, t - lastT));
+    lastT = t;
     state.t = t;
-    uni.uTime.value = t;
+    impostors.material.uniforms.uTime.value = t;
+    near.userData.update(dt, state.excite);
     if (state.ovation > 0) state.ovation = Math.max(0, state.ovation - 1 / 60);
     const target = state.ovation > 0 ? 1.6 : state.talking ? 0.55 : 0.35;
     state.excite += (target - state.excite) * 0.03;
-    uni.uExcite.value = state.excite;
+    impostors.material.uniforms.uExcite.value = state.excite;
     phoneMat.opacity = 0.55 + Math.sin(t * 3) * 0.2;
     beams.forEach(({ pivot, i }) => {
       pivot.rotation.x = -0.75 + Math.sin(t * 0.5 + i) * 0.35; // tip toward the crowd (+z)
@@ -264,6 +244,7 @@ export function buildArena(renderer) {
     stageMark: { x: 0, z: 9.5 },
     exit: { x: -12.5, z: -4.8 },
     crowdSize: spots.length,
+    atlas,
     place: () => (state.talking ? 'Live on stage' : 'JesusInTech Live'),
     // talk controls
     startTalk() { state.talking = true; state.slide = 0; slides.draw(0); state.ovation = 1.2; },

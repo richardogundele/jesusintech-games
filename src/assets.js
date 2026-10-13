@@ -21,7 +21,7 @@ export const MODEL_NAMES = ['lamp_lo', 'shrub2_lo', 'island_tree_01', 'island_tr
 
 const store = { hdri: {}, tex: {}, model: {}, gltf: {}, misc: {} };
 // full glTFs (keep animations / named parts): three.js example models, see README credits
-const GLTFS = { ferrari: 'models/ferrari.glb', soldier: 'models/soldier.glb', cesiumman: 'models/cesiumman.glb' };
+const GLTFS = { ferrari: 'models/ferrari.glb', soldier: 'models/soldier.glb', cesiumman: 'models/cesiumman.glb', michelle: 'models/michelle.glb' };
 let renderer = null;
 
 export async function loadAll(r, onProgress = () => {}) {
