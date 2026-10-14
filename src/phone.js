@@ -4,9 +4,10 @@ import { CARS, JETS, WINS, GIVING, fameLevel, talkFee, flightTime, fuelStop } fr
 import * as P from './progress.js';
 import { fmtTime } from './trials.js';
 import { LESSONS } from './lessons.js';
+import { LOOKS } from './character.js';
 
 const $ = (id) => document.getElementById(id);
-const TABS = [['today', 'Today'], ['wins', 'Log a win'], ['lessons', 'Driving lessons'], ['dealer', 'Dealer'], ['hangar', 'Hangar'], ['giving', 'Giving'], ['me', 'Profile']];
+const TABS = [['today', 'Today'], ['wins', 'Log a win'], ['lessons', 'Driving lessons'], ['dealer', 'Dealer'], ['hangar', 'Hangar'], ['giving', 'Giving'], ['wardrobe', 'Wardrobe'], ['me', 'Profile']];
 const TRIAL_NAMES = { 'monaco-loop': 'Monte Carlo Grand Loop', 'dubai-szr': 'Sheikh Zayed Sprint' };
 
 export class Phone {
@@ -34,6 +35,7 @@ export class Phone {
       if (act === 'lesson') { this.hooks.close(); this.hooks.startLesson(id); return; }
       if (act === 'gouk') { this.hooks.close(); this.hooks.goUK(); return; }
       if (act === 'gohome') { this.hooks.close(); this.hooks.goHome(); return; }
+      if (act === 'look') { state.look[b.dataset.part] = id; this.hooks.setLook(state.look); }
       if (act) this.render();
     });
   }
@@ -129,6 +131,15 @@ export class Phone {
     return `<div class="hero"><div class="big">${state.stats.impact.toLocaleString('en-GB')}<span>lives impacted</span></div></div>` +
       GIVING.map((g) => `<div class="row"><div class="grow"><div class="t">${g.label}</div><div class="s">${g.impact.toLocaleString('en-GB')} lives</div></div>
         <button class="buy" data-act="give" data-id="${g.id}" ${state.balance < g.price ? 'disabled' : ''}>${P.shortMoney(g.price)}</button></div>`).join('');
+  }
+
+  wardrobe() {
+    const row = (part, label) => `<h3>${label}</h3><div class="swatches">${Object.entries(LOOKS[part]).map(([name, hex]) =>
+      `<button class="sw ${state.look[part] === name ? 'on' : ''}" data-act="look" data-part="${part}" data-id="${name}" title="${name}" style="background:#${hex.toString(16).padStart(6, '0')}"></button>`).join('')}</div>
+      <p class="note">${state.look[part]}</p>`;
+    const military = (state.look.outfit ?? 'Military uniform') === 'Military uniform';
+    return `<p class="note">What you're wearing around Monaco, Dubai, Singapore and Whitmore.</p>` +
+      row('outfit', 'Outfit') + (military ? row('camo', 'Camouflage') : row('top', 'Sweatshirt') + row('jeans', 'Jeans')) + row('skin', 'Skin tone');
   }
 
   me() {

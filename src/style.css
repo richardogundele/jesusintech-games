@@ -190,3 +190,7 @@ h1 { font-size: clamp(44px, 9vw, 112px); letter-spacing: 0.06em; margin: 14px 0 
 .quiz-a button.plate { font: 800 26px/1 "Arial Narrow", Arial, sans-serif; letter-spacing: 0.08em; background: #f2d300; color: #111; text-align: center; border-color: #111; }
 #estop { position: fixed; left: 50%; top: 38%; transform: translate(-50%, -50%); font: 900 120px/1 Arial, sans-serif; color: #ff3b30; text-shadow: 0 6px 30px rgba(0,0,0,0.6); z-index: 15; pointer-events: none; letter-spacing: 0.04em; }
 #limit.nsl { color: transparent; border-color: #111; background: linear-gradient(135deg, #fff 0 38%, #111 38% 62%, #fff 62% 100%); }
+
+#phone-body .swatches { display: flex; flex-wrap: wrap; gap: 10px; margin: 4px 4px 0; }
+#phone-body .sw { width: 42px; height: 42px; border-radius: 50%; border: 2px solid rgba(255,255,255,0.15); cursor: pointer; }
+#phone-body .sw.on { border-color: var(--gold); box-shadow: 0 0 0 3px rgba(232,199,122,0.35); }

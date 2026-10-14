@@ -3,6 +3,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { M } from './materials.js';
 import { gltf as loadGltf, misc, pbr } from './assets.js';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
+import { buildCasualBody, DEFAULT_LOOK } from './character.js';
 
 // ---------- helpers ----------
 
@@ -917,29 +918,6 @@ function buildGltfCar(spec) {
 
 // ---------- animated character (Mixamo, via the three.js examples) ----------
 
-export function buildSoldier({ outfit = 0x4a5a80 } = {}) {
-  const { scene, animations } = loadGltf('soldier');
-  const root = new THREE.Group();
-  scene.rotation.y = Math.PI; // model faces -z; ours face +z
-  root.add(scene);
-  scene.traverse((o) => {
-    if (!o.isMesh) return;
-    o.castShadow = true;
-    o.receiveShadow = true;
-    o.frustumCulled = false; // skinned bounds don't follow the animation
-    if (o.name === 'vanguard_Mesh') {
-      o.material = o.material.clone();
-      o.material.color.set(outfit); // beige armour -> navy suit tone (texture detail kept)
-      o.material.roughness = 0.55;
-    }
-  });
-  root.add(blobShadow(0.9, 0.9, 0.45));
-
-  const clip = (n) => animations.find((a) => a.name === n);
-  root.userData.animate = locomotion(scene, { idle: clip('Idle'), walk: clip('Walk'), run: clip('Run') });
-  return root;
-}
-
 /** idle / walk / run blended by speed. Missing clips fall back to whatever exists. */
 function locomotion(scene, clips) {
   const mixer = new THREE.AnimationMixer(scene);
@@ -963,10 +941,37 @@ function locomotion(scene, clips) {
   };
 }
 
-/** The player: your Mixamo character if you've added one, otherwise the soldier. */
-export function buildPlayer() {
+/**
+ * You, in jeans and a sweatshirt: the Soldier's skeleton and Idle/Walk/Run animations drive a body
+ * generated in character.js; the armoured mesh is hidden. root.userData.setLook({ top, jeans, skin }).
+ */
+export function buildCasual(look = DEFAULT_LOOK) {
+  const { scene, animations } = loadGltf('soldier');
+  const root = new THREE.Group();
+  scene.rotation.y = Math.PI; // model faces -z; ours face +z
+  root.add(scene);
+  let src = null;
+  scene.traverse((o) => {
+    if (!o.isSkinnedMesh) return;
+    if (o.name === 'vanguard_Mesh') src = o;
+    o.visible = false; // the armour and visor
+  });
+  const body = buildCasualBody(src.skeleton, src.bindMatrix, look);
+  body.mesh.position.copy(src.position);
+  body.mesh.quaternion.copy(src.quaternion);
+  body.mesh.scale.copy(src.scale);
+  src.parent.add(body.mesh);
+  root.add(blobShadow(0.9, 0.9, 0.45));
+  const clip = (n) => animations.find((a) => a.name === n);
+  root.userData.animate = locomotion(scene, { idle: clip('Idle'), walk: clip('Walk'), run: clip('Run') });
+  root.userData.setLook = body.setLook;
+  return root;
+}
+
+/** The player: your Mixamo character if you've added one, otherwise you in jeans and a sweatshirt. */
+export function buildPlayer(look) {
   const mx = misc('mixamo');
-  if (!mx) return buildSoldier();
+  if (!mx) return buildCasual(look);
   const scene = cloneSkinned(mx.model);
   const box = new THREE.Box3().setFromObject(scene);
   scene.scale.setScalar(1.8 / Math.max(0.01, box.max.y - box.min.y)); // normalise to 1.8 m (FBX is in cm)

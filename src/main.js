@@ -471,6 +471,7 @@ const phone = new Phone({
     if (w.slots?.[i]) w.addCar(carId, w.slots[i]);
   },
   onJetBought(jetId) { worlds.dubai?.addJet(jetId); },
+  setLook: (l) => { player.mesh.userData.setLook?.(l); save(); },
   startLesson: (id) => startLesson(id),
   goUK: () => goUK(),
   goHome: () => goHome(),
@@ -955,7 +956,7 @@ const startBtn = $('start');
 startBtn.disabled = true;
 startBtn.textContent = 'Loading 0%';
 await loadAll(renderer, (p) => { startBtn.textContent = `Loading ${Math.round(p * 100)}%`; });
-player.mesh = buildPlayer();
+player.mesh = buildPlayer(state.look);
 getWorld('monaco');
 getWorld('dubai'); // build both up front so the flight never waits on a build
 world = getWorld(state.world in builders ? state.world : 'monaco');
