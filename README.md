@@ -37,7 +37,9 @@ npm run dev
 
 ## Hosting
 
-Live at https://jesusintech-games.netlify.app (Netlify project `jesusintech-games`, public, no password; Richard chose this on 2026-10-14).
+Live at **https://jesusintech.com/games** (public, no password; Richard chose this on 2026-10-14). The main site's netlify.toml proxies
+`/games/*` to the `jesusintech-games` Netlify project with status 200, so the address bar stays on jesusintech.com. The game is built
+for the `/games/` path (`base` and `outDir` in vite.config.js).
 The Ferrari 458 model's licence is unconfirmed, so it only loads in local dev: production builds give the 458 a lofted body
 and `vite.config.js` strips `ferrari.glb` / `ferrari_ao.png` from `dist`.
 
