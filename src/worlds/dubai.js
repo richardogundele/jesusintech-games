@@ -2,7 +2,8 @@ import * as THREE from 'three';
 import { setupSky, buildRoad, buildingBlocks, streetLamps, Colliders, parkJets, jetRow } from './common.js';
 import { M, waterMaterial, groundTexture, label, facadeMaterial } from '../materials.js';
 import { buildJet, palms, mesh } from '../models.js';
-import { JETS } from '../catalog.js';
+import { JETS, STARTER_JETS } from '../catalog.js';
+import { state } from '../state.js';
 import { buildMansion } from './mansion.js';
 import { hdri, pbr } from '../assets.js';
 
@@ -158,13 +159,21 @@ export function buildDubai(renderer) {
   termLabel.position.set(198, 13, 600);
   scene.add(termLabel);
   // Richard's jet park: the whole fleet in a row along the east side of the runway
-  const parkApron = new THREE.Mesh(new THREE.PlaneGeometry(110, 560), pbr('concrete_floor_02', { repeat: [28, 140], polygonOffset: true, polygonOffsetFactor: -1 }));
+  const parkApron = new THREE.Mesh(new THREE.PlaneGeometry(140, 560), pbr('concrete_floor_02', { repeat: [28, 140], polygonOffset: true, polygonOffsetFactor: -1 }));
   parkApron.rotation.x = -Math.PI / 2;
-  parkApron.position.set(380, 0.02, 450);
+  parkApron.position.set(395, 0.02, 450);
   parkApron.receiveShadow = true;
   scene.add(parkApron);
-  parkJets(scene, colliders, jetRow(Object.keys(JETS), JETS, 336, 175, 6), JETS, buildJet);
-  const parkSign = label("Richard's Jet Park", { size: 3, sub: `${Object.keys(JETS).length} aircraft` });
+  parkJets(scene, colliders, jetRow(STARTER_JETS, JETS, 336, 175, 6), JETS, buildJet);
+  // second row: jets you buy from the phone, parked as they arrive
+  let rowCursor = 175;
+  const addJet = (id) => {
+    const j = JETS[id];
+    parkJets(scene, colliders, [{ id, x: 388 + j.L / 2, z: rowCursor + j.span / 2, rot: -Math.PI / 2 }], JETS, buildJet);
+    rowCursor += j.span + 6;
+  };
+  state.owned.jets.forEach(addJet);
+  const parkSign = label("Richard's Jet Park", { size: 3, sub: 'Your private fleet' });
   parkSign.position.set(380, 30, 160);
   scene.add(parkSign);
   const parkRing = mesh(new THREE.TorusGeometry(4, 0.18, 8, 48), new THREE.MeshStandardMaterial({ color: 0xe8c77a, emissive: 0xe8c77a, emissiveIntensity: 1.2 }), { cast: false });
@@ -244,6 +253,8 @@ export function buildDubai(renderer) {
     indoors: (x, z) => mansion.indoors(x, z),
     terminal: { x: 198, z: 600, r: 7 },
     jetPark: { x: 345, z: 165, r: 7 },
+    addJet,
+    slots: [[-20, 27], [20, 27], [-8, 47], [8, 47], [-8, 59], [8, 59]].map(([x, z]) => ({ x: HOME.x + x, z: HOME.z + z, heading: 0 })),
     arenaDoor: { x: 250, z: -560, r: 7 },
     runway: { x: 300, z0: 170, z1: 710 },
     landmarks: [
@@ -257,6 +268,7 @@ export function buildDubai(renderer) {
       const m = mansion.place(x, z);
       if (m) return m;
       if (x > 170 && z > 500) return 'Private Jet Terminal';
+      if (x > 325 && x < 470 && z > 150 && z < 730) return 'Jet Park';
       if (Math.abs(x) < 30) return 'Sheikh Zayed Road';
       if (x > 200 && z < -100 && z > -420) return 'Downtown Dubai';
       if (x < -250) return 'Jumeirah Beach';

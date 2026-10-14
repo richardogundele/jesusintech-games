@@ -57,8 +57,8 @@ export function buildCabin(renderer, jet, { fromName, toName, time }) {
   const colliders = new Colliders();
   const tickers = [];
 
-  // dimensions from the real fuselage
-  const Ri = jet.R - 0.13;
+  // dimensions from the real fuselage (light jets get a little extra headroom so you can stand up)
+  const Ri = Math.max(1.12, jet.R - 0.13);
   const cy = Ri * 0.38;                       // tube centre above the floor
   const half = Math.sqrt(Ri * Ri - cy * cy);  // floor half-width
   const Lc = Math.max(9, jet.L * 0.5);        // cabin length

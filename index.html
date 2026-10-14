@@ -13,7 +13,7 @@
     <!-- Title screen -->
     <div id="title" class="screen">
       <div class="title-inner">
-        <div class="eyebrow">Private build · v0.1</div>
+        <div class="eyebrow">Private build · v0.5</div>
         <h1>THE DREAM LIFE</h1>
         <p class="sub">Monaco &middot; Dubai</p>
         <button id="start" class="btn-primary">Enter</button>
@@ -26,9 +26,13 @@
       <div class="hud-top-left">
         <div id="loc-city">MONACO</div>
         <div id="loc-place">Port Hercule</div>
+        <div id="goals"></div>
       </div>
+      <div id="trial" class="hidden"></div>
+      <div id="reward" class="hidden"><div class="r-title"></div><div class="r-amt"></div></div>
       <div class="hud-top-right">
         <div id="money">€0</div>
+        <div id="fame"></div>
         <canvas id="minimap" width="200" height="200"></canvas>
       </div>
       <div id="prompt" class="hidden"></div>
@@ -48,6 +52,29 @@
         <h2 id="jets-title">Choose your jet</h2>
         <div id="jet-list" class="cards"></div>
         <button id="jets-cancel" class="btn-ghost">Not now</button>
+      </div>
+    </div>
+
+    <!-- Phone -->
+    <div id="phone" class="screen hidden">
+      <div class="phone">
+        <div class="phone-head">
+          <div><div class="eyebrow">The Dream Life</div><div id="phone-balance"></div></div>
+          <button class="btn-ghost x" data-close>Close · P</button>
+        </div>
+        <div id="phone-tabs"></div>
+        <div id="phone-body"></div>
+      </div>
+    </div>
+
+    <!-- Time trial result -->
+    <div id="result" class="screen hidden">
+      <div class="modal result">
+        <div class="eyebrow" id="res-name"></div>
+        <div id="res-medal"></div>
+        <div id="res-time"></div>
+        <div id="res-sub"></div>
+        <button id="res-ok" class="btn-primary">Continue</button>
       </div>
     </div>
 

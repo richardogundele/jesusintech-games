@@ -31,7 +31,46 @@ export const CARS = {
     color: 0x15161a, topSpeed: 220, accel: 7, grip: 5.5, steer: 0.56, engine: 'v8',
     dims: { L: 4.87, W: 1.98 },
   },
+  // ---- for sale at the dealer (bought cars are delivered to whichever home you're at) ----
+  urus: {
+    loft: 'cullinan', price: 260_000,
+    maker: 'Lamborghini', model: 'Urus SE', type: 'suv',
+    color: 0xf2c200, topSpeed: 312, accel: 9, grip: 6.5, steer: 0.58, engine: 'v8',
+    dims: { L: 5.12, W: 2.02 },
+  },
+  spectre: {
+    loft: 'sedan', price: 450_000,
+    maker: 'Rolls-Royce', model: 'Spectre', type: 'sedan',
+    color: 0x2a3a5c, topSpeed: 250, accel: 7, grip: 6, steer: 0.55, engine: 'v12soft',
+    dims: { L: 5.45, W: 2.08 },
+  },
+  batur: {
+    loft: 'sedan', price: 2_000_000,
+    maker: 'Bentley', model: 'Batur', type: 'sedan',
+    color: 0x1f4d36, topSpeed: 336, accel: 9.5, grip: 7, steer: 0.58, engine: 'w16',
+    dims: { L: 4.95, W: 1.97 },
+  },
+  w1: {
+    loft: 'revuelto', price: 2_100_000,
+    maker: 'McLaren', model: 'W1', type: 'super',
+    color: 0xff7a00, topSpeed: 350, accel: 13, grip: 8.2, steer: 0.64, engine: 'v8',
+    dims: { L: 4.92, W: 2.08 },
+  },
+  jesko: {
+    loft: 'revuelto', price: 3_000_000,
+    maker: 'Koenigsegg', model: 'Jesko Absolut', type: 'super',
+    color: 0xf3f3f1, accent: 0x0b0d12, topSpeed: 440, accel: 12.5, grip: 7.6, steer: 0.6, engine: 'v8',
+    dims: { L: 4.61, W: 2.03 },
+  },
+  tourbillon: {
+    loft: 'chiron', price: 3_800_000,
+    maker: 'Bugatti', model: 'Tourbillon', type: 'super',
+    color: 0xbfc5cc, accent: 0x1d4fb8, topSpeed: 445, accel: 13.5, grip: 7.6, steer: 0.6, engine: 'w16',
+    dims: { L: 4.67, W: 2.04 },
+  },
 };
+// the fleet you started with: always yours
+export const STARTER_CARS = ['revuelto', 'f458', 'cullinan', 'chiron', 'g63'];
 
 // unbranded traffic: body shape + paint picked at random
 export const TRAFFIC = [
@@ -54,7 +93,52 @@ export const JETS = {
   longitude: { maker: 'Cessna', model: 'Citation Longitude', L: 22.3, span: 20.7, R: 1.2, engines: 'rear2', tail: 'T', win: 6, winW: 0.42, winH: 0.46, stripe: 0x8c1c1c, mach: 0.84, range: '3,500 nm', seats: 12 },
   bbj: { maker: 'Boeing', model: 'BBJ 737 MAX 7', L: 35.6, span: 35.9, R: 1.9, engines: 'wing2', tail: 'low', win: 16, winW: 0.28, winH: 0.38, stripe: 0x0d2340, mach: 0.79, range: '7,000 nm', seats: 19 },
   acj220: { maker: 'Airbus', model: 'ACJ TwoTwenty', L: 35.0, span: 35.1, R: 1.75, engines: 'wing2', tail: 'low', win: 15, winW: 0.32, winH: 0.4, stripe: 0x35aee2, tailColor: 0x050607, mach: 0.82, range: '5,650 nm', seats: 18, note: 'JesusInTech livery' },
+  // ---- for sale (list prices, roughly) ----
+  phenom300e: { price: 10_500_000, maker: 'Embraer', model: 'Phenom 300E', L: 15.9, span: 16.2, R: 0.92, engines: 'rear2', tail: 'T', win: 5, winW: 0.42, winH: 0.44, stripe: 0x2c5aa0, mach: 0.78, range: '2,010 nm', seats: 10, note: 'Fuel stop in Cairo' },
+  pc24: { price: 11_000_000, maker: 'Pilatus', model: 'PC-24', L: 16.9, span: 17.0, R: 0.95, engines: 'rear2', tail: 'T', win: 7, winW: 0.38, winH: 0.42, stripe: 0xb01c2e, mach: 0.63, range: '2,000 nm', seats: 10, note: 'Fuel stop in Cairo' },
+  g800: { price: 72_000_000, maker: 'Gulfstream', model: 'G800', L: 33.5, span: 31.4, R: 1.45, engines: 'rear2', tail: 'T', win: 10, winW: 0.62, winH: 0.46, stripe: 0x2a2a2a, mach: 0.925, range: '8,000 nm', seats: 19 },
+  global8000: { price: 78_000_000, maker: 'Bombardier', model: 'Global 8000', L: 33.8, span: 31.7, R: 1.45, engines: 'rear2', tail: 'T', win: 14, winW: 0.36, winH: 0.42, stripe: 0x8a6d3b, mach: 0.94, range: '8,000 nm', seats: 19, note: 'Fastest business jet' },
+  acj350: { price: 340_000_000, maker: 'Airbus', model: 'ACJ350', L: 66.8, span: 64.75, R: 2.98, engines: 'wing2', tail: 'low', win: 34, winW: 0.32, winH: 0.42, stripe: 0x35aee2, tailColor: 0x050607, mach: 0.85, range: '10,800 nm', seats: 25, note: 'The flagship' },
 };
+export const STARTER_JETS = ['g700', 'g650er', 'global7500', 'global6500', 'falcon10x', 'falcon8x', 'challenger650', 'praetor600', 'longitude', 'bbj', 'acj220'];
+
+// ---- the reward loop ----
+// Real-life wins, honour system. Up to 3 per category per day.
+export const WINS = [
+  { id: 'client', label: 'Closed a client or Agents deal', amount: 3_000_000 },
+  { id: 'gig', label: 'Booked a speaking gig', amount: 2_000_000 },
+  { id: 'aios', label: 'New AIOS student or sale', amount: 1_000_000 },
+  { id: 'ship', label: 'Shipped a build (SPath, Agents, AIOS)', amount: 750_000 },
+  { id: 'book', label: 'Wrote for the book', amount: 500_000 },
+  { id: 'post', label: 'Posted content', amount: 300_000 },
+  { id: 'train', label: 'Trained or worked out', amount: 200_000 },
+  { id: 'quiet', label: 'Quiet time with God', amount: 200_000 },
+];
+
+// Giving: repeatable, adds to "lives impacted"
+export const GIVING = [
+  { id: 'scholar', label: '100 AIOS scholarships', price: 5_000_000, impact: 100 },
+  { id: 'lab', label: 'AI lab for a church in Lagos', price: 15_000_000, impact: 2_000 },
+  { id: 'wells', label: 'Clean water wells for a region', price: 25_000_000, impact: 20_000 },
+  { id: 'school', label: 'Build a school', price: 40_000_000, impact: 5_000 },
+];
+
+// Fame comes from people reached on stage. It raises your speaking fee.
+export const FAME = [
+  { at: 0, title: 'New Voice' },
+  { at: 5_000, title: 'Speaker' },
+  { at: 25_000, title: 'Keynote Speaker' },
+  { at: 75_000, title: 'Headliner' },
+  { at: 200_000, title: 'Global Voice' },
+  { at: 500_000, title: 'Movement Leader' },
+  { at: 1_000_000, title: 'Household Name' },
+];
+export function fameLevel(reached) {
+  let i = 0;
+  while (i + 1 < FAME.length && reached >= FAME[i + 1].at) i++;
+  return { level: i, ...FAME[i], next: FAME[i + 1] || null };
+}
+export const talkFee = (reached, crowd) => 250_000 + fameLevel(reached).level * 250_000 + crowd * 20;
 
 // Nice/Monaco <-> Dubai is about 5,200 km
 export function flightTime(jet) {

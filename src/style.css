@@ -87,3 +87,68 @@ h1 { font-size: clamp(44px, 9vw, 112px); letter-spacing: 0.06em; margin: 14px 0 
 #card-title { font-size: clamp(32px, 6vw, 64px); font-weight: 800; letter-spacing: 0.1em; margin: 12px 0 8px; }
 #card-sub { color: var(--muted); letter-spacing: 0.16em; text-transform: uppercase; font-size: 14px; }
 .btn-primary:disabled { opacity: 0.6; cursor: wait; transform: none; box-shadow: none; }
+
+/* Daily goals under the location */
+#goals { margin-top: 14px; font-size: 12.5px; line-height: 1.75; color: var(--text); }
+#goals .g { display: flex; gap: 8px; align-items: center; opacity: 0.92; }
+#goals .g i { width: 14px; height: 14px; border-radius: 50%; border: 1.5px solid var(--gold); display: inline-grid; place-items: center; font-style: normal; font-size: 9px; color: var(--ink); }
+#goals .g.done { opacity: 0.55; text-decoration: line-through; }
+#goals .g.done i { background: var(--gold); }
+#goals .streak { color: var(--gold); letter-spacing: 0.14em; text-transform: uppercase; font-size: 11px; }
+#fame { font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--muted); text-shadow: 0 1px 6px rgba(0,0,0,0.7); margin-top: -6px; }
+
+/* Time trial strip */
+#trial { position: absolute; top: 22px; left: 50%; transform: translateX(-50%); text-align: center; text-shadow: 0 2px 12px rgba(0,0,0,0.7);
+  font-size: 12px; letter-spacing: 0.24em; text-transform: uppercase; color: var(--gold); }
+#trial span { display: block; font-size: 44px; letter-spacing: 0.02em; color: #fff; font-weight: 800; font-variant-numeric: tabular-nums; margin-top: 4px; }
+#trial small { display: block; font-size: 12px; color: var(--muted); letter-spacing: 0.12em; }
+#trial b { display: block; font-size: 96px; color: #fff; letter-spacing: 0; margin-top: 60px; }
+
+/* Reward pop */
+#reward { position: absolute; right: 26px; top: 290px; text-align: right; animation: pop 0.35s ease; text-shadow: 0 2px 12px rgba(0,0,0,0.7); max-width: 360px; }
+#reward .r-title { font-size: 13px; letter-spacing: 0.08em; color: var(--text); }
+#reward .r-amt { font-size: 30px; font-weight: 800; color: #9ef0a6; font-variant-numeric: tabular-nums; }
+#reward.neg .r-amt { color: #ffb4a8; }
+#reward.lvl .r-amt { color: var(--gold); font-size: 22px; }
+@keyframes pop { from { transform: translateY(8px); opacity: 0; } to { transform: none; opacity: 1; } }
+
+/* Phone */
+#phone { background: rgba(0,0,0,0.45); backdrop-filter: blur(5px); }
+.phone { width: min(440px, calc(100% - 32px)); height: min(820px, 92vh); background: rgba(12,14,19,0.96); border: 1px solid var(--line);
+  border-radius: 34px; padding: 22px 18px 14px; display: flex; flex-direction: column; box-shadow: 0 30px 80px rgba(0,0,0,0.6); }
+.phone-head { display: flex; justify-content: space-between; align-items: flex-start; padding: 0 6px 12px; }
+#phone-balance { font-size: 26px; font-weight: 800; color: #9ef0a6; margin-top: 6px; font-variant-numeric: tabular-nums; }
+.phone .x { margin-top: 0; padding: 7px 14px; font-size: 11px; }
+#phone-tabs { display: flex; gap: 6px; overflow-x: auto; padding: 0 2px 12px; scrollbar-width: none; }
+#phone-tabs button { flex: none; background: rgba(255,255,255,0.05); border: 1px solid var(--line); color: var(--muted); border-radius: 999px;
+  padding: 7px 12px; font: inherit; font-size: 12px; cursor: pointer; }
+#phone-tabs button.on { background: var(--gold); color: var(--ink); border-color: var(--gold); font-weight: 700; }
+#phone-body { overflow-y: auto; flex: 1; padding: 0 4px; }
+#phone-body h3 { font-size: 11px; letter-spacing: 0.24em; text-transform: uppercase; color: var(--gold); margin: 18px 4px 8px; font-weight: 600; }
+#phone-body .row { display: flex; gap: 12px; align-items: center; padding: 12px; border-radius: 14px; background: rgba(255,255,255,0.035); margin-bottom: 8px; }
+#phone-body .row.done { opacity: 0.55; }
+#phone-body .grow { flex: 1; min-width: 0; }
+#phone-body .t { font-size: 15px; font-weight: 600; }
+#phone-body .m { font-size: 10px; letter-spacing: 0.22em; text-transform: uppercase; color: var(--gold); }
+#phone-body .s { font-size: 12px; color: var(--muted); margin-top: 3px; line-height: 1.45; }
+#phone-body .amt { font-weight: 700; color: #9ef0a6; text-align: right; font-variant-numeric: tabular-nums; }
+#phone-body .amt small { display: block; font-size: 10px; color: var(--muted); font-weight: 400; letter-spacing: 0.1em; }
+#phone-body .tick { width: 26px; height: 26px; border-radius: 50%; border: 1.5px solid var(--gold); display: grid; place-items: center; font-size: 12px; color: var(--gold); flex: none; }
+#phone-body .done .tick { background: var(--gold); color: var(--ink); }
+#phone-body .swatch { width: 26px; height: 26px; border-radius: 8px; flex: none; border: 1px solid var(--line); }
+#phone-body .buy { background: var(--gold); color: var(--ink); border: 0; border-radius: 999px; padding: 9px 14px; font: inherit; font-weight: 700; font-size: 13px; cursor: pointer; flex: none; }
+#phone-body .buy:disabled { opacity: 0.35; cursor: not-allowed; }
+#phone-body .owned { font-size: 12px; color: var(--muted); flex: none; }
+#phone-body .note { font-size: 12.5px; color: var(--muted); line-height: 1.55; margin: 6px 4px 12px; }
+#phone-body .hero { padding: 18px 14px; border-radius: 18px; background: linear-gradient(135deg, rgba(232,199,122,0.16), rgba(53,174,226,0.08)); margin-bottom: 6px; }
+#phone-body .hero .big { font-size: 40px; font-weight: 800; }
+#phone-body .hero .big span { font-size: 12px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--gold); margin-left: 10px; font-weight: 600; }
+#phone-body .bar { height: 5px; border-radius: 3px; background: rgba(255,255,255,0.1); margin-top: 8px; overflow: hidden; }
+#phone-body .bar i { display: block; height: 100%; background: var(--gold); }
+
+/* Trial result */
+#result { background: rgba(0,0,0,0.5); backdrop-filter: blur(4px); }
+.modal.result { max-width: 460px; }
+#res-medal { font-size: 15px; letter-spacing: 0.3em; text-transform: uppercase; margin-top: 18px; font-weight: 700; }
+#res-time { font-size: 72px; font-weight: 800; margin: 6px 0; font-variant-numeric: tabular-nums; }
+#res-sub { color: var(--muted); font-size: 14px; line-height: 1.7; margin-bottom: 22px; }

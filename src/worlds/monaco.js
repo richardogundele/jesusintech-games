@@ -347,6 +347,7 @@ export function buildMonaco(renderer) {
       { id: 'f458', x: -308, z: -36, heading: Math.PI / 2 },
       { id: 'cullinan', x: -308, z: -50, heading: Math.PI / 2 },
     ],
+    slots: [[-294, -22], [-294, -50], [-282, -22], [-282, -50], [-270, -22], [-270, -50]].map(([x, z]) => ({ x, z, heading: Math.PI / 2 })),
     terminal: { x: 300, z: -42, r: 7 },
     runway: { x: 330, z0: -225, z1: 50 },
     arrival: { x: 300, z: -30, heading: -Math.PI / 2 },

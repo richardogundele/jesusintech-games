@@ -1,0 +1,128 @@
+// The phone (P or Tab): today's goals, logging real wins, the dealer, the hangar, giving, your profile.
+import { state, formatMoney } from './state.js';
+import { CARS, JETS, WINS, GIVING, fameLevel, talkFee, flightTime } from './catalog.js';
+import * as P from './progress.js';
+import { fmtTime } from './trials.js';
+
+const $ = (id) => document.getElementById(id);
+const TABS = [['today', 'Today'], ['wins', 'Log a win'], ['dealer', 'Dealer'], ['hangar', 'Hangar'], ['giving', 'Giving'], ['me', 'Profile']];
+const TRIAL_NAMES = { 'monaco-loop': 'Monte Carlo Grand Loop', 'dubai-szr': 'Sheikh Zayed Sprint' };
+
+export class Phone {
+  /** hooks: { homeId(), crowdSize(), onCarBought(id, home), onJetBought(id), sfx(kind) } */
+  constructor(hooks) {
+    this.hooks = hooks;
+    this.el = $('phone');
+    this.body = $('phone-body');
+    this.tab = 'today';
+    $('phone-tabs').innerHTML = TABS.map(([id, label]) => `<button data-tab="${id}">${label}</button>`).join('');
+    this.el.addEventListener('click', (e) => {
+      const b = e.target.closest('button');
+      if (!b) return;
+      if (b.dataset.tab) { this.tab = b.dataset.tab; this.render(); }
+      if (b.dataset.close !== undefined) this.hooks.close();
+      const act = b.dataset.act, id = b.dataset.id;
+      if (act === 'win' && P.logWin(id)) this.hooks.sfx('cash');
+      if (act === 'car') {
+        const home = this.hooks.homeId();
+        if (P.buyCar(id, home)) { this.hooks.sfx('spend'); this.hooks.onCarBought(id, home); }
+      }
+      if (act === 'jet' && P.buyJet(id)) { this.hooks.sfx('spend'); this.hooks.onJetBought(id); }
+      if (act === 'give' && P.give(id)) this.hooks.sfx('level');
+      if (act) this.render();
+    });
+  }
+
+  get open() { return !this.el.classList.contains('hidden'); }
+  show(v) {
+    this.el.classList.toggle('hidden', !v);
+    if (v) this.render();
+  }
+
+  render() {
+    for (const b of $('phone-tabs').children) b.classList.toggle('on', b.dataset.tab === this.tab);
+    $('phone-balance').textContent = formatMoney(state.balance);
+    this.body.innerHTML = this[this.tab]();
+    this.body.scrollTop = 0;
+  }
+
+  today() {
+    const goals = P.dailyGoals();
+    const mult = P.streakMultiplier();
+    const fame = fameLevel(state.reached);
+    const goalRows = goals.map((g, i) => `
+      <div class="row ${g.done ? 'done' : ''}">
+        <div class="tick">${g.done ? '✓' : i + 1}</div>
+        <div class="grow"><div class="t">${g.text}</div>${g.shown ? `<div class="s">${g.shown}</div>` : ''}</div>
+        <div class="amt">${P.shortMoney(Math.round(P.GOAL_REWARD * mult))}</div>
+      </div>`).join('');
+    return `
+      <div class="hero">
+        <div class="big">${state.streak.count}<span>day streak</span></div>
+        <div class="s">Rewards ×${mult.toFixed(1)} · finish all three for a ${P.shortMoney(Math.round(P.ALL_DONE_BONUS * mult))} bonus${state.daily.bonus ? ' (claimed)' : ''}</div>
+      </div>
+      <h3>Today's goals</h3>${goalRows}
+      <h3>On stage</h3>
+      <div class="row"><div class="grow"><div class="t">${fame.title}</div>
+        <div class="s">${state.reached.toLocaleString('en-GB')} people reached${fame.next ? ` · ${(fame.next.at - state.reached).toLocaleString('en-GB')} more to ${fame.next.title}` : ''}</div>
+        ${fame.next ? `<div class="bar"><i style="width:${Math.min(100, ((state.reached - fame.at) / (fame.next.at - fame.at)) * 100)}%"></i></div>` : ''}</div>
+        <div class="amt">${P.shortMoney(talkFee(state.reached, this.hooks.crowdSize()))}<small>next fee</small></div></div>
+      <p class="note">Log your real wins in <b>Log a win</b>. Daily goals reset at midnight; miss a day and the streak starts again.</p>`;
+  }
+
+  wins() {
+    const counts = P.winsToday();
+    return `<p class="note">Honour system. Did it happen today in real life? Log it and get paid in here. Up to ${P.WIN_CAP} of each per day.</p>` +
+      WINS.map((w) => {
+        const n = counts[w.id] || 0;
+        return `<div class="row"><div class="grow"><div class="t">${w.label}</div><div class="s">${n} / ${P.WIN_CAP} today</div></div>
+          <button class="buy" data-act="win" data-id="${w.id}" ${n >= P.WIN_CAP ? 'disabled' : ''}>+${P.shortMoney(w.amount)}</button></div>`;
+      }).join('');
+  }
+
+  dealer() {
+    const home = this.hooks.homeId();
+    const rows = Object.entries(CARS).map(([id, c]) => {
+      const owned = P.ownsCar(id);
+      const btn = owned ? '<span class="owned">In your garage</span>'
+        : `<button class="buy" data-act="car" data-id="${id}" ${state.balance < c.price ? 'disabled' : ''}>${P.shortMoney(c.price)}</button>`;
+      return `<div class="row"><div class="swatch" style="background:#${c.color.toString(16).padStart(6, '0')}"></div>
+        <div class="grow"><div class="m">${c.maker}</div><div class="t">${c.model}</div><div class="s">${c.topSpeed} km/h</div></div>${btn}</div>`;
+    }).join('');
+    return `<p class="note">Delivered to your ${home === 'monaco' ? 'Monaco villa' : 'Dubai Hills mansion'}.</p>${rows}`;
+  }
+
+  hangar() {
+    return `<p class="note">New jets are parked in the second row at your Dubai jet park, and show up in the jet picker.</p>` +
+      Object.entries(JETS).sort((a, b) => (a[1].price || 0) - (b[1].price || 0)).map(([id, j]) => {
+        const owned = P.ownsJet(id);
+        const btn = owned ? '<span class="owned">Yours</span>'
+          : `<button class="buy" data-act="jet" data-id="${id}" ${state.balance < j.price ? 'disabled' : ''}>${P.shortMoney(j.price)}</button>`;
+        return `<div class="row"><div class="grow"><div class="m">${j.maker}</div><div class="t">${j.model}</div>
+          <div class="s">${j.range} · Mach ${j.mach} · Monaco to Dubai ${flightTime(j)}${j.note ? ` · ${j.note}` : ''}</div></div>${btn}</div>`;
+      }).join('');
+  }
+
+  giving() {
+    return `<div class="hero"><div class="big">${state.stats.impact.toLocaleString('en-GB')}<span>lives impacted</span></div></div>` +
+      GIVING.map((g) => `<div class="row"><div class="grow"><div class="t">${g.label}</div><div class="s">${g.impact.toLocaleString('en-GB')} lives</div></div>
+        <button class="buy" data-act="give" data-id="${g.id}" ${state.balance < g.price ? 'disabled' : ''}>${P.shortMoney(g.price)}</button></div>`).join('');
+  }
+
+  me() {
+    const s = state.stats;
+    const fame = fameLevel(state.reached);
+    const cars = Object.keys(CARS).filter(P.ownsCar).length, jets = P.ownedJetIds().length;
+    const line = (k, v) => `<div class="row"><div class="grow"><div class="t">${k}</div></div><div class="amt">${v}</div></div>`;
+    return `<div class="hero"><div class="big">${P.shortMoney(P.netWorth())}<span>net worth</span></div><div class="s">${fame.title}</div></div>` +
+      line('People reached on stage', state.reached.toLocaleString('en-GB')) +
+      line('Talks given', s.talks) +
+      line('Lives impacted', s.impact.toLocaleString('en-GB')) +
+      line('Cars', `${cars} / ${Object.keys(CARS).length}`) +
+      line('Jets', `${jets} / ${Object.keys(JETS).length}`) +
+      line('Distance driven', `${s.km.toFixed(1)} km`) +
+      line('Top speed', `${s.topKmh} km/h`) +
+      line('Flights', s.flights) +
+      Object.entries(TRIAL_NAMES).map(([id, n]) => line(n, state.best[id] ? fmtTime(state.best[id]) : 'Not set')).join('');
+  }
+}

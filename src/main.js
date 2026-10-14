@@ -6,7 +6,10 @@ import { buildPlayer, buildJet } from './models.js';
 import { EngineAudio } from './audio.js';
 import { Hud } from './hud.js';
 import { state, save } from './state.js';
-import { JETS, ROUTES, flightTime } from './catalog.js';
+import { JETS, ROUTES, flightTime, fameLevel, talkFee } from './catalog.js';
+import * as P from './progress.js';
+import { Phone } from './phone.js';
+import { setupTrials, MEDAL_PAY } from './trials.js';
 import { buildCabin } from './worlds/cabin.js';
 import { buildArena } from './worlds/arena.js';
 import { loadAll, updateCulling } from './assets.js';
@@ -47,15 +50,21 @@ const worlds = {};
 function getWorld(id) {
   if (!worlds[id]) {
     const w = builders[id](renderer);
-    w.cars = w.garage.map((g) => {
-      const c = new Car(g.id, g);
+    w.cars = [];
+    w.addCar = (carId, at) => {
+      const c = new Car(carId, at);
       w.scene.add(c.model.root);
+      w.cars.push(c);
       return c;
-    });
+    };
+    w.garage.forEach((g) => w.addCar(g.id, g));
+    // cars bought from the phone fill the extra bays at this home
+    P.boughtCarsIn(id).forEach((carId, i) => w.slots?.[i] && w.addCar(carId, w.slots[i]));
     w.traffic = new Traffic(w.scene, w.life || {});
     w.interactions = w.interactions || [];
+    w.trials = setupTrials(w, trialHooks);
     if (w.terminal) w.interactions.push({ ...w.terminal, car: true, label: () => `Choose a jet to ${ROUTES[w.id].label}`, action: openJets });
-    if (w.jetPark) w.interactions.push({ ...w.jetPark, car: true, label: () => `Open the jet park (${Object.keys(JETS).length} aircraft)`, action: openJets });
+    if (w.jetPark) w.interactions.push({ ...w.jetPark, car: true, label: () => `Open the jet park (${P.ownedJetIds().length} aircraft)`, action: openJets });
     if (w.arenaDoor) w.interactions.push({ ...w.arenaDoor, car: true, label: () => 'Enter Dubai Arena', action: enterArena });
     if (w.exit) w.interactions.push({ ...w.exit, r: 1.6, label: () => 'Leave the arena', action: leaveArena });
     if (w.stageMark) w.interactions.push({ ...w.stageMark, r: 1.2, label: () => 'Start your talk', action: startTalk });
@@ -92,10 +101,17 @@ function enterWorld(target, spawn) {
 const keys = new Set();
 const down = (...codes) => codes.some((c) => keys.has(c));
 window.addEventListener('keydown', (e) => {
-  if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
+  if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab'].includes(e.code)) e.preventDefault();
   keys.add(e.code);
   if (e.repeat) return;
+  if ((e.code === 'KeyP' || e.code === 'Tab') && !e.repeat) { e.preventDefault(); togglePhone(); return; }
+  if (mode === 'phone' || mode === 'result') { if (e.code === 'Escape') mode === 'phone' ? togglePhone() : closeResult(); return; }
   if (e.code === 'KeyE') interact();
+  if (e.code === 'KeyR' && mode === 'car') {
+    state.radio = !state.radio;
+    save();
+    hud.toast(state.radio ? 'Radio on · Dream Life FM' : 'Radio off', 1400);
+  }
   if (mode === 'talk' && (e.code === 'ArrowRight' || e.code === 'ArrowLeft')) world.nextSlide(e.code === 'ArrowRight' ? 1 : -1);
   if (e.code === 'KeyC' && mode === 'car') camMode = (camMode + 1) % 3;
   if (e.code === 'KeyM') hud.toast(audio.toggleMute() ? 'Sound off' : 'Sound on', 1200);
@@ -184,7 +200,8 @@ function openJets() {
   $('jets-title').textContent = `Choose your jet to ${route.label}`;
   const list = $('jet-list');
   list.innerHTML = '';
-  for (const [id, j] of Object.entries(JETS)) {
+  for (const id of P.ownedJetIds()) {
+    const j = JETS[id];
     const b = document.createElement('button');
     b.className = 'card';
     b.innerHTML = `<div class="maker">${j.maker}</div><div class="model">${j.model}</div>
@@ -324,6 +341,7 @@ async function land() {
   await fade(1);
   audio.jet(0);
   flight = null;
+  P.recordFlight();
   enterWorld(dest.id);
   hud.show(true);
   await fade(0);
@@ -338,6 +356,7 @@ async function enterArena() {
   if (car) { car.park(); car = null; }
   await fade(1);
   enterWorld('arena');
+  arenaMusic = 0.4;
   await fade(0);
   hud.toast('Backstage at Dubai Arena. Thousands are waiting. Walk out to the glowing mark on the catwalk.', 5000);
 }
@@ -356,16 +375,114 @@ function startTalk() {
   player.mesh.position.copy(player.pos);
   player.mesh.rotation.y = 0;
   world.startTalk();
+  arenaMusic = 1;
+  setTimeout(() => { if (mode === 'talk') arenaMusic = 0.12; }, 7000);
   hud.toast('You are live. Use the arrow keys to move through your slides.', 3500);
 }
 function finishTalk() {
   world.endTalk();
   mode = 'foot';
   const reached = world.crowdSize;
-  state.reached = (state.reached || 0) + reached;
-  save();
+  const fee = talkFee(state.reached, reached);
+  P.recordTalk(reached, fee);
+  arenaMusic = 1;
+  setTimeout(() => { if (world.id === 'arena') arenaMusic = 0.4; }, 14000);
   snapCamera();
   hud.toast(`Standing ovation. ${reached.toLocaleString('en-GB')} people heard you tonight · ${state.reached.toLocaleString('en-GB')} reached so far.`, 6000);
+  hud.reward({ kind: 'talk', title: 'Speaking fee', amount: fee });
+  audio.sfx('cash');
+}
+
+// ---------- the reward loop ----------
+let lastPlace = '';
+let hudSlow = 0;
+let arenaMusic = 0;
+let prevMode = 'foot';
+const homeId = () => (world.id === 'monaco' || world.id === 'dubai' ? world.id : state.world);
+
+function refreshHudExtras() {
+  hud.goals(P.dailyGoals(), state.streak.count);
+  const f = fameLevel(state.reached);
+  hud.fame(`${f.title} · ${state.reached.toLocaleString('en-GB')} reached`);
+}
+
+P.onNotify((r) => {
+  hud.reward(r);
+  if (r.kind === 'goal' || r.kind === 'win' || r.kind === 'bonus') audio.sfx('cash');
+  if (r.kind === 'level') audio.sfx('level');
+  refreshHudExtras();
+});
+
+const phone = new Phone({
+  homeId,
+  crowdSize: () => worlds.arena?.crowdSize ?? 11_500,
+  sfx: (k) => audio.sfx(k),
+  close: () => togglePhone(),
+  onCarBought(carId, home) {
+    const w = worlds[home];
+    if (!w) return;
+    const i = P.boughtCarsIn(home).length - 1;
+    if (w.slots?.[i]) w.addCar(carId, w.slots[i]);
+  },
+  onJetBought(jetId) { worlds.dubai?.addJet(jetId); },
+});
+
+function togglePhone() {
+  if (mode === 'phone') {
+    phone.show(false);
+    mode = prevMode;
+    hud.show(true);
+    return;
+  }
+  if (!['foot', 'car', 'jets'].includes(mode)) return;
+  if (mode === 'jets') closeJets();
+  prevMode = mode;
+  mode = 'phone';
+  phone.show(true);
+}
+
+const trialHooks = {
+  getCar: () => car,
+  toast: (t, ms) => hud.toast(t, ms),
+  beep: (k) => audio.sfx(k),
+  hud: (html) => hud.trial(html),
+  snap: () => snapCamera(),
+  result(r) {
+    const medal = r.medal ? r.medal.toUpperCase() : 'NO MEDAL';
+    $('res-name').textContent = r.name;
+    $('res-medal').textContent = medal;
+    $('res-medal').style.color = { gold: '#ffd36b', silver: '#d9dde3', bronze: '#d08a52' }[r.medal] || 'var(--muted)';
+    $('res-time').textContent = r.time;
+    const m = r.medals, f = (s) => `${Math.floor(s / 60)}:${(s % 60).toFixed(1).padStart(4, '0')}`;
+    $('res-sub').innerHTML = `${r.pb ? (r.prev ? `New personal best (was ${r.prev})` : 'First time set') : 'Personal best stands'} · +€${r.pay.toLocaleString('en-GB')}<br>
+      Gold ${f(m.gold)} · Silver ${f(m.silver)} · Bronze ${f(m.bronze)}`;
+    prevMode = mode;
+    mode = 'result';
+    if (car) car.park();
+    $('result').classList.remove('hidden');
+  },
+};
+function closeResult() {
+  if (mode !== 'result') return;
+  $('result').classList.add('hidden');
+  mode = prevMode;
+}
+$('res-ok').onclick = closeResult;
+
+// ---------- sound ----------
+let musicKey = '';
+function updateSoundscape() {
+  if (!audio.ctx) return;
+  let track = null, level = 1;
+  if (world.id === 'arena') { track = 'arena'; level = arenaMusic; }
+  else if (mode === 'car' && state.radio) { track = 'radio'; level = 0.9; }
+  const key = `${track}:${level}`;
+  if (key !== musicKey) { musicKey = key; audio.music.play(track, level); }
+  const p = car ? car.pos : player.pos;
+  const kind = world.id === 'monaco' ? 'coast'
+    : world.id === 'dubai' ? (world.indoors?.(p.x, p.z) ? 'indoor' : 'city')
+    : world.id === 'cabin' ? 'indoor' : 'none';
+  audio.ambience.set(kind, mode === 'car');
 }
 
 // ---------- camera ----------
@@ -470,7 +587,8 @@ $('start').onclick = () => {
   $('title').classList.add('hidden');
   enterWorld(state.world in builders ? state.world : 'monaco');
   hud.show(true);
-  hud.toast(world.id === 'monaco' ? 'Welcome home. Your cars are on the driveway.' : 'Welcome home to Dubai Hills.', 4000);
+  refreshHudExtras();
+  hud.toast(`${world.id === 'monaco' ? 'Welcome home.' : 'Welcome home to Dubai Hills.'} Press P for your phone: today's goals are waiting.`, 5000);
 };
 
 // ---------- loop ----------
@@ -484,8 +602,12 @@ function frame() {
 }
 
 function step(dt) {
+  if (mode === 'phone' || mode === 'result') return; // the phone pauses the world
   elapsed += dt;
   world.tick(elapsed);
+  P.tick(dt);
+  updateSoundscape();
+  if (world.trials?.active && mode !== 'car') world.trials.cancel('Time trial cancelled');
   const obstacle = mode === 'car' ? { x: car.pos.x, z: car.pos.z, r: car.model.radius * 0.6 }
     : mode === 'foot' ? { x: player.pos.x, z: player.pos.z, r: 0.5 } : null;
   world.traffic?.update(dt, obstacle, camera.position);
@@ -516,7 +638,10 @@ function step(dt) {
     }
   } else {
     if (mode === 'car') {
+      if (world.trials?.update(dt, car)) { input.up = false; input.down = false; input.brake = true; }
       car.update(dt, input, world);
+      P.emit('km', (Math.abs(car.vF) * dt) / 1000);
+      P.emit('speed', car.speedKmh);
       if (world.traffic?.collide(car)) car.sync(0);
       audio.update(car, input.up ? 1 : 0);
     } else {
@@ -527,7 +652,11 @@ function step(dt) {
     const p = car ? car.pos : player.pos;
     world.env.follow(p);
     hud.update({ world, x: p.x, z: p.z, car, balance: state.balance, prompt: mode === 'jets' ? '' : currentPrompt(), mode });
-    hud.minimap(world, p.x, p.z, car ? car.heading : player.heading, world.cars.filter((c) => c !== car));
+    hud.minimap(world, p.x, p.z, car ? car.heading : player.heading, world.cars.filter((c) => c !== car), world.trials?.marks() || []);
+    const place = world.place(p.x, p.z);
+    if (place !== lastPlace) { lastPlace = place; P.emit('place', place); }
+    hudSlow -= dt;
+    if (hudSlow <= 0) { hudSlow = 0.5; refreshHudExtras(); }
   }
 }
 
@@ -548,6 +677,7 @@ frame();
 // debug handle for testing in the console
 window.__game = {
   get world() { return world; }, get car() { return car; }, get mode() { return mode; }, player, keys, camera, pipeline, renderer,
+  state, P, phone, audio, worlds, togglePhone, interact, enterWorld, hud,
   // dev: render the current frame and save it to shots/<name>.jpg via the Vite dev server
   async shot(name = 'live', w = 1280, h = 800) {
     const prev = renderer.getSize(new THREE.Vector2());
