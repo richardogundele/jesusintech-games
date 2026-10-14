@@ -24,20 +24,26 @@ const shotSaver = {
   },
 };
 
+const OUT = 'dist/games';
+
 // build only: keep the Ferrari model (licence unconfirmed) off the public site
 const stripPrivate = {
   name: 'strip-private',
   apply: 'build',
   closeBundle() {
-    for (const f of ['assets/models/ferrari.glb', 'assets/models/ferrari_ao.png']) fs.rmSync(path.join('dist', f), { force: true });
+    for (const f of ['assets/models/ferrari.glb', 'assets/models/ferrari_ao.png']) fs.rmSync(path.join(OUT, f), { force: true });
   },
 };
 
-export default defineConfig({
+export default defineConfig(({ command }) => ({
+  // production is served from jesusintech.com/games/ (proxied), so build for that path
+  base: command === 'build' ? '/games/' : '/',
   plugins: [shotSaver, stripPrivate],
   build: {
+    outDir: OUT,
+    emptyOutDir: true,
     target: 'es2022', // top-level await while assets load
     chunkSizeWarningLimit: 1200,
     rollupOptions: { input: { main: 'index.html' } },
   },
-});
+}));

@@ -8,7 +8,7 @@ import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js
 
 // Everything from Poly Haven (CC0). Raw downloads live in assets-src/ (not served);
 // models here were simplified + meshopt/webp compressed with gltf-transform.
-const BASE = '/assets';
+const BASE = `${import.meta.env.BASE_URL}assets`; // the game lives at jesusintech.com/games/
 const HDRIS = {
   monaco: 'ph/hdri/kloofendal_48d_partly_cloudy_puresky_4k.hdr',
   dubai: 'ph/hdri/kloofendal_43d_clear_puresky_4k.hdr',
@@ -36,7 +36,7 @@ export async function loadAll(r, onProgress = () => {}) {
   const gltfLoader = new GLTFLoader(manager);
   gltfLoader.setMeshoptDecoder(MeshoptDecoder);
   const draco = new DRACOLoader(manager);
-  draco.setDecoderPath('/draco/');
+  draco.setDecoderPath(`${import.meta.env.BASE_URL}draco/`);
   gltfLoader.setDRACOLoader(draco);
 
   const jobs = [];

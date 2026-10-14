@@ -5,6 +5,12 @@
 [build.environment]
   NODE_VERSION = "22"
 
+# the game is built into /games/ so jesusintech.com/games can proxy it
+[[redirects]]
+  from = "/"
+  to = "/games/"
+  status = 302
+
 [[headers]]
   for = "/*"
   [headers.values]
