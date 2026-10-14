@@ -9,7 +9,8 @@ export const CARS = {
     dims: { L: 4.95, W: 2.05 },
   },
   f458: {
-    maker: 'Ferrari', model: '458 Italia', type: 'super', gltf: 'ferrari',
+    // real scanned model in local dev only (licence unconfirmed); a lofted body on the public site
+    maker: 'Ferrari', model: '458 Italia', type: 'super', loft: 'revuelto', ...(import.meta.env.PROD ? {} : { gltf: 'ferrari' }),
     color: 0xa30b12, topSpeed: 325, accel: 11.5, grip: 8, steer: 0.64, engine: 'v8',
     dims: { L: 4.53, W: 1.94 },
   },

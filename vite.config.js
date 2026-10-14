@@ -24,8 +24,17 @@ const shotSaver = {
   },
 };
 
+// build only: keep the Ferrari model (licence unconfirmed) off the public site
+const stripPrivate = {
+  name: 'strip-private',
+  apply: 'build',
+  closeBundle() {
+    for (const f of ['assets/models/ferrari.glb', 'assets/models/ferrari_ao.png']) fs.rmSync(path.join('dist', f), { force: true });
+  },
+};
+
 export default defineConfig({
-  plugins: [shotSaver],
+  plugins: [shotSaver, stripPrivate],
   build: {
     target: 'es2022', // top-level await while assets load
     chunkSizeWarningLimit: 1200,

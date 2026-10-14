@@ -21,7 +21,10 @@ export const MODEL_NAMES = ['lamp_lo', 'shrub2_lo', 'island_tree_01', 'island_tr
 
 const store = { hdri: {}, tex: {}, model: {}, gltf: {}, misc: {} };
 // full glTFs (keep animations / named parts): three.js example models, see README credits
-const GLTFS = { ferrari: 'models/ferrari.glb', soldier: 'models/soldier.glb', cesiumman: 'models/cesiumman.glb', michelle: 'models/michelle.glb' };
+// The Ferrari model's licence is unconfirmed, so it only loads in local dev; the public build
+// gives the 458 a lofted body instead (see CARS.f458) and the files are stripped from dist.
+export const REAL_FERRARI = !import.meta.env.PROD;
+const GLTFS = { ...(REAL_FERRARI ? { ferrari: 'models/ferrari.glb' } : {}), soldier: 'models/soldier.glb', cesiumman: 'models/cesiumman.glb', michelle: 'models/michelle.glb' };
 let renderer = null;
 
 export async function loadAll(r, onProgress = () => {}) {
@@ -60,7 +63,7 @@ export async function loadAll(r, onProgress = () => {}) {
   for (const [k, p] of Object.entries(GLTFS)) {
     jobs.push(gltfLoader.loadAsync(`${BASE}/${p}`).then((g) => { store.gltf[k] = g; }));
   }
-  jobs.push(texLoader.loadAsync(`${BASE}/models/ferrari_ao.png`).then((t) => { store.misc.ferrariAO = t; }));
+  if (REAL_FERRARI) jobs.push(texLoader.loadAsync(`${BASE}/models/ferrari_ao.png`).then((t) => { store.misc.ferrariAO = t; }));
   jobs.push(loadMixamo(manager));
   await Promise.all(jobs);
 }
