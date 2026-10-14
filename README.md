@@ -43,5 +43,5 @@ for the `/games/` path (`base` and `outDir` in vite.config.js).
 The Ferrari 458 model's licence is unconfirmed, so it only loads in local dev: production builds give the 458 a lofted body
 and `vite.config.js` strips `ferrari.glb` / `ferrari_ao.png` from `dist`.
 
-Deploys run from this folder (Netlify builds it with `npm run build`). Move `assets-src/` and `shots/` out of the folder
-first or the upload is ~400 MB.
+Deploys run from this folder (Netlify builds it with `npm run build`). Move `assets-src/`, `shots/` and `node_modules/` out of the folder
+first (and delete `dist/`), or the upload is several hundred MB and can fail.
