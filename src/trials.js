@@ -112,7 +112,6 @@ export function setupTrials(world, hooks) {
     ctl.active = { def, i: 0, t: 0, countdown: 3.0, lastBeep: 4, car };
     place(0);
     hooks.snap?.();
-    hooks.toast(`${def.name} · ${def.cps.length} checkpoints · gold under ${fmtTime(def.medals.gold)}`, 3000);
   }
 
   ctl.cancel = (why) => {
@@ -133,7 +132,8 @@ export function setupTrials(world, hooks) {
       a.countdown -= dt;
       const n = Math.ceil(a.countdown);
       if (n < a.lastBeep) { a.lastBeep = n; hooks.beep(n > 0 ? 'count' : 'go'); }
-      hooks.hud(n > 0 ? `<b>${n}</b>` : '<b>GO</b>');
+      // the intro lives in the strip (a toast would sit on top of the big digits)
+      hooks.hud(`${a.def.name}<small>${a.def.cps.length} checkpoints · gold under ${fmtTime(a.def.medals.gold)}</small><b>${n > 0 ? n : 'GO'}</b>`);
       return a.countdown > 0;
     }
     a.t += dt;
