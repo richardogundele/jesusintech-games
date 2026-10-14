@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { setupSky, buildRoad, distToRoads, buildingBlocks, buildingDetails, roofs, streetLamps, Colliders, parkJets } from './common.js';
+import { setupSky, buildRoad, distToRoads, buildingBlocks, buildingDetails, roofs, streetLamps, Colliders, parkJets, rivieraDetails } from './common.js';
 import { M, waterMaterial, groundTexture, label, facadeMaterial } from '../materials.js';
 import { buildYacht, buildJet, palms, planExtrude, mesh, rocks, stonePines } from '../models.js';
 import { JETS } from '../catalog.js';
@@ -153,9 +153,18 @@ export function buildMonaco(renderer) {
   // a couple of towers (Monaco's skyline isn't all low-rise)
   blocks.push({ x: 205, z: -302, y: 21, w: 22, d: 22, h: 150, color: '#c9d3da' });
   blocks.push({ x: -160, z: -276, y: 14, w: 20, d: 18, h: 90, color: '#e3dccd' });
-  scene.add(buildingBlocks(blocks, { winSize: [2.8, 3.2], winColor: 0x1a2530, amount: 0.92, tex: texSet('painted_plaster_wall'), texScale: 0.35, shutters: 0x4d6b54, brighten: 1.35 }));
-  scene.add(roofs(blocks.filter((_, i) => i % 3 === 0), pbr('clay_roof_tiles_02', { repeat: [3, 2] })));
-  scene.add(buildingDetails(blocks.filter((b) => b.h < 100), roads));
+  // setback top floors on some of the taller blocks, so rooflines step instead of ending flat
+  const attics = [];
+  for (const b of blocks) {
+    if (b.h > 18 && b.h < 60 && Math.random() < 0.3) { b.hasAttic = true; attics.push({ x: b.x, z: b.z, y: (b.y || 0) + b.h, w: b.w - 3.2, d: b.d - 3.2, h: 3.3, color: b.color, attic: true }); }
+  }
+  const bodies = [...blocks, ...attics];
+  scene.add(buildingBlocks(bodies, { winSize: [2.8, 3.2], winColor: 0x1a2530, amount: 0.92, tex: texSet('painted_plaster_wall'), texScale: 0.35, shutters: 0x4d6b54, brighten: 1.35 }));
+  // balconies, quoins, mansards with dormers, roof terraces and turrets; terracotta hips on the rest
+  const riviera = rivieraDetails(bodies, roads, { win: [2.8, 3.2], seaward: { axis: 'z', s: 1 } });
+  scene.add(riviera.group);
+  scene.add(roofs(riviera.hipped, pbr('clay_roof_tiles_02', { repeat: [3, 2] })));
+  scene.add(buildingDetails(bodies.filter((b) => b.h < 100 && !b.attic), roads));
 
   // ---- Casino de Monte-Carlo ----
   const casino = new THREE.Group();

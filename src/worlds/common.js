@@ -425,3 +425,248 @@ export function broadleafTrees(spots, { leaf = [0.27, 0.38, 0.26], trunk = 0x5a4
   for (const im of [trunks, crowns]) { im.castShadow = true; im.receiveShadow = true; im.computeBoundingSphere(); g.add(im); }
   return g;
 }
+
+// ---------- architecture: break up the boxes ----------
+const rnd = (a, b) => a + Math.random() * (b - a);
+
+function railingTexture() {
+  const c = document.createElement('canvas');
+  c.width = 128; c.height = 64;
+  const ctx = c.getContext('2d');
+  ctx.clearRect(0, 0, 128, 64);
+  ctx.fillStyle = '#1e2420';
+  ctx.fillRect(0, 0, 128, 7);       // top rail
+  ctx.fillRect(0, 54, 128, 6);      // bottom rail
+  for (let x = 2; x < 128; x += 10) ctx.fillRect(x, 0, 3, 64); // balusters
+  ctx.beginPath(); ctx.lineWidth = 3; ctx.strokeStyle = '#1e2420';
+  for (let x = 0; x < 128; x += 20) { ctx.moveTo(x, 54); ctx.quadraticCurveTo(x + 10, 30, x + 20, 54); }
+  ctx.stroke();
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = THREE.RepeatWrapping;
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
+/** which horizontal axis + sign a block's street face points along */
+function streetFace(b, roads, fallback = { axis: 'z', s: 1 }) {
+  if (!roads || (b.y || 0) > 0) return fallback;
+  let best = null, bd = Infinity;
+  for (const r of roads) for (const p of r.points) {
+    const d = (p.x - b.x) ** 2 + (p.z - b.z) ** 2;
+    if (d < bd) { bd = d; best = p; }
+  }
+  const dx = best.x - b.x, dz = best.z - b.z;
+  return Math.abs(dx) > Math.abs(dz) ? { axis: 'x', s: Math.sign(dx) } : { axis: 'z', s: Math.sign(dz) };
+}
+
+/**
+ * Riviera detailing for low/mid-rise blocks: balconies with iron railings on the street face,
+ * stone quoins, a mix of slate mansard roofs with dormers, roof terraces with parasols, and a few
+ * corner turrets with domes. Returns { group, hipped } (hipped = blocks that want terracotta roofs).
+ * win = the facade material's window grid [w, h] so balconies line up with the painted windows.
+ */
+export function rivieraDetails(blocks, roads, { win = [2.8, 3.2], seaward = { axis: 'z', s: 1 } } = {}) {
+  const slabs = [], quoins = [], parapets = [], planters = [], dormers = [], dormerWin = [];
+  const railG = [], mansardG = [], turretG = [], domeG = [], poleG = [], shadeG = [];
+  const hipped = [];
+  const turretColors = [];
+  for (const b of blocks) {
+    if (b.h >= 60) continue; // towers keep their own look
+    const base = b.y || 0, top = base + b.h;
+    // ---- quoins: pale stone strips at the four corners ----
+    for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) quoins.push({ x: b.x + sx * b.w / 2, y: base, z: b.z + sz * b.d / 2, w: 0.55, h: b.h, d: 0.55 });
+    // ---- balconies on the street (or sea) face, lined up with the window grid ----
+    const f = streetFace(b, roads, seaward);
+    const along = f.axis === 'z' ? 'x' : 'z';
+    const faceC = f.axis === 'z' ? b.z + f.s * b.d / 2 : b.x + f.s * b.w / 2;
+    const span = along === 'x' ? b.w : b.d, centre = along === 'x' ? b.x : b.z;
+    const style = b.attic ? 'none' : Math.random() < 0.45 ? 'french' : Math.random() < 0.6 ? 'continuous' : 'none';
+    if (style !== 'none') {
+      const n0 = Math.ceil((Math.max(base, 2.4) / win[1]) - 0.28 + 1e-3), n1 = Math.floor((top - 0.6) / win[1] - 0.86);
+      for (let n = Math.max(n0, 1); n <= n1; n++) {
+        if (style === 'continuous' && n % 2) continue;
+        const y = (n + 0.28) * win[1];
+        const depth = style === 'french' ? 0.55 : 1.2;
+        const segs = [];
+        if (style === 'french') {
+          for (let k = Math.ceil((centre - span / 2 + 1) / win[0] - 0.5); (k + 0.5) * win[0] < centre + span / 2 - 1; k++) segs.push([(k + 0.5) * win[0], win[0] * 0.55]);
+        } else segs.push([centre, span - 1.2]);
+        for (const [c, w] of segs) {
+          const out = faceC + f.s * depth / 2;
+          slabs.push(f.axis === 'z' ? { x: c, y: y - 0.2, z: out, w, h: 0.2, d: depth } : { x: out, y: y - 0.2, z: c, w: depth, h: 0.2, d: w });
+          const rail = new THREE.PlaneGeometry(w, 1.0);
+          const uv = rail.attributes.uv;
+          for (let i = 0; i < uv.count; i++) uv.setX(i, uv.getX(i) * w / 1.3);
+          if (f.axis === 'x') rail.rotateY(Math.PI / 2);
+          const edge = faceC + f.s * depth;
+          rail.translate(f.axis === 'z' ? c : edge, y + 0.5, f.axis === 'z' ? edge : c);
+          railG.push(rail);
+        }
+      }
+    }
+    // ---- roofline ----
+    const roll = Math.random();
+    if (b.hasAttic) continue; // its setback storey carries the roof
+    if (b.attic || b.h < 9) { hipped.push(b); continue; }
+    if (roll < 0.3) hipped.push(b);
+    else if (roll < 0.58) {
+      // slate mansard with dormers
+      const g = new THREE.CylinderGeometry(Math.SQRT1_2 * 0.7, Math.SQRT1_2, 1, 4, 1);
+      g.rotateY(Math.PI / 4);
+      g.scale(b.w + 0.4, 3.4, b.d + 0.4);
+      g.translate(b.x, top + 1.7, b.z);
+      mansardG.push(g);
+      for (const [axis, s] of [['z', 1], ['z', -1], ['x', 1], ['x', -1]]) {
+        const len = axis === 'z' ? b.w : b.d;
+        const nD = Math.max(1, Math.floor(len / 4.2));
+        for (let k = 0; k < nD; k++) {
+          const o = -len / 2 + (k + 0.5) * (len / nD);
+          const inset = (axis === 'z' ? b.d : b.w) / 2 - 0.55;
+          const p = axis === 'z' ? { x: b.x + o, z: b.z + s * inset } : { x: b.x + s * inset, z: b.z + o };
+          dormers.push({ x: p.x, y: top + 0.35, z: p.z, w: axis === 'z' ? 1.3 : 1.1, h: 1.7, d: axis === 'z' ? 1.1 : 1.3 });
+          const wp = axis === 'z' ? { x: p.x, z: p.z + s * 0.56 } : { x: p.x + s * 0.56, z: p.z };
+          dormerWin.push({ x: wp.x, y: top + 0.6, z: wp.z, w: axis === 'z' ? 0.7 : 0.05, h: 1.0, d: axis === 'z' ? 0.05 : 0.7 });
+        }
+      }
+    } else {
+      // flat roof terrace: parapet, planters, a parasol or two
+      const t = 0.25, ph = 0.9;
+      parapets.push({ x: b.x, y: top, z: b.z + b.d / 2 - t / 2, w: b.w, h: ph, d: t }, { x: b.x, y: top, z: b.z - b.d / 2 + t / 2, w: b.w, h: ph, d: t },
+        { x: b.x + b.w / 2 - t / 2, y: top, z: b.z, w: t, h: ph, d: b.d }, { x: b.x - b.w / 2 + t / 2, y: top, z: b.z, w: t, h: ph, d: b.d });
+      for (let k = 0; k < 3; k++) planters.push({ x: b.x + rnd(-b.w / 2 + 1.5, b.w / 2 - 1.5), y: top, z: b.z + rnd(-b.d / 2 + 1.5, b.d / 2 - 1.5), w: 1.2, h: 1.1, d: 1.2 });
+      if (b.w > 10) {
+        for (let k = 0; k < 1 + Math.floor(Math.random() * 2); k++) {
+          const px = b.x + rnd(-b.w / 4, b.w / 4), pz = b.z + rnd(-b.d / 4, b.d / 4);
+          poleG.push(new THREE.CylinderGeometry(0.05, 0.05, 2.4, 5).translate(px, top + 1.2, pz));
+          shadeG.push(new THREE.ConeGeometry(1.6, 0.6, 8, 1, true).translate(px, top + 2.5, pz));
+        }
+      }
+    }
+    // ---- a corner turret now and then on street-front buildings ----
+    if (!base && b.h > 14 && b.h < 40 && Math.random() < 0.14) {
+      const cx = b.x + (Math.random() < 0.5 ? -1 : 1) * b.w / 2, cz = b.z + (Math.random() < 0.5 ? -1 : 1) * b.d / 2;
+      const th = b.h + 3;
+      turretG.push(new THREE.CylinderGeometry(2.5, 2.5, th, 20).translate(cx, th / 2, cz));
+      turretColors.push(b.color);
+      domeG.push(new THREE.SphereGeometry(2.7, 18, 10, 0, Math.PI * 2, 0, Math.PI / 2).scale(1, 1.25, 1).translate(cx, th, cz));
+      domeG.push(new THREE.ConeGeometry(0.25, 2.2, 6).translate(cx, th + 4.2, cz));
+    }
+  }
+  const stone = new THREE.MeshStandardMaterial({ color: 0xece4d4, roughness: 0.8 });
+  const slate = new THREE.MeshStandardMaterial({ color: 0x4a5058, roughness: 0.75, metalness: 0.15, flatShading: true });
+  const white = new THREE.MeshStandardMaterial({ color: 0xf1ece2, roughness: 0.7 });
+  const dark = new THREE.MeshStandardMaterial({ color: 0x1b2229, roughness: 0.2, metalness: 0.5 });
+  const green = new THREE.MeshStandardMaterial({ color: 0x4f7a3a, roughness: 1 });
+  const rail = new THREE.MeshStandardMaterial({ map: railingTexture(), alphaTest: 0.5, side: THREE.DoubleSide, roughness: 0.5, metalness: 0.6, color: 0xffffff });
+  const copper = new THREE.MeshStandardMaterial({ color: 0x5f9c86, roughness: 0.5, metalness: 0.4 });
+  const canvasMat = new THREE.MeshStandardMaterial({ color: 0xf3efe6, roughness: 0.9, side: THREE.DoubleSide });
+  const g = new THREE.Group();
+  const merged = (list, mat, cast = true) => { if (!list.length) return; const m = new THREE.Mesh(mergeGeometries(list), mat); m.castShadow = cast; m.receiveShadow = true; g.add(m); };
+  if (slabs.length) g.add(instancedBoxes(slabs, stone));
+  g.add(instancedBoxes(quoins, stone));
+  if (parapets.length) g.add(instancedBoxes(parapets, stone));
+  if (planters.length) g.add(instancedBoxes(planters, green));
+  if (dormers.length) { g.add(instancedBoxes(dormers, white)); g.add(instancedBoxes(dormerWin, dark, { cast: false })); }
+  merged(railG, rail, false);
+  merged(mansardG, slate);
+  merged(domeG, copper);
+  merged(poleG, white, false);
+  merged(shadeG, canvasMat);
+  if (turretG.length) {
+    const tm = facadeMaterial({ winSize: [1.6, 3.2], winColor: 0x1a2530, amount: 0.8, roughness: 0.85 });
+    tm.vertexColors = true;
+    turretG.forEach((geo, i) => {
+      const c = new THREE.Color(turretColors[i]).multiplyScalar(1.25);
+      const col = new Float32Array(geo.attributes.position.count * 3);
+      for (let k = 0; k < col.length; k += 3) col.set([c.r, c.g, c.b], k);
+      geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    });
+    merged(turretG, tm);
+  }
+  return { group: g, hipped };
+}
+
+/** A tower whose square floor plates rotate as it rises (Cayan Tower style). */
+function twistedTower(w, h, turn, floors = 24) {
+  const pos = [], idx = [];
+  for (let i = 0; i <= floors; i++) {
+    const y = (i / floors) * h, a = (i / floors) * turn;
+    for (let k = 0; k < 4; k++) {
+      const ang = a + Math.PI / 4 + (k * Math.PI) / 2;
+      pos.push(Math.cos(ang) * w * Math.SQRT1_2, y, Math.sin(ang) * w * Math.SQRT1_2);
+    }
+  }
+  for (let i = 0; i < floors; i++) for (let k = 0; k < 4; k++) {
+    const a = i * 4 + k, b = i * 4 + ((k + 1) % 4), c = a + 4, d = b + 4;
+    idx.push(a, c, b, b, c, d);
+  }
+  const top = floors * 4;
+  idx.push(top, top + 2, top + 1, top, top + 3, top + 2);
+  let geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setIndex(idx);
+  geo = geo.toNonIndexed(); // flat facets so the window grid reads per face
+  geo.computeVertexNormals();
+  return geo;
+}
+
+/**
+ * Modern towers for a skyline: each spec { x, z, w, d, h, color } becomes one of: stepped setbacks,
+ * a round tower with a crown, a twisting tower, or a tapered tower with a spire; front-row towers sit
+ * on a podium. Returns a group (setbacks are instanced boxes, the rest merged with vertex colours).
+ */
+export function modernTowers(specs, matOpts) {
+  const boxes = [], shapes = [], colors = [], metal = [];
+  for (const t of specs) {
+    const kind = t.kind || (t.h < 110 ? 'setback' : ['setback', 'round', 'twist', 'taper', 'setback'][Math.floor(Math.random() * 5)]);
+    if (t.podium) boxes.push({ x: t.x, z: t.z, w: t.w * 1.3, d: t.d * 1.3, h: rnd(10, 16), color: t.color });
+    if (kind === 'setback') {
+      const tiers = t.h > 160 ? 3 : 2;
+      let y = 0, w = t.w, d = t.d;
+      for (let i = 0; i < tiers; i++) {
+        const h = i === tiers - 1 ? t.h - y : t.h * (i === 0 ? 0.55 : 0.28);
+        boxes.push({ x: t.x, z: t.z, y, w, d, h, color: t.color });
+        y += h; w *= 0.78; d *= 0.78;
+      }
+      if (Math.random() < 0.5) metal.push(new THREE.CylinderGeometry(0.4, 0.9, t.h * 0.12, 6).translate(t.x, t.h + t.h * 0.06, t.z));
+    } else if (kind === 'round') {
+      const r = Math.min(t.w, t.d) / 2;
+      shapes.push(new THREE.CylinderGeometry(r * 0.9, r, t.h, 28).translate(t.x, t.h / 2, t.z)); colors.push(t.color);
+      shapes.push(new THREE.CylinderGeometry(r * 0.55, r * 0.9, t.h * 0.07, 28).translate(t.x, t.h * 1.035, t.z)); colors.push(t.color);
+      metal.push(new THREE.CylinderGeometry(0.3, 0.6, t.h * 0.15, 6).translate(t.x, t.h * 1.07 + t.h * 0.075, t.z));
+    } else if (kind === 'twist') {
+      shapes.push(twistedTower(Math.min(t.w, t.d), t.h, rnd(0.9, 1.6) * (Math.random() < 0.5 ? 1 : -1)).translate(t.x, 0, t.z)); colors.push(t.color);
+    } else {
+      const g = new THREE.CylinderGeometry(Math.SQRT1_2 * 0.62, Math.SQRT1_2, 1, 4, 1);
+      g.rotateY(Math.PI / 4);
+      g.scale(t.w, t.h, t.d);
+      shapes.push(g.translate(t.x, t.h / 2, t.z)); colors.push(t.color);
+      metal.push(new THREE.ConeGeometry(Math.min(t.w, t.d) * 0.2, t.h * 0.22, 8).translate(t.x, t.h * 1.11, t.z));
+    }
+  }
+  const group = new THREE.Group();
+  group.add(buildingBlocks(boxes, matOpts));
+  if (shapes.length) {
+    const mat = facadeMaterial(matOpts);
+    mat.vertexColors = true;
+    shapes.forEach((geo, i) => {
+      const g2 = geo.index ? geo.toNonIndexed() : geo;
+      shapes[i] = g2;
+      g2.deleteAttribute('uv');
+      const c = new THREE.Color(colors[i]);
+      const col = new Float32Array(g2.attributes.position.count * 3);
+      for (let k = 0; k < col.length; k += 3) col.set([c.r, c.g, c.b], k);
+      g2.setAttribute('color', new THREE.BufferAttribute(col, 3));
+      if (g2.attributes.normal == null) g2.computeVertexNormals();
+    });
+    const m = new THREE.Mesh(mergeGeometries(shapes), mat);
+    m.castShadow = true; m.receiveShadow = true;
+    group.add(m);
+  }
+  if (metal.length) {
+    const m = new THREE.Mesh(mergeGeometries(metal.map((g) => (g.index ? g.toNonIndexed() : g)).map((g) => { g.deleteAttribute('uv'); return g; })), new THREE.MeshStandardMaterial({ color: 0xdfe4e8, metalness: 0.9, roughness: 0.2 }));
+    m.castShadow = true;
+    group.add(m);
+  }
+  return group;
+}

@@ -68,6 +68,8 @@ export function facadeMaterial({ winSize = [2.6, 3.2], winColor = 0x1d2733, amou
         '#include <color_fragment>',
         `#include <color_fragment>
         float fw = 0.0;
+        // flat roofs: plant-room grey rather than the wall colour (and no bloom glare from above)
+        if (vWN.y > 0.5) diffuseColor.rgb *= 0.55;
         if (abs(vWN.y) < 0.5) {
           float u = abs(vWN.x) > 0.5 ? vWPos.z : vWPos.x;
           float fu = fract(u / uWinSize.x);
@@ -86,8 +88,8 @@ export function facadeMaterial({ winSize = [2.6, 3.2], winColor = 0x1d2733, amou
           diffuseColor.rgb = mix(diffuseColor.rgb, glass, fw);
         }`
       )
-      .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = mix(roughnessFactor, 0.04, fw);')
-      .replace('#include <metalnessmap_fragment>', '#include <metalnessmap_fragment>\nmetalnessFactor = mix(metalnessFactor, 0.85, fw);')
+      .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = mix(roughnessFactor, 0.04, fw);\nif (vWN.y > 0.5) roughnessFactor = 0.92;')
+      .replace('#include <metalnessmap_fragment>', '#include <metalnessmap_fragment>\nmetalnessFactor = mix(metalnessFactor, 0.85, fw);\nif (vWN.y > 0.5) metalnessFactor = 0.05;')
       .replace('#include <normal_fragment_maps>', '#include <normal_fragment_maps>\nnormal = normalize(mix(normal, nonPerturbedNormal, fw));');
   };
   mat.customProgramCacheKey = () => `facade-${winSize.join('-')}-${amount}-${tex ? 1 : 0}-${shutters ?? 'n'}`;

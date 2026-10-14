@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { setupSky, buildRoad, buildingBlocks, streetLamps, Colliders, parkJets, jetRow } from './common.js';
+import { setupSky, buildRoad, buildingBlocks, streetLamps, Colliders, parkJets, jetRow, modernTowers } from './common.js';
 import { M, waterMaterial, groundTexture, label, facadeMaterial } from '../materials.js';
 import { buildJet, palms, mesh } from '../models.js';
 import { JETS, STARTER_JETS } from '../catalog.js';
@@ -78,13 +78,13 @@ export function buildDubai(renderer) {
         if (side > 0 && Math.abs(bz - 600) < 26) continue;
         if (side > 0 && Math.abs(bz - (HOME.z + 70)) < 26) continue;
         if (side > 0 && Math.abs(bz + 560) < 26) continue; // arena road
-        blocks.push({ x, z: bz, w, d, h, color: pick(tones) });
-        if (front && Math.random() < 0.5) blocks.push({ x, z: bz, y: h, w: w * 0.6, d: d * 0.6, h: rand(12, 40), color: pick(tones) });
-        colliders.box(x, bz, w, d);
+        blocks.push({ x, z: bz, w, d, h, color: pick(tones), podium: front && Math.random() < 0.45 });
+        colliders.box(x, bz, front ? w * 1.3 : w, front ? d * 1.3 : d);
       }
     }
   }
-  scene.add(buildingBlocks(blocks, { winSize: [1.8, 3.6], winColor: 0x24435a, amount: 0.92, roughness: 0.35, metalness: 0.4 }));
+  // Sheikh Zayed Road's towers: setbacks, round towers with crowns, twisting towers, tapered spires, on podiums
+  scene.add(modernTowers(blocks, { winSize: [1.8, 3.6], winColor: 0x24435a, amount: 0.92, roughness: 0.3, metalness: 0.45 }));
 
   // ---- Burj Khalifa (stepped, Y-plan setbacks approximated with hex tiers) ----
   const burjMat = facadeMaterial({ winSize: [1.4, 3.6], winColor: 0x3b5268, amount: 0.9, roughness: 0.25, metalness: 0.7 });
