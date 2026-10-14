@@ -42,11 +42,19 @@ Real brand names and an unlicensed Ferrari model are in here, so it must stay pr
 It reads the password from the `GAME_PASSWORD` environment variable in Netlify (scope: Functions) and
 **fails closed**: until that variable is set, nobody can get in.
 
-Deploy (from this folder, logged in to your own Netlify account):
+First deploy (from this folder, with your own Netlify login). Set the password *before* deploying:
+edge functions only see environment values that existed when the deploy was made.
 
 ```bash
+npx netlify-cli login
+npx netlify-cli sites:create --name jesusintech-games
+npx netlify-cli env:set GAME_PASSWORD "your-password-here" --scope functions
 npx netlify-cli deploy --build --prod
 ```
+
+If you set or change `GAME_PASSWORD` later in the Netlify UI (Project configuration > Environment variables,
+scope must include Functions), run the deploy command again. Until then the site shows a password prompt
+that no password gets past. That's the fail-closed setting doing its job.
 
 After deploying, check both of these return 401 without the password:
 `curl -I https://<site>.netlify.app/` and `curl -I https://<site>.netlify.app/assets/models/ferrari.glb`.

@@ -520,9 +520,9 @@ function addLPlates(c) {
 function updateIndicators(dt, dHeading) {
   if (drive.indicator !== drive.lastInd) { drive.lastInd = drive.indicator; drive.turned = 0; }
   if (drive.indicator) {
-    // self-cancel once the turn is done, like a real stalk
-    drive.turned += Math.abs(Math.atan2(Math.sin(dHeading), Math.cos(dHeading)));
-    if (drive.turned > 1.05 && Math.abs(car.steer) < 0.04) drive.indicator = null;
+    // self-cancel once a real turn is done (net heading change, so small corrections don't count)
+    drive.turned += Math.atan2(Math.sin(dHeading), Math.cos(dHeading));
+    if (Math.abs(drive.turned) > 1.05 && Math.abs(car.steer) < 0.04) drive.indicator = null;
   }
   drive.blink += dt;
   const lit = drive.indicator && drive.blink % 0.8 < 0.4;
