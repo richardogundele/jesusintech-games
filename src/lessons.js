@@ -3,7 +3,53 @@
 // way a DVSA examiner would: driving faults (minors), serious and dangerous faults.
 // Pass = 15 or fewer driving faults and no serious or dangerous faults.
 import * as THREE from 'three';
-import { buildRoute, MPH, LANE } from './worlds/uk.js';
+import { buildRoute, MPH, LANE, LW, LOT, BAYS, inLot } from './worlds/uk.js';
+
+const BAY_X = BAYS[8].x;
+// the last few metres of the test: left into the test centre, along the aisle, forward into a bay
+const INTO_BAY = [
+  { x: LOT.entryX, z: 0, off: 0, text: 'Turn left into the test centre car park, please.' },
+  { x: LOT.entryX, z: 14, off: 0, ev: 'bend', text: '', r: 4 },
+  { x: BAY_X, z: 14, off: 0, ev: 'bend', text: '', r: 4 },
+  { x: BAY_X, z: 21.6 },
+];
+
+// Official-style "tell me" (asked before you drive) and "show me" (asked while you drive) questions.
+// A wrong answer is one driving fault, as on the real test.
+export const TELL_ME = [
+  { q: "Tell me how you'd check that the brakes are working before starting a journey.", a: ["They shouldn't feel spongy or slack. Test them as you set off: the car shouldn't pull to one side.", 'Press the horn and listen.', 'Pump the pedal ten times with the engine off.', 'Check the brake fluid is warm.'] },
+  { q: "Tell me how you'd check the tyres have enough tread depth and are in good condition.", a: ['No cuts or bulges, and at least 1.6 mm of tread across the central three-quarters, all the way round.', 'At least 1 mm of tread anywhere on the tyre.', 'Kick them; if they feel firm they are fine.', 'Look for the TWI mark on the sidewall only.'] },
+  { q: "Tell me how you'd check that the headlights and tail lights are working.", a: ['Switch them on (ignition on if needed) and walk round the car, or use a reflection.', 'Flash the high beam at another car.', 'Check the bulbs are warm after a drive.', "Look at the dashboard warning light: if it's off, they work."] },
+  { q: "Tell me where you'd find the information for the right tyre pressures for this car.", a: ["In the manufacturer's guide (handbook). Check and adjust them when the tyres are cold.", 'On the speedometer.', 'At any petrol pump: they are the same for all cars.', 'On the number plate.'] },
+];
+export const SHOW_ME = [
+  { q: "Show me how you'd wash and clean the rear windscreen.", a: ['Operate the rear wiper and washer control.', 'Switch on the hazard lights.', 'Open the rear window.', 'Turn on the heated seats.'] },
+  { q: "Show me how you'd switch on your dipped headlights.", a: ['Operate the light switch to dipped beam (and turn it back off).', 'Flash the headlights twice.', 'Switch on the front fog lights.', 'Switch on the interior light.'] },
+  { q: "Show me how you'd demist the front windscreen.", a: ['Set the fan and blower to the front windscreen, with air con on if the car has it.', 'Open the sunroof.', 'Use the rear wiper.', 'Turn the heater to the footwell only.'] },
+  { q: "Show me how you'd operate the horn.", a: ['Press the horn (only if it is safe; the examiner asks you to do it while stationary or on a quiet road).', 'Flash the headlights.', 'Wind the window down and shout.', 'Switch on the hazard lights.'] },
+];
+const LETTERS = 'ABCDEFGHJKLMNPRSTUVWXYZ';
+export function randomPlate() {
+  const L = () => LETTERS[Math.floor(Math.random() * LETTERS.length)];
+  const yy = String(Math.floor(Math.random() * 20) + 51).padStart(2, '0'); // UK age identifier style
+  return `${L()}${L()}${yy} ${L()}${L()}${L()}`;
+}
+/** four plates that look alike; the first is the real one */
+export function plateOptions(real) {
+  const out = [real];
+  const swap = { O: 'D', D: 'O', E: 'F', F: 'E', B: '8', 8: 'B', S: '5', 5: 'S', M: 'N', N: 'M', V: 'Y', Y: 'V', 1: '7', 7: '1', 3: '8', H: 'M' };
+  while (out.length < 4) {
+    const chars = real.split('');
+    for (let k = 0; k < 2; k++) {
+      const i = Math.floor(Math.random() * chars.length);
+      if (chars[i] === ' ') continue;
+      chars[i] = swap[chars[i]] || LETTERS[Math.floor(Math.random() * LETTERS.length)];
+    }
+    const c = chars.join('');
+    if (!out.includes(c)) out.push(c);
+  }
+  return out;
+}
 
 export const LESSONS = [
   {
@@ -27,8 +73,19 @@ export const LESSONS = [
     intro: 'Pedestrian crossings and traffic lights. If someone is waiting at the zebra, stop and let them cross. Stop at a red light behind the white line.',
   },
   {
-    id: 'mock', title: 'Mock driving test', blurb: 'The full route. Fifteen driving faults or fewer and no serious faults to pass.', mock: true,
-    stops: ['TC', 'J1', 'CLT', 'J3', 'RB', 'J4', 'RVE', 'J5', 'RB', { x: -235, z: 0 }],
+    id: 'dual', title: 'Dual carriageways and country roads', blurb: 'The A30 bypass at 70, Moor Lane at 60, two big roundabouts, lane discipline.',
+    stops: ['TC', 'J1', 'RB', 'J4', 'RVW', 'RB2', 'RB3', 'MLN', 'EEND', { x: 160, z: 0 }],
+    intro: "Today we're leaving town. The white sign with a black bar means the national speed limit: 70 on a dual carriageway, 60 on a single road. Keep to the left lane unless you're overtaking, and check your mirrors and signal before you change lanes.",
+  },
+  {
+    id: 'manoeuvres', title: 'Emergency stop and bay parking', blurb: 'Stop quickly and under control when told; finish inside a bay.',
+    stops: ['TC', 'J1', 'CLT', 'J3', 'RB', ...INTO_BAY], end: 'baypark', estop: 1,
+    intro: "Two test skills today. At some point I'll say 'Stop!': brake firmly and quickly, like a child just ran out. Then at the end we'll park in a bay at the test centre. Use your mirrors before you reverse.",
+  },
+  {
+    id: 'mock', title: 'Mock driving test', blurb: 'The real format: eyesight check, show me/tell me, independent driving on the sat nav, a manoeuvre, sometimes an emergency stop. 15 driving faults or fewer and no serious faults to pass.', mock: true,
+    stops: ['TC', 'J1', 'CLT', 'J3', 'RB', 'J4', 'RVW', 'RB2', 'RB3', 'MLN', 'EEND', 'RB', ...INTO_BAY], end: 'baypark',
+    checks: true, estop: 1 / 3, independent: [0.36, 0.66], showMe: 0.7,
     intro: "Good morning. I'd like you to follow the road ahead unless traffic signs direct you otherwise. When I want you to turn, I'll ask you in good time. Move off when you're ready.",
   },
 ];
@@ -41,7 +98,18 @@ export class LessonRun {
     this.world = world;
     this.def = def;
     this.hooks = hooks;
-    this.route = buildRoute(def.stops);
+    this.route = buildRoute(def.stops, { end: def.end || 'pullup' });
+    this.lane = 1;
+    this.dirChanges = 0;
+    this.lastDir = 0;
+    // emergency stop: on a clear straight stretch in town, some of the time
+    if (def.estop && Math.random() < def.estop) {
+      const busy = (s) => this.route.events.some((e) => Math.abs((e.entryS ?? e.s) - s) < 50);
+      const p = this.route.pts.find((q) => q.s > 260 && q.road && !q.road.rural && q.road.limit >= 30 && !busy(q.s) && !busy(q.s + 40));
+      if (p) this.estop = { s: p.s, state: 'armed' };
+    }
+    if (def.independent) this.indep = def.independent.map((f) => f * this.route.length);
+    if (def.showMe) this.showMeS = def.showMe * this.route.length;
     this.events = this.route.events.map((e) => ({ ...e }));
     this.faults = [];
     this.t = 0;
@@ -67,6 +135,8 @@ export class LessonRun {
     this.text = text;
     this.hooks.say(text);
   }
+
+  get independent() { return this.indep && this.s > this.indep[0] && this.s < this.indep[1]; }
 
   fault(sev, cat, coolKey = cat, cooldown = 0) {
     if (cooldown && this.cool[coolKey] > this.t) return;
@@ -102,13 +172,13 @@ export class LessonRun {
   }
 
   nearJunction(margin = 28) {
-    return this.events.some((e) => ['turn', 'emerge', 'bend', 'rb'].includes(e.kind) && this.s > e.s - margin && this.s < e.s + (e.kind === 'rb' ? 75 : margin))
-      || Math.hypot(this.carPos.x - this.world.rb.x, this.carPos.z - this.world.rb.z) < this.world.rb.outer + 6;
+    return this.events.some((e) => ['turn', 'emerge', 'bend', 'rb'].includes(e.kind) && this.s > e.s - margin && this.s < e.s + (e.kind === 'rb' ? 110 : margin))
+      || this.world.rbs.some((rb) => Math.hypot(this.carPos.x - rb.x, this.carPos.z - rb.z) < rb.outer + 8);
   }
 
   /** ctl: { indicator: 'left'|'right'|null, mirrorPressed: bool, hit: bool } */
   update(dt, car, ctl) {
-    if (this.done) return;
+    if (this.done || this.waiting) return;
     this.t += dt;
     this.carPos = car.pos;
     const prevS = this.s;
@@ -125,13 +195,18 @@ export class LessonRun {
     if (!this.moved && mph > 2) {
       this.moved = true;
       if (!this.mirror.some((m) => this.t - m.t < 10)) this.fault('minor', 'Move off: safety (mirrors)');
-      if (!this.sig.some((x) => x.dir === 'right' && this.t - x.t < 10)) this.fault('minor', 'Signals: necessary (moving off)');
+      // after an emergency stop you're already in the lane: mirrors yes, signal only if needed
+      if (!this.afterStop && !this.sig.some((x) => x.dir === 'right' && this.t - x.t < 10)) this.fault('minor', 'Signals: necessary (moving off)');
     }
 
     // ---- events ----
     for (const e of this.events) {
       const lead = e.kind === 'pullup' ? 70 : e.kind === 'rb' ? 75 : 65;
-      if (e.text && !e.said && s > e.s - lead && this.moved) { e.said = true; this.say(e.text); }
+      if (e.text && !e.said && s > e.s - lead && this.moved) {
+        e.said = true;
+        // independent driving: the sat nav gives the directions, not the examiner
+        this.say(this.independent && e.kind !== 'baypark' && e.kind !== 'pullup' ? `Sat nav: ${e.text.replace('At the', 'In 200 metres, at the').replace('Take the next', 'In 150 metres, take the next')}` : e.text);
+      }
       if (['turn', 'emerge', 'rb'].includes(e.kind) && !e.marked && s > e.s + (e.kind === 'rb' ? 20 : 10)) {
         e.marked = true;
         const ref = e.s;
@@ -151,7 +226,7 @@ export class LessonRun {
       if (e.kind === 'rb' && !e.entryDone && crossed(e.entryS + 1.7)) {
         e.entryDone = true;
         if (mph > 16) this.fault('minor', 'Junctions: approach speed');
-        if (this.rbConflict(car)) this.fault('serious', 'Junctions: observation (did not give way to the right)');
+        if (this.rbConflict(car, 18, e.node)) this.fault('serious', 'Junctions: observation (did not give way to the right)');
       }
       if (e.kind === 'lights' && !e.done && crossed(e.s)) {
         e.done = true;
@@ -169,11 +244,68 @@ export class LessonRun {
     if (this.held('vfast', mph > limit + 10, dt, 1.0)) this.fault('serious', 'Speed (well over the limit)', 'vspeed', 15);
     const nearJ = this.nearJunction();
     const pullingUp = s > this.route.length - 60;
-    if (!nearJ && this.dist < 8) {
+    const here = this.route.pts[this.idx];
+    const dual = here.road?.lanes === 2;
+    const parkPhase = inLot(car.pos.x, car.pos.z);
+    if (dual && !nearJ && this.dist < 12) {
+      // dual carriageway: lane 1 is the route; lane 2 is about one lane width to the right
+      const lane = this.lat < -LW / 2 ? 2 : 1;
+      if (lane !== this.lane) {
+        const want = lane === 2 ? 'right' : 'left';
+        if (!this.sig.some((x) => x.dir === want && this.t - x.t < 5)) this.fault('minor', 'Signals: necessary (changing lanes)', 'lanesig', 4);
+        if (!this.mirror.some((m) => this.t - m.t < 8)) this.fault('minor', 'Mirrors: changing lanes', 'lanemir', 4);
+        this.lane = lane;
+      }
+      if (this.held('lane2', lane === 2 && !this.slowAhead(car), dt, 15)) this.fault('minor', 'Positioning: lane discipline (keep left unless overtaking)', 'lanedisc', 20);
+      if (this.held('kerb', this.lat > 1.05, dt, 0.2)) this.fault('minor', 'Control: steering (ran onto the edge line)', 'kerb', 8);
+      if (this.held('pave', this.lat > 1.9, dt, 0.3)) this.fault('serious', 'Control: steering (left the carriageway)', 'pave', 10);
+    } else if (!nearJ && !parkPhase && this.dist < 8) {
+      this.lane = 1;
       if (this.held('wide', this.lat < -1.5, dt, 2)) this.fault('minor', 'Positioning: normal driving', 'pos', 10);
       if (this.held('wrong', this.lat < -2.6, dt, 1.5)) this.fault('serious', 'Positioning: driving on the wrong side', 'pos2', 12);
       if (this.held('kerb', this.lat > 1.05, dt, 0.15)) this.fault('minor', 'Control: steering (hit the kerb)', 'kerb', 8);
       if (this.held('pave', this.lat > 1.9, dt, 0.3)) this.fault('serious', 'Control: steering (mounted the pavement)', 'pave', 10);
+    }
+    // manoeuvre: count changes of direction and look before reversing
+    if (parkPhase) {
+      const d = car.vF > 0.3 ? 1 : car.vF < -0.3 ? -1 : 0;
+      if (d && d !== this.lastDir) {
+        if (this.lastDir) this.dirChanges++;
+        if (d < 0 && !this.mirror.some((m) => this.t - m.t < 6)) this.fault('minor', 'Manoeuvres: observation (look before you reverse)', 'revobs', 6);
+        this.lastDir = d;
+      }
+    }
+
+    // ---- emergency stop ----
+    const es = this.estop;
+    if (es && es.state === 'armed' && s >= es.s && mph > 15) {
+      Object.assign(es, { state: 'braking', t0: this.t, v0: mph });
+      this.say('Stop!');
+      this.hooks.estop?.(true);
+    }
+    if (es && es.state === 'braking') {
+      if (!es.checked && this.t - es.t0 > 1.6) {
+        es.checked = true;
+        if (mph > es.v0 * 0.75) this.fault('serious', 'Control: emergency stop (too slow to react)');
+      }
+      if (mph < 0.5) {
+        es.state = 'done';
+        this.hooks.estop?.(false);
+        this.say("Thank you. I won't ask you to do that again. Move off when you're ready.");
+        this.moved = false;
+        this.afterStop = true;
+      } else if (this.t - es.t0 > 7) { es.state = 'done'; this.hooks.estop?.(false); this.fault('serious', 'Control: emergency stop (did not stop)'); }
+    }
+
+    // ---- show me, while driving ----
+    if (this.showMeS && !this.showMeDone && s > this.showMeS && mph > 8 && !nearJ) {
+      this.showMeDone = true;
+      this.waiting = true;
+      const item = SHOW_ME[Math.floor(Math.random() * SHOW_ME.length)];
+      this.hooks.quiz({ title: 'Show me', ...item }).then((ok) => {
+        this.waiting = false;
+        if (!ok) this.fault('minor', 'Show me/tell me: show me question');
+      });
     }
     if (ctl.hit) this.fault('dangerous', 'Control: collision', 'hit', 5);
     for (const p of this.people()) {
@@ -190,12 +322,13 @@ export class LessonRun {
     if (this.dist < 6) this.offSaid = false;
 
     // ---- pulling up at the end ----
-    const end = this.events.find((e) => e.kind === 'pullup');
-    if (s > end.s - 55 && this.dist < 10) {
-      this.stopT = mph < 0.6 ? this.stopT + dt : 0;
-      if (this.stopT > 1.2) this.finish(end);
+    const end = this.events.find((e) => e.kind === 'pullup' || e.kind === 'baypark');
+    const nearEnd = end.kind === 'baypark' ? parkPhase && s > end.s - 25 : s > end.s - 55 && this.dist < 10;
+    if (nearEnd && (!this.estop || this.estop.state !== 'braking')) {
+      this.stopT = mph < 0.5 ? this.stopT + dt : 0;
+      if (this.stopT > (end.kind === 'baypark' ? 1.6 : 1.2)) this.finish(end, car);
     }
-    this.hooks.hud({ text: this.text, faults: this.counts(), mock: !!this.def.mock, title: this.def.title });
+    this.hooks.hud({ text: this.text, faults: this.counts(), mock: !!this.def.mock, title: this.independent ? 'Independent driving · follow the sat nav' : this.def.title });
   }
 
   people() {
@@ -205,11 +338,20 @@ export class LessonRun {
     return list;
   }
 
-  rbConflict(car, range = 18) {
-    const rb = this.world.rb, sense = this.world.rbSenseSign;
+  /** a slower vehicle ahead in lane 1 (a reason to be in lane 2) */
+  slowAhead(car) {
+    const fx = Math.sin(car.heading), fz = Math.cos(car.heading);
+    return (this.world.traffic?.cars || []).some((c) => {
+      const dx = c.x - car.pos.x, dz = c.z - car.pos.z, along = dx * fx + dz * fz, lat = dx * fz - dz * fx;
+      return along > 0 && along < 160 && Math.abs(lat - LW) < 2.2;
+    });
+  }
+
+  rbConflict(car, range = 18, name = null) {
+    const rb = this.world.rbs.find((r) => r.name === name) || this.world.rb, sense = this.world.rbSenseSign;
     const th = Math.atan2(car.pos.z - rb.z, car.pos.x - rb.x);
     for (const c of this.world.traffic?.cars || []) {
-      if (c.v < 1.5) continue;
+      if (c.v < 1.5 || c.lane?.rb !== rb.name) continue;
       const ph = Math.atan2(c.z - rb.z, c.x - rb.x);
       let d = (th - ph) * sense;
       d = ((d % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
@@ -224,12 +366,18 @@ export class LessonRun {
     return c;
   }
 
-  finish(end) {
+  finish(end, car) {
     if (!end.marked) {
       end.marked = true;
-      if (!signalled(this.sig, 'left', end.s - 110)) this.fault('minor', 'Signals: necessary (pulling up)');
-      if (!this.mirror.some((m) => m.s >= end.s - 120)) this.fault('minor', 'Mirrors: signalling (pulling up)');
-      if (this.lat < -0.4) this.fault('minor', 'Positioning: too far from the kerb');
+      if (end.kind === 'baypark') {
+        const inBay = BAYS.some((b) => Math.abs(car.pos.x - b.x) < 0.55 && Math.abs(car.pos.z - b.z) < 0.9) && Math.abs(Math.cos(car.heading)) > 0.96;
+        if (!inBay) this.fault('serious', 'Manoeuvres: bay park accuracy (not inside the bay)');
+        if (this.dirChanges > 2) this.fault('minor', 'Manoeuvres: control (too many shunts)');
+      } else {
+        if (!signalled(this.sig, 'left', end.s - 110)) this.fault('minor', 'Signals: necessary (pulling up)');
+        if (!this.mirror.some((m) => m.s >= end.s - 120)) this.fault('minor', 'Mirrors: signalling (pulling up)');
+        if (this.lat < -0.4) this.fault('minor', 'Positioning: too far from the kerb');
+      }
     }
     this.done = true;
     this.dispose();
@@ -333,7 +481,7 @@ function careful(run, car, st, bad) {
     }
     if (e.kind === 'rb') {
       const toLine = e.entryS + 1.7 - s;
-      if (toLine > -0.5 && toLine < 12 && run.rbConflict({ pos: posAtS(run, e.entryS + 1.7) }, 32)) want = Math.min(want, Math.max(0, toLine - 1.5) * 0.6);
+      if (toLine > -0.5 && toLine < 12 && run.rbConflict({ pos: posAtS(run, e.entryS + 1.7) }, 32, e.node)) want = Math.min(want, Math.max(0, toLine - 1.5) * 0.6);
     }
     if (!bad.runReds && ((e.kind === 'lights' && run.world.lights.state !== 'green') || (e.kind === 'zebra' && run.world.zebra.busy))) {
       const toLine = e.s - s;
@@ -343,7 +491,21 @@ function careful(run, car, st, bad) {
       const toEnd = e.s - 12 - s;
       if (toEnd < 40) want = Math.min(want, Math.max(0, toEnd) * 0.35);
     }
+    if (e.kind === 'baypark') {
+      const toEnd = e.s - 0.6 - s;
+      if (toEnd < 30) want = Math.min(want, Math.max(0, toEnd) * 0.45);
+    }
   }
+  // keep a safe gap to traffic ahead in my lane
+  const fx = Math.sin(car.heading), fz = Math.cos(car.heading);
+  for (const c of run.world.traffic?.cars || []) {
+    const dx = c.x - car.pos.x, dz = c.z - car.pos.z, along = dx * fx + dz * fz, lat = Math.abs(dx * fz - dz * fx);
+    if (along > 0 && along < 60 && lat < 2.2) want = Math.min(want, Math.max(0, Math.min(c.v, (along - 10) * 0.5)));
+  }
+  // emergency stop: brake hard, then mirrors and away
+  if (run.estop?.state === 'braking') { out.input.down = car.vF > 0.5; out.input.brake = car.vF <= 0.5; return out; }
+  if (run.estop?.state === 'done' && !st.afterStop) { st.afterStop = st.t; }
+  if (st.afterStop && st.t - st.afterStop < 1.5) { if (!st.estopMirror) { st.estopMirror = true; out.mirror = true; } out.input.brake = true; return out; }
   // steering: pure pursuit on the lane centre (slightly toward the kerb when pulling up)
   const look = Math.min(pts.length - 1, run.idx + 4 + Math.round(Math.abs(v) / 2.5));
   const p = pts[look];

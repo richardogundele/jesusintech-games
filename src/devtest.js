@@ -2,15 +2,17 @@
 const g = window.__game;
 window.runLesson = async (id, maxSec = 240, { bad = null } = {}) => {
   document.getElementById('res-ok').click();
+  g.autoQuiz = true;
   await g.startLesson(id);
   g.autoDrive = true;
   g.badDriver = bad; // e.g. { noSignals: true, speed: 1.4, runReds: true }
   let res = null;
   const L0 = g.lesson;
   for (let f = 0; f < maxSec * 60; f++) {
+    if (g.mode === 'quiz' || f % 600 === 0) await new Promise((ok) => setTimeout(ok, 0)); // let modals answer
     g.advance(1 / 60);
     if (g.mode === 'result') {
-      res = { faults: L0.faults.filter((f) => f.sev !== 'minor'), medal: document.getElementById('res-medal').innerText, minors: document.getElementById('res-time').innerText, sub: document.getElementById('res-sub').innerText };
+      res = { estop: L0.estop?.state || 'none', faults: L0.faults.filter((f) => f.sev !== 'minor'), medal: document.getElementById('res-medal').innerText, minors: document.getElementById('res-time').innerText, sub: document.getElementById('res-sub').innerText };
       break;
     }
     if (!g.lesson) break;
@@ -29,7 +31,7 @@ window.runAll = (list) => {
   window.__results = [];
   (async () => {
     for (const [id, opts] of list) {
-      const r = await window.runLesson(id, 300, opts || {});
+      const r = await window.runLesson(id, 700, opts || {});
       window.__results.push({ id, bad: !!opts?.bad, ...r });
       await new Promise((ok) => setTimeout(ok, 0));
     }

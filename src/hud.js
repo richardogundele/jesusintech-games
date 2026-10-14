@@ -68,9 +68,10 @@ export class Hud {
   fame(text) { this.set('fame', this.fameEl, text); }
 
   /** UK speed-limit roundel (null hides it) */
-  limit(n) {
+  limit(n, nsl = false) {
     this.limitEl.classList.toggle('hidden', !n);
-    if (n) this.set('limit', this.limitEl, String(n));
+    this.limitEl.classList.toggle('nsl', !!nsl);
+    if (n) this.set('limit', this.limitEl, nsl ? '' : String(n));
   }
 
   /** instructor panel: { title, text, faults: {minor, serious, dangerous}, mock } or null */

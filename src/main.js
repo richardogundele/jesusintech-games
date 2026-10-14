@@ -14,7 +14,9 @@ import { setupTrials, MEDAL_PAY } from './trials.js';
 import { buildCabin } from './worlds/cabin.js';
 import { buildArena } from './worlds/arena.js';
 import { buildUK, lPlateTex, MPH } from './worlds/uk.js';
-import { LESSONS, LessonRun, carefulDriver } from './lessons.js';
+import { LESSONS, LessonRun, carefulDriver, TELL_ME, randomPlate, plateOptions } from './lessons.js';
+import { buildCar } from './models.js';
+import { TRAFFIC } from './catalog.js';
 import { loadAll, updateCulling } from './assets.js';
 import { createPipeline } from './render.js';
 import { Traffic } from './traffic.js';
@@ -81,6 +83,7 @@ function getWorld(id) {
     };
     w.garage.forEach((g) => w.addCar(g.id, g));
     if (w.learnerAt) addLPlates(w.addCar('learner', w.learnerAt, LEARNER));
+    if (w.parked) addEyesightCar(w);
     // cars bought from the phone fill the extra bays at this home
     P.boughtCarsIn(id).forEach((carId, i) => w.slots?.[i] && w.addCar(carId, w.slots[i]));
     w.traffic = new Traffic(w.scene, w.life || {});
@@ -129,7 +132,7 @@ window.addEventListener('keydown', (e) => {
   keys.add(e.code);
   if (e.repeat) return;
   if ((e.code === 'KeyP' || e.code === 'Tab') && !e.repeat) { e.preventDefault(); togglePhone(); return; }
-  if (mode === 'phone' || mode === 'result') { if (e.code === 'Escape') mode === 'phone' ? togglePhone() : closeResult(); return; }
+  if (mode === 'phone' || mode === 'result' || mode === 'quiz') { if (e.code === 'Escape' && mode !== 'quiz') mode === 'phone' ? togglePhone() : closeResult(); return; }
   if (e.code === 'KeyE') interact();
   if (mode === 'car' && (e.code === 'KeyZ' || e.code === 'KeyX')) {
     const dir = e.code === 'KeyZ' ? 'left' : 'right';
@@ -559,13 +562,70 @@ function speak(text) {
   } catch { /* no speech: the text panel is enough */ }
 }
 
+function addEyesightCar(w) {
+  const spec = { ...TRAFFIC[0], color: 0x1d2b44 };
+  const m = buildCar(spec);
+  m.root.position.set(w.parked.x, 0, w.parked.z);
+  m.root.rotation.y = 0; // nose into the bay, number plate facing the aisle
+  w.scene.add(m.root);
+  w.colliders.box(w.parked.x, w.parked.z, 2.0, 4.8);
+  const plateCanvas = document.createElement('canvas');
+  plateCanvas.width = 512; plateCanvas.height = 112;
+  const tex = new THREE.CanvasTexture(plateCanvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const pl = new THREE.Mesh(new THREE.PlaneGeometry(0.52, 0.11), new THREE.MeshBasicMaterial({ map: tex }));
+  pl.position.set(0, 0.5, -(m.length / 2 + 0.02));
+  pl.rotation.y = Math.PI;
+  m.root.add(pl);
+  w.setPlate = (text) => {
+    const ctx = plateCanvas.getContext('2d');
+    ctx.fillStyle = '#f2d300'; ctx.fillRect(0, 0, 512, 112);
+    ctx.fillStyle = '#111'; ctx.font = '800 84px "Arial Narrow", Arial, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(text, 256, 60);
+    tex.needsUpdate = true;
+    w.plate = text;
+  };
+  w.setPlate(randomPlate());
+}
+
+// multiple-choice modal for the eyesight check and show me / tell me. Resolves true if right.
+function quiz({ title, q, a, plate = false }) {
+  return new Promise((resolve) => {
+    const order = a.map((_, i) => i).sort(() => Math.random() - 0.5);
+    $('quiz-title').textContent = title;
+    $('quiz-q').textContent = q;
+    const box = $('quiz-a');
+    box.innerHTML = '';
+    for (const i of order) {
+      const b = document.createElement('button');
+      b.textContent = a[i];
+      if (plate) b.className = 'plate';
+      b.onclick = () => done(i === 0);
+      box.appendChild(b);
+    }
+    const back = mode;
+    mode = 'quiz';
+    $('quiz').classList.remove('hidden');
+    function done(ok) {
+      $('quiz').classList.add('hidden');
+      mode = back;
+      audio.sfx(ok ? 'cp' : 'spend');
+      resolve(ok);
+    }
+    if (window.__game?.autoQuiz) setTimeout(() => done(true), 0);
+  });
+}
+
 const lessonHooks = {
+  quiz: (item) => quiz(item),
+  estop(on) { $('estop').classList.toggle('hidden', !on); if (on) audio.sfx('go'); },
   say(text) { speak(text); },
   hud(info) { hud.lesson(info); },
   flash(text) { hud.toast(text, 2600); audio.sfx('spend'); },
   cancelled(why) {
     lesson = null;
     hud.lesson(null);
+    $('estop').classList.add('hidden');
     if (why) hud.toast(why, 2600);
   },
   result(r) {
@@ -639,7 +699,39 @@ async function startLesson(id) {
   camMode = 0;
   drive.indicator = null;
   for (const k in autoState) delete autoState[k];
+  const pre = [];
+  if (def.checks) {
+    // the real test opens with an eyesight check (read a number plate about 20 m away) and a tell me question
+    world.setPlate?.(randomPlate());
+    player.mesh.visible = true;
+    car = null;
+    mode = 'foot';
+    player.pos.set(world.parked.x + 1, 0, world.parked.z - 22);
+    player.heading = 0;
+    snapCamera();
+    camera.position.set(world.parked.x + 1, 1.7, world.parked.z - 21);
+    camera.lookAt(world.parked.x, 0.6, world.parked.z);
+    draw();
+    const eyes = await quiz({ title: 'Eyesight check', q: 'Read the number plate on the dark blue car in the bay ahead (about 20 metres away). Which is it?', a: plateOptions(world.plate), plate: true });
+    if (!eyes) {
+      $('res-name').textContent = 'Driving test result';
+      $('res-medal').textContent = 'NOT PASSED · EYESIGHT';
+      $('res-medal').style.color = '#ff8a7a';
+      $('res-time').textContent = '-';
+      $('res-sub').innerHTML = "You couldn't read the number plate, so the test can't go ahead. On the real test you'd get a second try with a different car.";
+      prevMode = 'foot';
+      mode = 'result';
+      $('result').classList.remove('hidden');
+      return;
+    }
+    const tm = TELL_ME[Math.floor(Math.random() * TELL_ME.length)];
+    if (!(await quiz({ title: 'Tell me', ...tm }))) pre.push('Show me/tell me: tell me question');
+    car = learner;
+    mode = 'car';
+    player.mesh.visible = false;
+  }
   lesson = new LessonRun(world, def, lessonHooks);
+  pre.forEach((cat) => lesson.fault('minor', cat));
   const st = lesson.route.start;
   car.pos.set(st.x, 0, st.z);
   car.heading = st.heading;
@@ -780,7 +872,7 @@ function frame() {
 }
 
 function step(dt) {
-  if (mode === 'phone' || mode === 'result') return; // the phone pauses the world
+  if (mode === 'phone' || mode === 'result' || mode === 'quiz') return; // the phone (and modals) pause the world
   elapsed += dt;
   world.tick(elapsed);
   P.tick(dt);
@@ -848,7 +940,7 @@ function step(dt) {
     hud.update({ world, x: p.x, z: p.z, car, balance: state.balance, prompt: mode === 'jets' ? '' : currentPrompt(), mode });
     hud.minimap(world, p.x, p.z, car ? car.heading : player.heading, world.cars.filter((c) => c !== car), world.trials?.marks() || [], lesson?.path());
     const inUKCar = mode === 'car' && world.units === 'mph';
-    hud.limit(world.units === 'mph' ? world.speedLimitAt(p.x, p.z) : null);
+    hud.limit(world.units === 'mph' ? world.speedLimitAt(p.x, p.z) : null, world.units === 'mph' && world.nslAt?.(p.x, p.z));
     hud.mirror(inUKCar, drive.mirrorFlash > 0);
     drive.mirrorFlash -= dt;
     const place = world.place(p.x, p.z);

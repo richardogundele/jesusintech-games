@@ -179,3 +179,14 @@ h1 { font-size: clamp(44px, 9vw, 112px); letter-spacing: 0.06em; margin: 14px 0 
 .dest-tabs button { background: rgba(255,255,255,0.05); border: 1px solid var(--line); color: var(--text); border-radius: 999px; padding: 9px 18px; font: inherit; font-size: 14px; cursor: pointer; }
 .dest-tabs button.on { background: var(--gold); color: var(--ink); border-color: var(--gold); font-weight: 700; }
 .card .stop { color: #ffcf8a; }
+
+/* Test questions */
+#quiz { background: rgba(0,0,0,0.5); backdrop-filter: blur(4px); z-index: 25; }
+.modal.quiz { max-width: 620px; text-align: left; }
+.modal.quiz h2 { font-size: 22px; line-height: 1.35; }
+.quiz-a { display: grid; gap: 10px; }
+.quiz-a button { text-align: left; background: rgba(255,255,255,0.05); border: 1px solid var(--line); color: var(--text); border-radius: 12px; padding: 14px 16px; font: inherit; font-size: 15px; line-height: 1.4; cursor: pointer; }
+.quiz-a button:hover { border-color: var(--gold); }
+.quiz-a button.plate { font: 800 26px/1 "Arial Narrow", Arial, sans-serif; letter-spacing: 0.08em; background: #f2d300; color: #111; text-align: center; border-color: #111; }
+#estop { position: fixed; left: 50%; top: 38%; transform: translate(-50%, -50%); font: 900 120px/1 Arial, sans-serif; color: #ff3b30; text-shadow: 0 6px 30px rgba(0,0,0,0.6); z-index: 15; pointer-events: none; letter-spacing: 0.04em; }
+#limit.nsl { color: transparent; border-color: #111; background: linear-gradient(135deg, #fff 0 38%, #111 38% 62%, #fff 62% 100%); }

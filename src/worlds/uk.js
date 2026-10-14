@@ -5,14 +5,17 @@ import { label } from '../materials.js';
 import { buildPedestrian } from '../models.js';
 import { hdri, pbr, instanced } from '../assets.js';
 
-// Whitmore: a small English town for driving lessons. Left-hand traffic, mph, a single-lane
-// roundabout, give-way T-junctions, a zebra crossing and a set of puffin lights.
+// Whitmore: an English town and the roads around it, for driving lessons and the driving test.
+// Left-hand traffic and mph. In town: a mini roundabout network, give-way T-junctions, a zebra
+// crossing and puffin lights (20/30/40 mph). Outside town: a link road, two big roundabouts, the
+// A30 bypass (dual carriageway, two lanes each way, national speed limit = 70) and Moor Lane
+// (rural single carriageway, national speed limit = 60).
 // Heading convention (same as the cars): forward = (sin h, cos h); the driver's LEFT is (cos h, -sin h).
 
-export const ROAD_W = 7.4;
-export const LANE = ROAD_W / 4;            // lane centre, measured from the centre line
+export const ROAD_W = 7.4;                  // single carriageway
+export const LANE = ROAD_W / 4;             // its lane centre, measured from the centre line
+export const LW = 3.65;                     // dual-carriageway lane width
 const PAVE = 2.5;                           // pavement width
-const RB = { x: 0, z: 0, outer: 14, island: 6.5, lane: 10.4 };
 export const MPH = 2.23694;                 // m/s -> mph
 
 const V = (x, z) => new THREE.Vector2(x, z);
@@ -26,13 +29,20 @@ export const NODES = {
   CLT: { p: V(-200, 200), type: 'bend' },
   J3: { p: V(0, 200), type: 'T', minor: V(-1, 0) },
   STN: { p: V(0, 262), type: 'end' },
-  RB: { p: V(0, 0), type: 'rb' },
+  RB: { p: V(0, 0), type: 'rb', outer: 14, island: 6.5, lane: 10.4, limit: 30, town: true },
   J4: { p: V(0, -200), type: 'T', minor: V(0, 1) },
-  RVW: { p: V(-130, -200), type: 'end' },
+  RVW: { p: V(-130, -200), type: 'bend' },
   RVE: { p: V(200, -200), type: 'bend' },
   J5: { p: V(200, 0), type: 'T', minor: V(0, -1) },
-  EEND: { p: V(305, 0), type: 'end' },
+  EEND: { p: V(305, 0), type: 'via' },
+  RB2: { p: V(-130, -420), type: 'rb', outer: 24, island: 13, lane: 18.5, limit: 40 },
+  PRK: { p: V(-430, -420), type: 'end' },
+  RB3: { p: V(800, -420), type: 'rb', outer: 24, island: 13, lane: 18.5, limit: 40 },
+  KF: { p: V(1010, -420), type: 'end' },
+  MLN: { p: V(800, 0), type: 'bend' },
 };
+const DUAL = { lanes: 2, res: 3, nsl: true, rural: true, pave: false };
+const RURAL = { nsl: true, rural: true, pave: false };
 export const ROADS = [
   { a: 'WEND', b: 'J1', limit: 30, name: 'High Street' },
   { a: 'J1', b: 'RB', limit: 30, name: 'High Street' },
@@ -46,11 +56,25 @@ export const ROADS = [
   { a: 'RVW', b: 'J4', limit: 40, name: 'Riverside Road' },
   { a: 'J4', b: 'RVE', limit: 40, name: 'Riverside Road' },
   { a: 'RVE', b: 'J5', limit: 40, name: 'Mill Road' },
+  { a: 'RVW', b: 'RB2', limit: 40, name: 'Whitmore Link', rural: true, pave: false },
+  { a: 'PRK', b: 'RB2', limit: 30, name: 'Park & Ride', rural: true, pave: false },
+  { a: 'RB2', b: 'RB3', limit: 70, name: 'A30 Whitmore Bypass', ...DUAL },
+  { a: 'RB3', b: 'KF', limit: 70, name: 'A30 to Kingsford', ...DUAL },
+  { a: 'RB3', b: 'MLN', limit: 60, name: 'Moor Lane', ...RURAL },
+  { a: 'MLN', b: 'EEND', limit: 60, name: 'Moor Lane', ...RURAL },
 ];
+export const roadWidth = (r) => (r.lanes === 2 ? 4 * LW + r.res : ROAD_W);
+/** lane centre offset from the road centre line, on the driver's left. lane 1 = nearside */
+export const laneOff = (r, lane = 1) => (r.lanes === 2 ? r.res / 2 + LW * (lane === 1 ? 1.5 : 0.5) : LANE);
+export const RBS = Object.entries(NODES).filter(([, n]) => n.type === 'rb').map(([name, n]) => ({ name, ...n, x: n.p.x, z: n.p.y }));
+const RB = RBS.find((r) => r.town);
 export const ZEBRA = { x: -100, z: 0 };
 export const LIGHTS = { x: 110, z: 0 };
+// test centre car park and its bays (forward bay parking: drive in heading north, +z)
+export const LOT = { x0: -302, x1: -256, z0: 6.5, z1: 27, entryX: -262 };
+export const BAYS = Array.from({ length: 12 }, (_, i) => ({ x: -297.5 + i * 2.6, z: 20.5, w: 2.4, l: 5.0 }));
 
-/** Nearest road to a point: { road, dist, along } */
+/** Nearest road to a point: { road, dist } */
 export function nearestRoad(x, z) {
   let best = null;
   for (const r of ROADS) {
@@ -62,81 +86,116 @@ export function nearestRoad(x, z) {
   }
   return best;
 }
-export const speedLimitAt = (x, z) => (Math.hypot(x - RB.x, z - RB.z) < RB.outer + 2 ? 30 : nearestRoad(x, z).road.limit);
+export const rbAt = (x, z, pad = 2) => RBS.find((r) => Math.hypot(x - r.x, z - r.z) < r.outer + pad);
+export const inLot = (x, z) => x > LOT.x0 && x < LOT.x1 && z > LOT.z0 - 1 && z < LOT.z1;
+export function speedLimitAt(x, z) {
+  if (inLot(x, z)) return 10;
+  const rb = rbAt(x, z);
+  return rb ? rb.limit : nearestRoad(x, z).road.limit;
+}
+/** national speed limit applies here (the HUD shows the white disc with a black bar) */
+export const nslAt = (x, z) => !inLot(x, z) && !rbAt(x, z) && !!nearestRoad(x, z).road.nsl;
 
 // ---------- routes: lane-centre polylines through the network, plus the events along them ----------
 const ORD = ['first', 'second', 'third', 'fourth'];
 /** The direction traffic circulates (sign of angle change), found from the rule "turn left to join". */
 export function rbSense() {
   const dIn = V(0, -1); // arriving from the north arm, heading south
-  const entry = V(-dIn.x * RB.lane, -dIn.y * RB.lane);
+  const entry = V(-dIn.x * 10, -dIn.y * 10);
   const th = Math.atan2(entry.y, entry.x);
   const tangent = V(-Math.sin(th), Math.cos(th));
   return tangent.dot(leftOf(dIn)) > 0 ? 1 : -1;
 }
+const roadBetween = (a, b) => ROADS.find((r) => (r.a === a && r.b === b) || (r.a === b && r.b === a));
+/** arms of a roundabout: outward unit directions to each neighbouring node */
+function rbArms(name) {
+  const c = NODES[name].p;
+  return ROADS.filter((r) => r.a === name || r.b === name).map((r) => NODES[r.a === name ? r.b : r.a].p.clone().sub(c).normalize());
+}
 
 /**
- * stops: node names or {x, z} points. Returns { pts: [{x,z,s}], length, events }.
- * events: { kind: 'turn'|'emerge'|'rb'|'bend'|'zebra'|'lights'|'pullup', s, dir, exit, text }
+ * stops: node names or { x, z, off?, ev?, text? } points (off = lane offset of the segment that
+ * starts there; ev = 'turn' | 'bend' | 'none' overrides the event at that point).
+ * Returns { pts: [{x,z,s}], length, events, start }.
+ * events: { kind: 'turn'|'emerge'|'rb'|'bend'|'zebra'|'lights'|'pullup', s, dir, exit, text, node }
  */
-export function buildRoute(stops) {
+export function buildRoute(stops, { end = 'pullup', endText } = {}) {
   const P = stops.map((n) => (typeof n === 'string' ? NODES[n].p.clone() : V(n.x, n.z)));
   const names = stops.map((n) => (typeof n === 'string' ? n : null));
   const dirs = [];
   for (let i = 0; i < P.length - 1; i++) dirs.push(P[i + 1].clone().sub(P[i]).normalize());
+  // lane offset of each segment: the road's nearside lane, or the stop's own `off`
+  const offs = dirs.map((_, i) => {
+    if (typeof stops[i] === 'object' && stops[i].off != null) return stops[i].off;
+    const r = names[i] && names[i + 1] ? roadBetween(names[i], names[i + 1]) : null;
+    if (r) return laneOff(r);
+    const mid = P[i].clone().add(P[i + 1]).multiplyScalar(0.5);
+    return laneOff(nearestRoad(mid.x, mid.y).road);
+  });
   const raw = [];
   const marks = []; // { idx in raw, event }
   const push = (v) => raw.push(v.clone());
   const sense = rbSense();
-  push(P[0].clone().addScaledVector(leftOf(dirs[0]), LANE));
+  push(P[0].clone().addScaledVector(leftOf(dirs[0]), offs[0]));
   for (let k = 1; k < P.length - 1; k++) {
     const dIn = dirs[k - 1], dOut = dirs[k], node = NODES[names[k]] || { type: 'via' };
+    const oIn = offs[k - 1], oOut = offs[k];
     const c = P[k];
     if (node.type === 'rb') {
-      const E = c.clone().addScaledVector(dIn, -RB.outer - 2).addScaledVector(leftOf(dIn), LANE);
+      const E = c.clone().addScaledVector(dIn, -node.outer - 2).addScaledVector(leftOf(dIn), oIn);
       push(E);
       marks.push({ i: raw.length - 1, ev: { kind: 'rbEntry' } });
       const angOf = (v) => Math.atan2(v.y, v.x);
-      const thIn = angOf(dIn.clone().multiplyScalar(-RB.lane).addScaledVector(leftOf(dIn), LANE));
-      const thOut = angOf(dOut.clone().multiplyScalar(RB.lane).addScaledVector(leftOf(dOut), LANE));
+      // where each arm meets the circulating lane (same small offset for all, so the exit count is consistent)
+      const thIn = angOf(dIn.clone().multiplyScalar(-node.lane).addScaledVector(leftOf(dIn), LANE));
+      const thOut = angOf(dOut.clone().multiplyScalar(node.lane).addScaledVector(leftOf(dOut), LANE));
       const sweep = (th) => { let d = (th - thIn) * sense; d = ((d % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2); return d; };
       // which exit is it? count the other arms we pass
-      const arms = [V(0, 1), V(1, 0), V(0, -1), V(-1, 0)].filter((a) => a.dot(dIn) > -0.9);
-      const order = arms.map((a) => sweep(angOf(a.clone().multiplyScalar(RB.lane).addScaledVector(leftOf(a), LANE)))).sort((a, b) => a - b);
+      const arms = rbArms(names[k]).filter((a) => a.dot(dIn) > -0.9);
+      const order = arms.map((a) => sweep(angOf(a.clone().multiplyScalar(node.lane).addScaledVector(leftOf(a), LANE)))).sort((a, b) => a - b);
       const total = sweep(thOut);
-      const exit = order.findIndex((v) => Math.abs(v - total) < 1e-3) + 1;
-      const n = Math.max(6, Math.round((total * RB.lane) / 1.5));
+      let exit = order.findIndex((v) => Math.abs(v - total) < 0.05) + 1;
+      if (exit < 1) exit = order.filter((v) => v < total + 0.05).length || 1;
+      const n = Math.max(6, Math.round((total * node.lane) / 1.5));
       const startIdx = raw.length;
       for (let j = 0; j <= n; j++) {
         const th = thIn + (sense * total * j) / n;
-        push(V(c.x + Math.cos(th) * RB.lane, c.y + Math.sin(th) * RB.lane));
+        push(V(c.x + Math.cos(th) * node.lane, c.y + Math.sin(th) * node.lane));
       }
-      push(c.clone().addScaledVector(dOut, RB.outer + 2).addScaledVector(leftOf(dOut), LANE));
+      push(c.clone().addScaledVector(dOut, node.outer + 2).addScaledVector(leftOf(dOut), oOut));
       const dirExit = exit === 1 ? 'left' : exit === order.length ? 'right' : 'none';
-      marks.push({ i: startIdx, ev: { kind: 'rb', exit, dir: dirExit, text: `At the roundabout, take the ${ORD[exit - 1]} exit${exit === 2 && order.length === 3 ? ', straight ahead' : ''}.` } });
+      const straight = exit === 2 && order.length === 3 && Math.abs(dOut.dot(dIn)) > 0.9;
+      marks.push({ i: startIdx, ev: { kind: 'rb', node: names[k], exit, dir: dirExit, text: `At the roundabout, take the ${ORD[exit - 1]} exit${straight ? ', straight ahead' : ''}.` } });
       continue;
     }
     const cross = dIn.x * dOut.y - dIn.y * dOut.x;
-    if (Math.abs(cross) < 0.3) { push(c.clone().addScaledVector(leftOf(dIn), LANE)); continue; }
+    const stop = typeof stops[k] === 'object' ? stops[k] : null;
+    if (Math.abs(cross) < 0.3) {
+      push(c.clone().addScaledVector(leftOf(dIn), oIn));
+      if (Math.abs(oIn - oOut) > 0.5) push(c.clone().addScaledVector(dOut, 4).addScaledVector(leftOf(dOut), oOut));
+      continue;
+    }
     const turnLeft = dOut.dot(leftOf(dIn)) > 0;
     const dir = turnLeft ? 'left' : 'right';
-    const r = turnLeft ? 6 : 8;
-    const A = c.clone().addScaledVector(dIn, -r).addScaledVector(leftOf(dIn), LANE);
-    const B = c.clone().addScaledVector(dOut, r).addScaledVector(leftOf(dOut), LANE);
-    const Q = c.clone().addScaledVector(leftOf(dIn), LANE).addScaledVector(leftOf(dOut), LANE);
+    const r = stop?.r ?? (node === NODES.MLN ? 14 : turnLeft ? 6 : 8);
+    const A = c.clone().addScaledVector(dIn, -r).addScaledVector(leftOf(dIn), oIn);
+    const B = c.clone().addScaledVector(dOut, r).addScaledVector(leftOf(dOut), oOut);
+    const Q = c.clone().addScaledVector(leftOf(dIn), oIn).addScaledVector(leftOf(dOut), oOut);
     const startIdx = raw.length;
     for (let j = 0; j <= 8; j++) {
       const t = j / 8, u = 1 - t;
       push(V(u * u * A.x + 2 * u * t * Q.x + t * t * B.x, u * u * A.y + 2 * u * t * Q.y + t * t * B.y));
     }
     let ev;
-    if (node.type === 'bend') ev = { kind: 'bend', dir, text: `Follow the road round to the ${dir}.` };
-    else if (node.type === 'T' && node.minor.dot(dIn.clone().negate()) > 0.9) ev = { kind: 'emerge', dir, node: names[k], text: `At the end of the road, turn ${dir}.` };
-    else ev = { kind: 'turn', dir, text: `Take the next road on the ${dir}.` };
+    const kind = stop?.ev || (node.type === 'bend' ? 'bend' : node.type === 'T' && node.minor.dot(dIn.clone().negate()) > 0.9 ? 'emerge' : 'turn');
+    if (kind === 'none') continue;
+    if (kind === 'bend') ev = { kind: 'bend', dir, text: stop?.text ?? `Follow the road round to the ${dir}.` };
+    else if (kind === 'emerge') ev = { kind: 'emerge', dir, node: names[k], text: `At the end of the road, turn ${dir}.` };
+    else ev = { kind: 'turn', dir, text: stop?.text ?? `Take the next road on the ${dir}.` };
     marks.push({ i: startIdx + 4, ev });
   }
   const last = P.length - 1;
-  push(P[last].clone().addScaledVector(leftOf(dirs[last - 1]), LANE));
+  push(P[last].clone().addScaledVector(leftOf(dirs[last - 1]), offs[last - 1]));
 
   // resample every ~1.5 m with cumulative distance
   const pts = [];
@@ -153,6 +212,8 @@ export function buildRoute(stops) {
     } else pts.push({ x: raw[0].x, z: raw[0].y, s: 0 });
     idxMap[i] = pts.length - 1;
   }
+  // which road each point is on (for lane-aware marking)
+  for (const p of pts) { p.rb = rbAt(p.x, p.z, 1)?.name || null; p.road = p.rb ? null : nearestRoad(p.x, p.z).road; }
   const events = [];
   let rbEntryS = null;
   for (const m of marks) {
@@ -178,7 +239,7 @@ export function buildRoute(stops) {
       }
     }
   }
-  events.push({ kind: 'pullup', s: s, text: 'Pull up on the left at a safe place, please.' });
+  events.push({ kind: end, s, text: endText ?? (end === 'baypark' ? 'Drive forward into the bay straight ahead and stop inside the lines, please.' : 'Pull up on the left at a safe place, please.') });
   events.sort((a, b) => a.s - b.s);
   return { pts, length: s, events, start: { x: pts[0].x, z: pts[0].z, heading: Math.atan2(pts[3].x - pts[0].x, pts[3].z - pts[0].z) } };
 }
@@ -290,6 +351,15 @@ function roundel(text, { ring = '#d42020', fill = '#ffffff', ink = '#111111' } =
     ctx.fillText(text, 128, 136);
   });
 }
+function nslTex() {
+  return canvas(256, 256, (ctx) => {
+    ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.arc(128, 128, 124, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = '#111'; ctx.lineWidth = 6; ctx.stroke();
+    ctx.save(); ctx.beginPath(); ctx.arc(128, 128, 118, 0, Math.PI * 2); ctx.clip();
+    ctx.translate(128, 128); ctx.rotate(-Math.PI / 4); ctx.fillStyle = '#111'; ctx.fillRect(-160, -22, 320, 44);
+    ctx.restore();
+  });
+}
 function giveWayTex() {
   return canvas(256, 256, (ctx) => {
     ctx.fillStyle = '#d42020';
@@ -342,16 +412,19 @@ function strip(a, b, w, y) {
 
 // ---------- the town ----------
 export function buildUK(renderer) {
+  let world_parked = null;
   const scene = new THREE.Scene();
   const env = setupSky(scene, renderer, {
     hdri: hdri('monaco'), sunAzimuth: 200, exposure: 0.95, envIntensity: 0.9,
-    sunColor: 0xfff4e6, sunIntensity: 2.6, fogDensity: 0.0016, fogTint: 0.95,
+    sunColor: 0xfff4e6, sunIntensity: 2.6, fogDensity: 0.0011, fogTint: 0.95,
   });
   const colliders = new Colliders();
   const tickers = [];
 
-  const ground = new THREE.Mesh(new THREE.PlaneGeometry(1400, 1200), pbr('leafy_grass', { repeat: [220, 190], color: 0x9fbf86 }));
+  const islandShrubs = [];
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(2600, 1800), pbr('leafy_grass', { repeat: [400, 280], color: 0x9fbf86 }));
   ground.rotation.x = -Math.PI / 2;
+  ground.position.set(300, 0, -150);
   ground.receiveShadow = true;
   scene.add(ground);
 
@@ -361,12 +434,13 @@ export function buildUK(renderer) {
   const white = new THREE.MeshStandardMaterial({ color: 0xf2f2ee, roughness: 0.7, polygonOffset: true, polygonOffsetFactor: -2 });
   const yellow = new THREE.MeshStandardMaterial({ color: 0xe8c23a, roughness: 0.7, polygonOffset: true, polygonOffsetFactor: -2 });
   const kerbMat = new THREE.MeshStandardMaterial({ color: 0xa9a59c, roughness: 0.9 });
+  const barrierMat = new THREE.MeshStandardMaterial({ color: 0xc4c8cc, metalness: 0.7, roughness: 0.35 });
 
-  const roadG = [], paveG = [], lineG = [], yellowG = [], kerbG = [];
+  const roadG = [], paveG = [], lineG = [], yellowG = [], kerbG = [], barrierG = [], vergeG = [], rowG = [];
   const P = (n) => NODES[n].p;
   const trimAt = (node, along) => {
     const n = NODES[node];
-    if (n.type === 'rb') return RB.outer - 0.5;
+    if (n.type === 'rb') return n.outer - 0.5;
     if (n.type === 'T') return Math.abs(n.minor.dot(along)) > 0.9 ? ROAD_W / 2 : 0; // minor stops at the major's edge
     if (n.type === 'bend') return -ROAD_W / 2; // run past the corner so the outer quadrant is covered
     return 0;
@@ -386,7 +460,7 @@ export function buildUK(renderer) {
   /** how much a pavement on side `sv` (unit vector from the road toward that side) is trimmed at node nm */
   const paveTrim = (nm, r, out, sv) => {
     const n = NODES[nm];
-    if (n.type === 'rb') return RB.outer - 1;
+    if (n.type === 'rb') return n.outer - 1;
     if (n.type === 'bend') return otherAt(nm, r).dot(sv) > 0.5 ? ROAD_W / 2 + PAVE : -(ROAD_W / 2 + PAVE);
     if (n.type === 'T') {
       if (Math.abs(n.minor.dot(out)) > 0.9) return ROAD_W / 2;   // the side road meets the major's pavement
@@ -394,17 +468,43 @@ export function buildUK(renderer) {
     }
     return 0;
   };
+  const dashed = (a, d, n, off, s0, s1, line, gap, w = 0.1) => {
+    for (let s = s0; s < s1; s += line + gap) {
+      const p0 = a.clone().addScaledVector(d, s).addScaledVector(n, off), p1 = a.clone().addScaledVector(d, Math.min(s + line, s1)).addScaledVector(n, off);
+      lineG.push(strip(p0, p1, w, 0.035));
+    }
+  };
   for (const r of ROADS) {
     const a = P(r.a), b = P(r.b), d = b.clone().sub(a).normalize(), L = a.distanceTo(b);
+    const W = roadWidth(r);
     const t0 = trimAt(r.a, d), t1 = trimAt(r.b, d.clone().negate());
     const A = a.clone().addScaledVector(d, t0), B = b.clone().addScaledVector(d, -t1);
-    roadG.push(worldUV(strip(A, B, ROAD_W, 0.02)));
-    // dashed centre line (UK: 4 m line, 5 m gap in towns); longer warning lines near junctions
     const n = leftOf(d);
-    for (let s = t0 + 3; s < L - t1 - 3; s += 9) {
-      const p0 = a.clone().addScaledVector(d, s), p1 = a.clone().addScaledVector(d, Math.min(s + 4, L - t1 - 3));
-      lineG.push(strip(p0, p1, 0.1, 0.035));
+    if (r.lanes === 2) {
+      // two carriageways either side of a grass central reservation with a steel barrier
+      const cw = 2 * LW;
+      for (const side of [1, -1]) {
+        const c0 = A.clone().addScaledVector(n, side * (r.res / 2 + LW)), c1 = B.clone().addScaledVector(n, side * (r.res / 2 + LW));
+        roadG.push(worldUV(strip(c0, c1, cw, 0.02)));
+        dashed(a, d, n, side * (r.res / 2 + LW), t0 + 2, L - t1 - 2, 2, 7, 0.12);              // lane line
+        lineG.push(strip(A.clone().addScaledVector(n, side * (r.res / 2 + 0.25)), B.clone().addScaledVector(n, side * (r.res / 2 + 0.25)), 0.15, 0.035)); // offside edge
+        lineG.push(strip(A.clone().addScaledVector(n, side * (W / 2 - 0.3)), B.clone().addScaledVector(n, side * (W / 2 - 0.3)), 0.2, 0.035));     // nearside edge
+      }
+      const m = A.clone().add(B).multiplyScalar(0.5), len = A.distanceTo(B);
+      barrierG.push(placed(new THREE.BoxGeometry(0.25, 0.75, len), m.x, 0.6, m.y, Math.atan2(d.x, d.y)));
+      for (let s = 2; s < len; s += 3.2) {
+        const p = A.clone().addScaledVector(d, s);
+        barrierG.push(placed(new THREE.BoxGeometry(0.12, 0.6, 0.12), p.x, 0.3, p.y));
+      }
+      colliders.box(m.x, m.y, Math.abs(d.x) > 0.5 ? len : 1.0, Math.abs(d.x) > 0.5 ? 1.0 : len, 0, true);
+    } else {
+      roadG.push(worldUV(strip(A, B, ROAD_W, 0.02)));
+      // centre line: town dashes (4 m line, 5 m gap); longer hazard dashes on the national-limit lanes
+      if (r.nsl) dashed(a, d, n, 0, t0 + 3, L - t1 - 3, 6, 3);
+      else dashed(a, d, n, 0, t0 + 3, L - t1 - 3, 4, 5);
+      if (r.rural) for (const side of [1, -1]) lineG.push(strip(A.clone().addScaledVector(n, side * (ROAD_W / 2 - 0.25)), B.clone().addScaledVector(n, side * (ROAD_W / 2 - 0.25)), 0.1, 0.035));
     }
+    if (r.pave === false) continue;
     // pavements both sides, broken where a side road joins
     for (const side of [1, -1]) {
       const off = side * (ROAD_W / 2 + PAVE / 2);
@@ -414,6 +514,8 @@ export function buildUK(renderer) {
         const rel = node.p.clone().sub(a), along = rel.dot(d), lat = rel.dot(n);
         if (Math.abs(lat) < 0.5 && along > 0 && along < L && node.minor.dot(n) * side > 0.9) gaps.push(along);
       }
+      // dropped kerb into the test centre car park
+      if (r.a === 'WEND' && n.y * side > 0) gaps.push(LOT.entryX - a.x);
       const sv = n.clone().multiplyScalar(side);
       const s0 = paveTrim(r.a, r, d, sv);
       const s1 = L - paveTrim(r.b, r, d.clone().negate(), sv);
@@ -429,7 +531,7 @@ export function buildUK(renderer) {
       }
     }
   }
-  // junction squares, bends and turning heads
+  // turning heads at dead ends
   for (const node of Object.values(NODES)) {
     if (node.type === 'end') {
       const c = new THREE.CircleGeometry(ROAD_W * 0.9, 24);
@@ -437,32 +539,40 @@ export function buildUK(renderer) {
       roadG.push(worldUV(placed(c, node.p.x, 0.018, node.p.y)));
     }
   }
-  // roundabout: asphalt ring, island, pavement arcs between the arms
-  {
-    const ring = new THREE.RingGeometry(RB.island, RB.outer, 64);
+  // roundabouts: asphalt ring, island, give-way lines; the town one has pavements round it
+  for (const rb of RBS) {
+    const ring = new THREE.RingGeometry(rb.island, rb.outer, 72);
     ring.rotateX(-Math.PI / 2);
-    roadG.push(worldUV(placed(ring, RB.x, 0.021, RB.z)));
-    const island = new THREE.Mesh(new THREE.CylinderGeometry(RB.island, RB.island + 0.3, 0.35, 48), pbr('leafy_grass', { repeat: [3, 3], color: 0xa6c48a }));
-    island.position.set(RB.x, 0.17, RB.z);
+    roadG.push(worldUV(placed(ring, rb.x, 0.021, rb.z)));
+    const island = new THREE.Mesh(new THREE.CylinderGeometry(rb.island, rb.island + 0.3, 0.35, 48), pbr('leafy_grass', { repeat: [3, 3], color: 0xa6c48a }));
+    island.position.set(rb.x, 0.17, rb.z);
     island.receiveShadow = true;
     scene.add(island);
-    const islandKerb = new THREE.Mesh(new THREE.TorusGeometry(RB.island + 0.15, 0.12, 6, 48), kerbMat);
+    const islandKerb = new THREE.Mesh(new THREE.TorusGeometry(rb.island + 0.15, 0.12, 6, 64), kerbMat);
     islandKerb.rotation.x = -Math.PI / 2;
-    islandKerb.position.set(RB.x, 0.12, RB.z);
+    islandKerb.position.set(rb.x, 0.12, rb.z);
     scene.add(islandKerb);
-    colliders.box(RB.x, RB.z, RB.island * 1.4, RB.island * 1.4, 0, true);
-    const gapA = Math.atan2(ROAD_W / 2 + 0.3, RB.outer);
-    for (let q = 0; q < 4; q++) {
-      const a0 = q * Math.PI / 2 + gapA, len = Math.PI / 2 - gapA * 2;
-      const arc = new THREE.RingGeometry(RB.outer, RB.outer + PAVE, 24, 1, a0, len);
-      arc.rotateX(-Math.PI / 2);
-      paveG.push(worldUV(placed(arc, RB.x, 0.13, RB.z)));
+    colliders.box(rb.x, rb.z, rb.island * 1.4, rb.island * 1.4, 0, true);
+    const arms = ROADS.filter((r) => r.a === rb.name || r.b === rb.name).map((r) => ({ r, a: P(r.a === rb.name ? r.b : r.a).clone().sub(rb.p).normalize() }));
+    if (rb.town) {
+      const gapA = Math.atan2(ROAD_W / 2 + 0.3, rb.outer);
+      for (let q = 0; q < 4; q++) {
+        const a0 = q * Math.PI / 2 + gapA, len = Math.PI / 2 - gapA * 2;
+        const arc = new THREE.RingGeometry(rb.outer, rb.outer + PAVE, 24, 1, a0, len);
+        arc.rotateX(-Math.PI / 2);
+        paveG.push(worldUV(placed(arc, rb.x, 0.13, rb.z)));
+      }
+    } else {
+      // a few shrubs on the big islands
+      for (let i = 0; i < 9; i++) { const a = (i / 9) * Math.PI * 2; islandShrubs.push({ x: rb.x + Math.cos(a) * rb.island * 0.55, z: rb.z + Math.sin(a) * rb.island * 0.55, s: 0.7 }); }
+      islandShrubs.push({ x: rb.x, z: rb.z, s: 1.2 });
     }
-    // give-way dashes at each entry
-    for (const a of [V(0, 1), V(1, 0), V(0, -1), V(-1, 0)]) {
+    // give-way dashes at each entry, across the incoming carriageway
+    for (const { r, a } of arms) {
       const inLeft = leftOf(a.clone().negate());
-      for (let t = 0.3; t < ROAD_W / 2; t += 0.9) {
-        const p = a.clone().multiplyScalar(RB.outer + 0.3).addScaledVector(inLeft, t);
+      const lo = r.lanes === 2 ? r.res / 2 : 0.3, hi = r.lanes === 2 ? r.res / 2 + 2 * LW : ROAD_W / 2;
+      for (let t = lo; t < hi; t += 0.9) {
+        const p = rb.p.clone().addScaledVector(a, rb.outer + 0.3).addScaledVector(inLeft, t);
         lineG.push(strip(p, p.clone().addScaledVector(inLeft, 0.5), 0.3, 0.036));
       }
     }
@@ -618,10 +728,11 @@ export function buildUK(renderer) {
   }
   const J = 16; // keep this clear of buildings around every junction
   for (const r of ROADS) {
+    if (r.rural) continue; // the countryside stays open: hedgerows and fields
     const a = P(r.a), b = P(r.b), d = b.clone().sub(a).normalize(), L = a.distanceTo(b);
     const skip = [[-1, J], [L - J, L + 1]];
-    if (NODES[r.a].type === 'rb') skip[0][1] = RB.outer + 12;
-    if (NODES[r.b].type === 'rb') skip[1][0] = L - RB.outer - 12;
+    if (NODES[r.a].type === 'rb') skip[0][1] = NODES[r.a].outer + 12;
+    if (NODES[r.b].type === 'rb') skip[1][0] = L - NODES[r.b].outer - 12;
     for (const [nm, node] of Object.entries(NODES)) {
       if (nm === r.a || nm === r.b) continue;
       const rel = node.p.clone().sub(a), along = rel.dot(d);
@@ -654,7 +765,26 @@ export function buildUK(renderer) {
   addMerged(bodyG, brickMat);
   addMerged(roofG, roofMat);
   addMerged(wallG, wallMat);
+  // hedgerows along the country roads, with field gates now and then
+  for (const r of ROADS) {
+    if (!r.rural) continue;
+    const a = P(r.a), b = P(r.b), d = b.clone().sub(a).normalize(), L = a.distanceTo(b), n = leftOf(d);
+    const W = roadWidth(r);
+    const t0 = NODES[r.a].type === 'rb' ? NODES[r.a].outer + 6 : 10, t1 = NODES[r.b].type === 'rb' ? NODES[r.b].outer + 6 : 10;
+    for (const side of [1, -1]) {
+      // field hedge in short irregular lengths, with a gap for a field gate now and then
+      for (let s = t0; s < L - t1; s += 7) {
+        if (Math.random() < 0.04) { s += 6; continue; }
+        const len = Math.min(7.4, L - t1 - s), h = rnd(1.3, 2.0), wd = rnd(1.3, 1.9);
+        if (len < 2) continue;
+        const m = a.clone().addScaledVector(d, s + len / 2).addScaledVector(n, side * (W / 2 + 4 + rnd(-0.2, 0.2)));
+        rowG.push(placed(boxUV(wd, h, len, 1.6), m.x, h / 2, m.y, Math.atan2(d.x, d.y)));
+      }
+    }
+  }
   addMerged(hedgeG, hedgeMat);
+  addMerged(rowG, pbr('leafy_grass', { repeat: [1, 1], color: 0x4c7a36, roughness: 1 }));
+  addMerged(barrierG, barrierMat);
   frontG.forEach((l, i) => addMerged(l, houseMats[i], { cast: false }));
   shopG.forEach((l, i) => addMerged(l, shopMats[i], { cast: false }));
 
@@ -668,10 +798,20 @@ export function buildUK(renderer) {
   tcSign.position.set(-285, 3.4, 27.95);
   tcSign.rotation.y = Math.PI;
   scene.add(tcSign);
-  const lot = new THREE.Mesh(new THREE.PlaneGeometry(40, 20), asphalt);
+  const lot = new THREE.Mesh(new THREE.PlaneGeometry(LOT.x1 - LOT.x0, LOT.z1 - LOT.z0), asphalt);
   lot.rotation.x = -Math.PI / 2;
-  lot.position.set(-280, 0.017, 16);
+  lot.position.set((LOT.x0 + LOT.x1) / 2, 0.017, (LOT.z0 + LOT.z1) / 2);
   scene.add(lot);
+  // parking bays (white lines), open to the aisle on the south side
+  const bayG = [];
+  for (const bay of BAYS) {
+    for (const sx of [-1, 1]) bayG.push(strip(V(bay.x + sx * bay.w / 2, bay.z - bay.l / 2), V(bay.x + sx * bay.w / 2, bay.z + bay.l / 2), 0.1, 0.03));
+    bayG.push(strip(V(bay.x - bay.w / 2, bay.z + bay.l / 2), V(bay.x + bay.w / 2, bay.z + bay.l / 2), 0.1, 0.03));
+  }
+  const bays = new THREE.Mesh(mergeGeometries(bayG), white);
+  scene.add(bays);
+  // a parked car in one bay, for the eyesight check
+  world_parked = { x: BAYS[2].x, z: BAYS[2].z };
   const tcLabel = label('Driving Test Centre', { size: 1.1, sub: 'Whitmore' });
   tcLabel.position.set(-285, 10, 34);
   scene.add(tcLabel);
@@ -679,6 +819,7 @@ export function buildUK(renderer) {
   // ---- street furniture: lamps, signs ----
   const lampSpots = [];
   for (const r of ROADS) {
+    if (r.rural) continue;
     const a = P(r.a), b = P(r.b), d = b.clone().sub(a).normalize(), L = a.distanceTo(b), n = leftOf(d);
     for (let s = 20; s < L - 20; s += 34) {
       const p = a.clone().addScaledVector(d, s).addScaledVector(n, ROAD_W / 2 + PAVE - 0.4);
@@ -700,15 +841,33 @@ export function buildUK(renderer) {
     scene.add(g);
     return g;
   };
-  const limitTex = { 20: roundel('20'), 30: roundel('30'), 40: roundel('40') };
+  const limitTex = { 20: roundel('20'), 30: roundel('30'), 40: roundel('40'), nsl: nslTex() };
   // a limit sign at the start of every road, facing traffic entering it (on their left)
   for (const r of ROADS) {
     for (const [from, to] of [[r.a, r.b], [r.b, r.a]]) {
       const a = P(from), b = P(to), d = b.clone().sub(a).normalize();
       if (NODES[from].type === 'end') continue;
-      const back = NODES[from].type === 'rb' ? RB.outer + 6 : 12;
-      const p = a.clone().addScaledVector(d, back).addScaledVector(leftOf(d), ROAD_W / 2 + 0.6);
-      sign(limitTex[r.limit], p.x, p.y, Math.atan2(-d.x, -d.y));
+      const back = NODES[from].type === 'rb' ? NODES[from].outer + 6 : 12;
+      const p = a.clone().addScaledVector(d, back).addScaledVector(leftOf(d), roadWidth(r) / 2 + 0.6);
+      sign(r.nsl ? limitTex.nsl : limitTex[r.limit], p.x, p.y, Math.atan2(-d.x, -d.y), 2.3, r.nsl ? 0.9 : 0.75);
+    }
+  }
+  // blue direction signs before the big roundabouts
+  for (const [x, z, rot, lines] of [[-112, -360, 0, ['A30 Bypass  →', 'Park & Ride  ←', 'Whitmore  ↑']], [760, -404, -Math.PI / 2, ['Moor Lane, Whitmore  ↑', 'A30 Kingsford  →']]]) {
+    const boardTex = canvas(512, 256, (ctx, w, h) => {
+      ctx.fillStyle = '#0a5a2e'; ctx.fillRect(0, 0, w, h);
+      ctx.strokeStyle = '#fff'; ctx.lineWidth = 8; ctx.strokeRect(8, 8, w - 16, h - 16);
+      ctx.fillStyle = '#ffd200'; ctx.font = '700 40px Arial, sans-serif'; ctx.textBaseline = 'middle';
+      lines.forEach((l, i) => ctx.fillText(l, 30, 60 + i * 66));
+    });
+    const board = new THREE.Mesh(new THREE.PlaneGeometry(4.4, 2.2), new THREE.MeshStandardMaterial({ map: boardTex, side: THREE.DoubleSide }));
+    board.position.set(x, 2.6, z);
+    board.rotation.y = rot;
+    scene.add(board);
+    for (const s of [-1.6, 1.6]) {
+      const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 2.6, 6), signPole);
+      leg.position.set(x + Math.cos(rot) * s, 1.3, z - Math.sin(rot) * s);
+      scene.add(leg);
     }
   }
   const gw = giveWayTex();
@@ -735,9 +894,9 @@ export function buildUK(renderer) {
     const crownG = mergeGeometries(blobs);
     const spots = [];
     let tries = 0;
-    while (spots.length < 420 && tries++ < 6000) {
-      const x = rnd(-460, 460), z = rnd(-360, 420);
-      if (nearestRoad(x, z).dist < 24 || Math.hypot(x, z) < 30 || (x < -255 && z > 0 && z < 50)) continue;
+    while (spots.length < 900 && tries++ < 12000) {
+      const x = rnd(-560, 1120), z = rnd(-640, 420);
+      if (nearestRoad(x, z).dist < 24 || rbAt(x, z, 14) || (x < -255 && z > 0 && z < 50)) continue;
       // keep clear of the terraces (they sit 6-19 m off the road)
       spots.push({ x, z, s: rnd(0.8, 1.35), r: rnd(0, 6.28) });
     }
@@ -753,6 +912,11 @@ export function buildUK(renderer) {
       crowns.setColorAt(i, c.setHSL(0.27 + rnd(-0.03, 0.04), 0.38, 0.26 + rnd(-0.05, 0.06)));
     });
     for (const im of [trunks, crowns]) { im.castShadow = true; im.receiveShadow = true; scene.add(im); }
+    if (islandShrubs.length) {
+      const sh = new THREE.InstancedMesh(crownG, new THREE.MeshStandardMaterial({ color: 0x4f7a3a, roughness: 0.95, flatShading: true }), islandShrubs.length);
+      islandShrubs.forEach((p, i) => { m.compose(new THREE.Vector3(p.x, -3.6 * p.s, p.z), q.identity(), sc.setScalar(p.s)); sh.setMatrixAt(i, m); });
+      scene.add(sh);
+    }
   }
 
   // ---- people: zebra and puffin crossers, pavement strollers ----
@@ -790,15 +954,29 @@ export function buildUK(renderer) {
 
   const L = (a, b, off, count) => ({ curve: new THREE.LineCurve3(new THREE.Vector3(a.x, 0, a.y), new THREE.Vector3(b.x, 0, b.y)), closed: false, offset: off, count });
   const peds = [
-    L(V(-290, 0), V(-30, 0), ROAD_W / 2 + PAVE / 2, 5), L(V(-290, 0), V(-30, 0), -(ROAD_W / 2 + PAVE / 2), 4),
-    L(V(30, 0), V(290, 0), ROAD_W / 2 + PAVE / 2, 4), L(V(30, 0), V(290, 0), -(ROAD_W / 2 + PAVE / 2), 4),
+    // walkers stay on their own stretch of pavement (they don't wander across side-road mouths)
+    L(V(-290, 0), V(-30, 0), -(ROAD_W / 2 + PAVE / 2), 4), L(V(-290, 0), V(-208, 0), ROAD_W / 2 + PAVE / 2, 2), L(V(-192, 0), V(-30, 0), ROAD_W / 2 + PAVE / 2, 3),
+    L(V(30, 0), V(290, 0), ROAD_W / 2 + PAVE / 2, 4), L(V(30, 0), V(192, 0), -(ROAD_W / 2 + PAVE / 2), 3), L(V(208, 0), V(290, 0), -(ROAD_W / 2 + PAVE / 2), 2),
     L(V(-200, 20), V(-200, 180), ROAD_W / 2 + PAVE / 2, 2), L(V(0, 30), V(0, 180), -(ROAD_W / 2 + PAVE / 2), 2),
   ];
-  // two cars going round the roundabout, in the direction the rule of the road gives
+  // cars going round each roundabout, in the direction the rule of the road gives
   const sense = rbSense();
-  const circle = [];
-  for (let i = 0; i < 24; i++) { const th = (sense * i * Math.PI * 2) / 24; circle.push(new THREE.Vector3(Math.cos(th) * RB.lane, 0, Math.sin(th) * RB.lane)); }
-  const cars = [{ curve: new THREE.CatmullRomCurve3(circle, true), closed: true, offset: 0, dir: 1, count: 2, speed: [6.5, 8] }];
+  const circles = RBS.map((rb) => {
+    const pts = [];
+    for (let i = 0; i < 32; i++) { const th = (sense * i * Math.PI * 2) / 32; pts.push(new THREE.Vector3(rb.x + Math.cos(th) * rb.lane, 0, rb.z + Math.sin(th) * rb.lane)); }
+    return { rb, pts };
+  });
+  const cars = circles.map(({ rb, pts }) => ({ curve: new THREE.CatmullRomCurve3(pts, true), closed: true, offset: 0, dir: 1, count: rb.town ? 2 : 2, speed: rb.town ? [6.5, 8] : [9, 11], rb: rb.name }));
+  // through traffic: Singapore-style negative offset = the left of each car's direction of travel
+  const line = (a, b) => new THREE.LineCurve3(new THREE.Vector3(a.x, 0, a.y), new THREE.Vector3(b.x, 0, b.y));
+  const bypassRoad = ROADS.find((r) => r.name === 'A30 Whitmore Bypass');
+  const bp = line(V(NODES.RB2.p.x + 40, -420), V(NODES.RB3.p.x - 40, -420));
+  for (const dir of [1, -1]) {
+    cars.push({ curve: bp, closed: false, offset: -laneOff(bypassRoad, 1), dir, count: 3, speed: [25, 28] });
+    cars.push({ curve: bp, closed: false, offset: -laneOff(bypassRoad, 2), dir, count: 1, speed: [30.5, 31.5] });
+  }
+  const moor = line(V(800, -380), V(800, -30));
+  for (const dir of [1, -1]) cars.push({ curve: moor, closed: false, offset: -LANE, dir, count: 2, speed: [22, 25] });
 
   const pos = new THREE.Vector3();
   const world = {
@@ -806,28 +984,30 @@ export function buildUK(renderer) {
     name: 'WHITMORE',
     units: 'mph',
     scene, env, colliders,
-    roads: ROADS.map((r) => ({ points: [new THREE.Vector3(P(r.a).x, 0, P(r.a).y), new THREE.Vector3(P(r.b).x, 0, P(r.b).y)], width: ROAD_W, closed: false }))
-      .concat([{ points: circle, width: 4, closed: true }]),
-    bounds: { minX: -320, maxX: 320, minZ: -230, maxZ: 280 },
+    roads: ROADS.map((r) => ({ points: [new THREE.Vector3(P(r.a).x, 0, P(r.a).y), new THREE.Vector3(P(r.b).x, 0, P(r.b).y)], width: roadWidth(r), closed: false }))
+      .concat(circles.map(({ pts }) => ({ points: pts, width: 4, closed: true }))),
+    bounds: { minX: -470, maxX: 1030, minZ: -470, maxZ: 290 },
     tick: (t) => tickers.forEach((f) => f(t)),
     life: { cars, peds },
     spawn: { x: -279, z: 12, heading: Math.PI },
     garage: [],
     learnerAt: { x: -275, z: -LANE, heading: Math.PI / 2 },
     lights, zebra, crossers: [zp, lp],
-    rb: RB, rbSenseSign: sense,
+    rb: RB, rbs: RBS, rbSenseSign: sense, parked: world_parked, plate: null,
     landmarks: [
       { x: -285, z: 34, color: '#e8c77a', name: 'Test centre' },
       { x: 0, z: 0, color: '#ffffff', name: 'Roundabout' },
       { x: 0, z: 255, color: '#35aee2', name: 'Station' },
+      { x: 335, z: -420, color: '#7ed37a', name: 'A30' },
     ],
     place(x, z) {
       pos.set(x, 0, z);
       if (x < -255 && z > 5) return 'Driving Test Centre';
-      if (Math.hypot(x, z) < 20) return 'The Roundabout';
+      const rb = rbAt(x, z, 6);
+      if (rb) return rb.town ? 'The Roundabout' : rb.name === 'RB2' ? 'Link Roundabout' : 'Moor Cross Roundabout';
       return nearestRoad(x, z).road.name;
     },
-    speedLimitAt,
+    speedLimitAt, nslAt,
     player: null, // { x, z } of you or your car, set by the game each frame
   };
   return world;
