@@ -12,9 +12,9 @@ const probe = new THREE.Vector3();
  * which is what lets the car drift.
  */
 export class Car {
-  constructor(id, { x, z, heading }) {
+  constructor(id, { x, z, heading }, spec = CARS[id]) {
     this.id = id;
-    this.spec = CARS[id];
+    this.spec = spec;
     this.model = buildCar(this.spec);
     this.pos = new THREE.Vector3(x, 0, z);
     this.heading = heading;

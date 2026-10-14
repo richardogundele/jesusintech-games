@@ -69,6 +69,12 @@ export const CARS = {
     dims: { L: 4.67, W: 2.04 },
   },
 };
+// the driving-school car in Whitmore (not for sale, so it isn't in CARS)
+export const LEARNER = {
+  loft: 'sedan', maker: 'Volkswagen', model: 'Polo (learner)', type: 'sedan',
+  color: 0xf2f2f0, topSpeed: 187, accel: 4.4, grip: 7.5, steer: 0.66, engine: 'i4',
+  dims: { L: 4.07, W: 1.75 },
+};
 // the fleet you started with: always yours
 export const STARTER_CARS = ['revuelto', 'f458', 'cullinan', 'chiron', 'g63'];
 

@@ -14,6 +14,7 @@ const DEFAULTS = () => ({
   streak: { count: 0, last: '' },      // days in a row with all three daily goals done
   wins: { date: '', counts: {} },      // real-life wins logged today, per category
   radio: false,
+  uk: { lessons: {}, licence: false, tests: 0 }, // driving lessons in Whitmore
 });
 
 function load() {
@@ -21,7 +22,7 @@ function load() {
   let saved = {};
   try { saved = JSON.parse(localStorage.getItem(KEY) || '{}') || {}; } catch { /* corrupt: start fresh */ }
   const out = { ...d, ...saved };
-  for (const k of ['owned', 'stats', 'best', 'daily', 'streak', 'wins']) {
+  for (const k of ['owned', 'stats', 'best', 'daily', 'streak', 'wins', 'uk']) {
     out[k] = { ...d[k], ...(saved[k] && typeof saved[k] === 'object' ? saved[k] : {}) };
   }
   out.owned.cars = Array.isArray(out.owned.cars) ? out.owned.cars : [];

@@ -3,9 +3,10 @@ import { state, formatMoney } from './state.js';
 import { CARS, JETS, WINS, GIVING, fameLevel, talkFee, flightTime } from './catalog.js';
 import * as P from './progress.js';
 import { fmtTime } from './trials.js';
+import { LESSONS } from './lessons.js';
 
 const $ = (id) => document.getElementById(id);
-const TABS = [['today', 'Today'], ['wins', 'Log a win'], ['dealer', 'Dealer'], ['hangar', 'Hangar'], ['giving', 'Giving'], ['me', 'Profile']];
+const TABS = [['today', 'Today'], ['wins', 'Log a win'], ['lessons', 'Driving lessons'], ['dealer', 'Dealer'], ['hangar', 'Hangar'], ['giving', 'Giving'], ['me', 'Profile']];
 const TRIAL_NAMES = { 'monaco-loop': 'Monte Carlo Grand Loop', 'dubai-szr': 'Sheikh Zayed Sprint' };
 
 export class Phone {
@@ -29,6 +30,10 @@ export class Phone {
       }
       if (act === 'jet' && P.buyJet(id)) { this.hooks.sfx('spend'); this.hooks.onJetBought(id); }
       if (act === 'give' && P.give(id)) this.hooks.sfx('level');
+      // these leave the phone: close it first so the game mode is restored before travelling
+      if (act === 'lesson') { this.hooks.close(); this.hooks.startLesson(id); return; }
+      if (act === 'gouk') { this.hooks.close(); this.hooks.goUK(); return; }
+      if (act === 'gohome') { this.hooks.close(); this.hooks.goHome(); return; }
       if (act) this.render();
     });
   }
@@ -80,6 +85,23 @@ export class Phone {
       }).join('');
   }
 
+  lessons() {
+    const uk = state.uk;
+    const inUK = this.hooks.inUK();
+    const rows = LESSONS.map((l, i) => {
+      const r = uk.lessons[l.id];
+      const status = r?.passed ? `<div class="badge">${l.mock ? 'Passed' : 'Passed'} · best ${r.best} driving fault${r.best === 1 ? '' : 's'}</div>` : r ? `<div class="s">Tried ${r.tries}× · not passed yet</div>` : '';
+      return `<div class="row"><div class="tick">${r?.passed ? '✓' : l.mock ? 'T' : i + 1}</div>
+        <div class="grow"><div class="t">${l.title}</div><div class="s">${l.blurb}</div>${status}</div>
+        <button class="buy" data-act="lesson" data-id="${l.id}">${r?.passed ? 'Again' : 'Start'}</button></div>`;
+    }).join('');
+    return `<div class="hero"><div class="big">${uk.licence ? 'Full' : 'Provisional'}<span>UK licence</span></div>
+        <div class="s">Real UK rules: drive on the left, mph limits, give way to the right at roundabouts. Automatic gearbox. Z and X are the indicators, Q checks your mirrors.</div></div>
+      ${inUK ? '<button class="buy wide" data-act="gohome">Fly home</button>' : '<button class="buy wide" data-act="gouk">Go to Whitmore, England</button>'}
+      <h3>Lessons</h3>${rows}
+      <p class="note">Marked like the real DVSA test: 15 or fewer driving faults and no serious or dangerous faults to pass. First pass of each lesson pays €250k; passing the mock test pays €5m.</p>`;
+  }
+
   dealer() {
     const home = this.hooks.homeId();
     const rows = Object.entries(CARS).map(([id, c]) => {
@@ -123,6 +145,7 @@ export class Phone {
       line('Distance driven', `${s.km.toFixed(1)} km`) +
       line('Top speed', `${s.topKmh} km/h`) +
       line('Flights', s.flights) +
+      line('UK driving licence', state.uk.licence ? 'Full' : 'Provisional') +
       Object.entries(TRIAL_NAMES).map(([id, n]) => line(n, state.best[id] ? fmtTime(state.best[id]) : 'Not set')).join('');
   }
 }

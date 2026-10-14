@@ -6,12 +6,14 @@ import { buildPlayer, buildJet } from './models.js';
 import { EngineAudio } from './audio.js';
 import { Hud } from './hud.js';
 import { state, save } from './state.js';
-import { JETS, ROUTES, flightTime, fameLevel, talkFee } from './catalog.js';
+import { JETS, ROUTES, flightTime, fameLevel, talkFee, LEARNER } from './catalog.js';
 import * as P from './progress.js';
 import { Phone } from './phone.js';
 import { setupTrials, MEDAL_PAY } from './trials.js';
 import { buildCabin } from './worlds/cabin.js';
 import { buildArena } from './worlds/arena.js';
+import { buildUK, lPlateTex, MPH } from './worlds/uk.js';
+import { LESSONS, LessonRun, carefulDriver } from './lessons.js';
 import { loadAll, updateCulling } from './assets.js';
 import { createPipeline } from './render.js';
 import { Traffic } from './traffic.js';
@@ -34,10 +36,29 @@ window.addEventListener('resize', () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
   pipeline.setSize(window.innerWidth, window.innerHeight);
 });
+const mirrorCam = new THREE.PerspectiveCamera(42, 300 / 78, 0.3, 600);
 const draw = () => {
   if (!renderer.domElement.width || !renderer.domElement.height) return; // minimised / zero-size window
   updateCulling(camera.position);
   pipeline.render(world.scene);
+  // a real rear-view mirror in the learner car
+  if (car && mode === 'car' && world.units === 'mph') {
+    const w = 292, h = 70, x = (window.innerWidth - w) / 2, yTop = 18;
+    const fx = Math.sin(car.heading), fz = Math.cos(car.heading);
+    mirrorCam.position.set(car.pos.x + fx * 0.2, 1.25, car.pos.z + fz * 0.2);
+    mirrorCam.lookAt(car.pos.x - fx * 30, 0.9, car.pos.z - fz * 30);
+    const auto = renderer.shadowMap.autoUpdate;
+    renderer.shadowMap.autoUpdate = false;
+    renderer.setScissorTest(true);
+    renderer.setScissor(x, window.innerHeight - yTop - h, w, h);
+    renderer.setViewport(x, window.innerHeight - yTop - h, w, h);
+    car.model.root.visible = false;
+    renderer.render(world.scene, mirrorCam);
+    car.model.root.visible = true;
+    renderer.setScissorTest(false);
+    renderer.setViewport(0, 0, window.innerWidth, window.innerHeight);
+    renderer.shadowMap.autoUpdate = auto;
+  }
 };
 
 const hud = new Hud();
@@ -45,19 +66,20 @@ const audio = new EngineAudio();
 const $ = (id) => document.getElementById(id);
 
 // ---------- worlds ----------
-const builders = { monaco: buildMonaco, dubai: buildDubai, arena: buildArena };
+const builders = { monaco: buildMonaco, dubai: buildDubai, arena: buildArena, uk: buildUK };
 const worlds = {};
 function getWorld(id) {
   if (!worlds[id]) {
     const w = builders[id](renderer);
     w.cars = [];
-    w.addCar = (carId, at) => {
-      const c = new Car(carId, at);
+    w.addCar = (carId, at, spec) => {
+      const c = new Car(carId, at, spec);
       w.scene.add(c.model.root);
       w.cars.push(c);
       return c;
     };
     w.garage.forEach((g) => w.addCar(g.id, g));
+    if (w.learnerAt) addLPlates(w.addCar('learner', w.learnerAt, LEARNER));
     // cars bought from the phone fill the extra bays at this home
     P.boughtCarsIn(id).forEach((carId, i) => w.slots?.[i] && w.addCar(carId, w.slots[i]));
     w.traffic = new Traffic(w.scene, w.life || {});
@@ -82,6 +104,7 @@ let camMode = 0;
 let cutscene = null;
 
 function enterWorld(target, spawn) {
+  if (lesson) lesson.cancel('Lesson stopped');
   world = typeof target === 'string' ? getWorld(target) : target;
   world.scene.add(player.mesh);
   camera.near = world.near ?? 0.3; // tight interiors need a closer clipping plane
@@ -107,6 +130,12 @@ window.addEventListener('keydown', (e) => {
   if ((e.code === 'KeyP' || e.code === 'Tab') && !e.repeat) { e.preventDefault(); togglePhone(); return; }
   if (mode === 'phone' || mode === 'result') { if (e.code === 'Escape') mode === 'phone' ? togglePhone() : closeResult(); return; }
   if (e.code === 'KeyE') interact();
+  if (mode === 'car' && (e.code === 'KeyZ' || e.code === 'KeyX')) {
+    const dir = e.code === 'KeyZ' ? 'left' : 'right';
+    drive.indicator = drive.indicator === dir ? null : dir;
+    drive.turned = 0;
+  }
+  if (mode === 'car' && e.code === 'KeyQ') { drive.mirrorPressed = true; drive.mirrorFlash = 0.6; }
   if (e.code === 'KeyR' && mode === 'car') {
     state.radio = !state.radio;
     save();
@@ -398,7 +427,7 @@ let lastPlace = '';
 let hudSlow = 0;
 let arenaMusic = 0;
 let prevMode = 'foot';
-const homeId = () => (world.id === 'monaco' || world.id === 'dubai' ? world.id : state.world);
+const homeId = () => (world.id === 'monaco' || world.id === 'dubai' ? world.id : state.world === 'dubai' ? 'dubai' : 'monaco');
 
 function refreshHudExtras() {
   hud.goals(P.dailyGoals(), state.streak.count);
@@ -425,6 +454,10 @@ const phone = new Phone({
     if (w.slots?.[i]) w.addCar(carId, w.slots[i]);
   },
   onJetBought(jetId) { worlds.dubai?.addJet(jetId); },
+  startLesson: (id) => startLesson(id),
+  goUK: () => goUK(),
+  goHome: () => goHome(),
+  inUK: () => world.id === 'uk',
 });
 
 function togglePhone() {
@@ -469,6 +502,137 @@ function closeResult() {
 }
 $('res-ok').onclick = closeResult;
 
+// ---------- driving lessons (Whitmore, England) ----------
+let lesson = null;
+const autoState = {};
+const drive = { indicator: null, turned: 0, blink: 0, mirrorPressed: false, mirrorFlash: 0, trafficHit: false };
+
+function addLPlates(c) {
+  const mat = new THREE.MeshBasicMaterial({ map: lPlateTex() });
+  for (const z of [1, -1]) {
+    const pl = new THREE.Mesh(new THREE.PlaneGeometry(0.2, 0.2), mat);
+    pl.position.set(0, 0.62, z * (c.model.length / 2 + 0.02));
+    pl.rotation.y = z > 0 ? 0 : Math.PI;
+    c.model.root.add(pl);
+  }
+}
+
+function updateIndicators(dt, dHeading) {
+  if (drive.indicator !== drive.lastInd) { drive.lastInd = drive.indicator; drive.turned = 0; }
+  if (drive.indicator) {
+    // self-cancel once the turn is done, like a real stalk
+    drive.turned += Math.abs(Math.atan2(Math.sin(dHeading), Math.cos(dHeading)));
+    if (drive.turned > 1.05 && Math.abs(car.steer) < 0.04) drive.indicator = null;
+  }
+  drive.blink += dt;
+  const lit = drive.indicator && drive.blink % 0.8 < 0.4;
+  if (drive.indicator && Math.floor((drive.blink - dt) / 0.4) !== Math.floor(drive.blink / 0.4)) audio.sfx(lit ? 'tick' : 'tock');
+  hud.indicators(world.units === 'mph', drive.indicator, lit);
+}
+
+let voice = null;
+function speak(text) {
+  if (audio.muted || !('speechSynthesis' in window)) return;
+  try {
+    const synth = window.speechSynthesis;
+    voice = voice || synth.getVoices().find((v) => /en-GB/i.test(v.lang)) || null;
+    synth.cancel();
+    const u = new SpeechSynthesisUtterance(text);
+    if (voice) u.voice = voice;
+    u.lang = 'en-GB';
+    u.rate = 1.02;
+    synth.speak(u);
+  } catch { /* no speech: the text panel is enough */ }
+}
+
+const lessonHooks = {
+  say(text) { speak(text); },
+  hud(info) { hud.lesson(info); },
+  flash(text) { hud.toast(text, 2600); audio.sfx('spend'); },
+  cancelled(why) {
+    lesson = null;
+    hud.lesson(null);
+    if (why) hud.toast(why, 2600);
+  },
+  result(r) {
+    const run = lesson;
+    lesson = null;
+    setTimeout(() => hud.lesson(null), 4000);
+    const uk = state.uk;
+    const rec = (uk.lessons[r.id] = uk.lessons[r.id] || { tries: 0, passed: false, best: null });
+    const firstPass = r.passed && !rec.passed;
+    rec.tries += 1;
+    if (r.passed) { rec.passed = true; rec.best = rec.best == null ? r.counts.minor : Math.min(rec.best, r.counts.minor); }
+    if (r.mock) uk.tests += 1;
+    let reward = 0;
+    if (firstPass) reward = r.mock ? 5_000_000 : 250_000;
+    if (r.passed && r.mock && !uk.licence) { uk.licence = true; setTimeout(() => hud.reward({ kind: 'level', title: 'Full UK driving licence. Well done.' }), 1500); }
+    save();
+    if (reward) { addFundsUI(reward, r.mock ? 'Passed your UK driving test' : `Lesson passed: ${r.title}`); }
+    if (r.passed) P.emit('lesson');
+    $('res-name').textContent = r.mock ? 'Driving test result' : `Lesson · ${r.title}`;
+    $('res-medal').textContent = r.passed ? (r.mock ? 'PASSED · FULL UK LICENCE' : 'PASSED') : 'NOT PASSED';
+    $('res-medal').style.color = r.passed ? '#7dffb0' : '#ff8a7a';
+    $('res-time').textContent = `${r.counts.minor}`;
+    const lines = r.lines.length ? r.lines.map((l) => `<div class="${l.sev}">${l.sev === 'minor' ? 'Driving fault' : l.sev === 'serious' ? 'Serious' : 'Dangerous'} · ${l.cat}${l.n > 1 ? ` ×${l.n}` : ''}</div>`).join('') : '<div>No faults at all. Textbook.</div>';
+    $('res-sub').innerHTML = `driving fault${r.counts.minor === 1 ? '' : 's'} · ${r.counts.serious} serious · ${r.counts.dangerous} dangerous${reward ? ` · +€${reward.toLocaleString('en-GB')}` : ''}
+      <div class="faults">${lines}</div>`;
+    prevMode = mode;
+    mode = 'result';
+    if (car) car.park();
+    audio.sfx(r.passed ? 'medal' : 'spend');
+    $('result').classList.remove('hidden');
+    return run;
+  },
+};
+function addFundsUI(amount, title) {
+  state.balance += amount;
+  state.log.push({ amount, reason: title, at: new Date().toISOString() });
+  save();
+  hud.reward({ kind: 'win', title, amount });
+}
+
+async function goUK() {
+  if (world.id === 'uk') return;
+  mode = 'cutscene';
+  if (car) { car.park(); car = null; }
+  hud.show(false);
+  await fade(1);
+  enterWorld('uk');
+  renderer.compile(world.scene, camera);
+  hud.show(true);
+  await fade(0);
+  hud.toast('Whitmore, England. Your instructor is at the test centre. Open the phone (P) to start a lesson.', 6000);
+}
+async function goHome() {
+  mode = 'cutscene';
+  if (car) { car.park(); car = null; }
+  hud.show(false);
+  await fade(1);
+  enterWorld(state.world in builders && state.world !== 'uk' ? state.world : 'monaco');
+  hud.show(true);
+  await fade(0);
+}
+async function startLesson(id) {
+  if (world.id !== 'uk') await goUK();
+  const def = LESSONS.find((l) => l.id === id);
+  if (lesson) lesson.cancel();
+  const learner = world.cars.find((c) => c.id === 'learner');
+  if (car && car !== learner) car.park();
+  car = learner;
+  mode = 'car';
+  player.mesh.visible = false;
+  camMode = 0;
+  drive.indicator = null;
+  for (const k in autoState) delete autoState[k];
+  lesson = new LessonRun(world, def, lessonHooks);
+  const st = lesson.route.start;
+  car.pos.set(st.x, 0, st.z);
+  car.heading = st.heading;
+  car.park();
+  snapCamera();
+}
+
 // ---------- sound ----------
 let musicKey = '';
 function updateSoundscape() {
@@ -481,7 +645,7 @@ function updateSoundscape() {
   const p = car ? car.pos : player.pos;
   const kind = world.id === 'monaco' ? 'coast'
     : world.id === 'dubai' ? (world.indoors?.(p.x, p.z) ? 'indoor' : 'city')
-    : world.id === 'cabin' ? 'indoor' : 'none';
+    : world.id === 'cabin' ? 'indoor' : world.id === 'uk' ? 'city' : 'none';
   audio.ambience.set(kind, mode === 'car');
 }
 
@@ -608,9 +772,12 @@ function step(dt) {
   P.tick(dt);
   updateSoundscape();
   if (world.trials?.active && mode !== 'car') world.trials.cancel('Time trial cancelled');
+  if (lesson && mode !== 'car') lesson.cancel('Lesson stopped: you got out of the car');
+  if (mode !== 'car') { drive.indicator = null; hud.indicators(false); hud.mirror(false); hud.limit(null); }
   const obstacle = mode === 'car' ? { x: car.pos.x, z: car.pos.z, r: car.model.radius * 0.6 }
     : mode === 'foot' ? { x: player.pos.x, z: player.pos.z, r: 0.5 } : null;
   world.traffic?.update(dt, obstacle, camera.position);
+  world.player = obstacle;
   audio.crowd(world.id === 'arena' ? world.excite : 0);
   const input = readInput();
 
@@ -639,10 +806,23 @@ function step(dt) {
   } else {
     if (mode === 'car') {
       if (world.trials?.update(dt, car)) { input.up = false; input.down = false; input.brake = true; }
-      car.update(dt, input, world);
+      if (lesson && window.__game?.autoDrive) {
+        const o = carefulDriver(lesson, car, autoState, window.__game.badDriver);
+        Object.assign(input, o.input);
+        drive.indicator = o.indicator;
+        if (o.mirror) drive.mirrorPressed = true;
+      }
+      const prevHeading = car.heading;
+      const res = car.update(dt, input, world);
+      updateIndicators(dt, car.heading - prevHeading);
+      if (lesson) {
+        lesson.update(dt, car, { indicator: drive.indicator, mirrorPressed: drive.mirrorPressed, hit: res.hit || drive.trafficHit });
+      }
+      drive.mirrorPressed = false;
+      drive.trafficHit = false;
       P.emit('km', (Math.abs(car.vF) * dt) / 1000);
       P.emit('speed', car.speedKmh);
-      if (world.traffic?.collide(car)) car.sync(0);
+      if (world.traffic?.collide(car)) { car.sync(0); drive.trafficHit = true; }
       audio.update(car, input.up ? 1 : 0);
     } else {
       if (world.id === 'cabin') audio.jet(0.22); else audio.update(null, 0);
@@ -652,7 +832,11 @@ function step(dt) {
     const p = car ? car.pos : player.pos;
     world.env.follow(p);
     hud.update({ world, x: p.x, z: p.z, car, balance: state.balance, prompt: mode === 'jets' ? '' : currentPrompt(), mode });
-    hud.minimap(world, p.x, p.z, car ? car.heading : player.heading, world.cars.filter((c) => c !== car), world.trials?.marks() || []);
+    hud.minimap(world, p.x, p.z, car ? car.heading : player.heading, world.cars.filter((c) => c !== car), world.trials?.marks() || [], lesson?.path());
+    const inUKCar = mode === 'car' && world.units === 'mph';
+    hud.limit(world.units === 'mph' ? world.speedLimitAt(p.x, p.z) : null);
+    hud.mirror(inUKCar, drive.mirrorFlash > 0);
+    drive.mirrorFlash -= dt;
     const place = world.place(p.x, p.z);
     if (place !== lastPlace) { lastPlace = place; P.emit('place', place); }
     hudSlow -= dt;
@@ -677,7 +861,8 @@ frame();
 // debug handle for testing in the console
 window.__game = {
   get world() { return world; }, get car() { return car; }, get mode() { return mode; }, player, keys, camera, pipeline, renderer,
-  state, P, phone, audio, worlds, togglePhone, interact, enterWorld, hud,
+  state, P, phone, audio, worlds, togglePhone, interact, enterWorld, hud, startLesson, goUK, goHome,
+  get lesson() { return lesson; }, drive, autoDrive: false,
   // dev: render the current frame and save it to shots/<name>.jpg via the Vite dev server
   async shot(name = 'live', w = 1280, h = 800) {
     const prev = renderer.getSize(new THREE.Vector2());
@@ -700,3 +885,4 @@ window.__game = {
     draw();
   },
 };
+if (import.meta.env.DEV) import('./devtest.js');

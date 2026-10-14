@@ -7,6 +7,7 @@ const PROFILES = {
   v8: { base: 44, range: 130, gears: 7, wave: 'sawtooth', cutoff: 1300, grit: 0.8 },
   w16: { base: 36, range: 105, gears: 7, wave: 'sawtooth', cutoff: 1100, grit: 0.6 },
   v12soft: { base: 34, range: 70, gears: 8, wave: 'triangle', cutoff: 700, grit: 0.1 },
+  i4: { base: 30, range: 95, gears: 6, wave: 'sawtooth', cutoff: 800, grit: 0.15 },
 };
 
 function noiseBuffer(ctx, seconds, brown = false) {
@@ -215,6 +216,8 @@ export class EngineAudio {
       go: [[1760, 0, 0.5, 0.12, 'triangle']],
       cp: [[1046.5, 0, 0.12, 0.09, 'triangle'], [1568, 0.07, 0.2, 0.09, 'triangle']],
       medal: [[784, 0, 0.4], [988, 0.1, 0.4], [1175, 0.2, 0.4], [1568, 0.3, 1.4]],
+      tick: [[1900, 0, 0.025, 0.05, 'square']],
+      tock: [[1400, 0, 0.025, 0.04, 'square']],
     }[kind] || [];
     for (const [f, dt, len, peak, type] of seq) this.tone(f, t + dt, len, peak ?? 0.12, type);
   }

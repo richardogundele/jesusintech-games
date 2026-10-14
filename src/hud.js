@@ -19,6 +19,11 @@ export class Hud {
     this.trialEl = $('trial');
     this.rewardEl = $('reward');
     this.rewardQ = [];
+    this.unitEl = $('speed-unit');
+    this.limitEl = $('limit');
+    this.lessonEl = $('lesson');
+    this.indEl = $('indicators');
+    this.mirrorEl = $('mirror');
     this.map = $('minimap').getContext('2d');
     this.last = {};
     this.toastTimer = null;
@@ -40,10 +45,14 @@ export class Hud {
     this.prompt.classList.toggle('hidden', !prompt);
     this.speedo.classList.toggle('hidden', !car);
     if (car) {
-      this.set('speed', this.speed, String(Math.round(car.speedKmh)));
+      const mph = world.units === 'mph';
+      this.set('speed', this.speed, String(Math.round(mph ? car.speedKmh / 1.609344 : car.speedKmh)));
+      this.set('unit', this.unitEl, mph ? 'mph' : 'km/h');
       this.set('car', this.carName, car.name);
     }
     const keys = mode === 'phone' ? '' : mode === 'talk' ? '<kbd>←</kbd><kbd>→</kbd> slides · <kbd>E</kbd> finish · <kbd>M</kbd> mute'
+      : mode === 'car' && world.units === 'mph'
+      ? '<kbd>W</kbd><kbd>S</kbd> drive · <kbd>A</kbd><kbd>D</kbd> steer · <kbd>Z</kbd><kbd>X</kbd> indicators · <kbd>Q</kbd> mirrors · <kbd>Space</kbd> handbrake · <kbd>E</kbd> get out · <kbd>P</kbd> phone'
       : mode === 'car'
       ? '<kbd>W</kbd><kbd>S</kbd> drive · <kbd>A</kbd><kbd>D</kbd> steer · <kbd>Space</kbd> handbrake · <kbd>E</kbd> get out · <kbd>C</kbd> camera · <kbd>R</kbd> radio · <kbd>P</kbd> phone'
       : '<kbd>W</kbd><kbd>S</kbd> walk · <kbd>A</kbd><kbd>D</kbd> turn · <kbd>Shift</kbd> run · <kbd>E</kbd> interact · <kbd>P</kbd> phone · <kbd>M</kbd> mute';
@@ -57,6 +66,40 @@ export class Hud {
   }
 
   fame(text) { this.set('fame', this.fameEl, text); }
+
+  /** UK speed-limit roundel (null hides it) */
+  limit(n) {
+    this.limitEl.classList.toggle('hidden', !n);
+    if (n) this.set('limit', this.limitEl, String(n));
+  }
+
+  /** instructor panel: { title, text, faults: {minor, serious, dangerous}, mock } or null */
+  lesson(info) {
+    this.lessonEl.classList.toggle('hidden', !info);
+    this.goalsEl.classList.toggle('hidden', !!info); // keep the screen clear while the instructor talks
+    if (!info) return;
+    this.set('l-title', this.lessonEl.querySelector('.l-title'), info.title);
+    this.set('l-text', this.lessonEl.querySelector('.l-text'), info.text);
+    const f = info.faults;
+    const html = info.mock ? 'Mock test · the examiner is marking quietly'
+      : `Driving faults <b>${f.minor}</b> · <span class="${f.serious ? 'bad' : ''}">Serious <b>${f.serious}</b></span> · <span class="${f.dangerous ? 'bad' : ''}">Dangerous <b>${f.dangerous}</b></span>`;
+    this.set('l-faults', this.lessonEl.querySelector('.l-faults'), html, 'innerHTML');
+  }
+
+  /** indicators: dir = 'left' | 'right' | null, lit = blink phase; show = in a UK car */
+  indicators(show, dir, lit) {
+    this.indEl.classList.toggle('hidden', !show);
+    const key = `${show}${dir}${lit}`;
+    if (this.last.ind === key) return;
+    this.last.ind = key;
+    this.indEl.children[0].classList.toggle('on', dir === 'left' && lit);
+    this.indEl.children[1].classList.toggle('on', dir === 'right' && lit);
+  }
+
+  mirror(show, flash) {
+    this.mirrorEl.classList.toggle('hidden', !show);
+    this.mirrorEl.classList.toggle('flash', !!flash);
+  }
 
   trial(html) {
     this.trialEl.classList.toggle('hidden', !html);
@@ -87,7 +130,7 @@ export class Hud {
   }
 
   /** Heading-up minimap, 1px = 2m, centred on the player. */
-  minimap(world, x, z, heading, cars, marks = []) {
+  minimap(world, x, z, heading, cars, marks = [], path = null) {
     const ctx = this.map;
     const S = 200, half = S / 2, scale = 0.5;
     ctx.clearRect(0, 0, S, S);
@@ -109,6 +152,13 @@ export class Hud {
       ctx.beginPath();
       r.points.forEach((p, i) => (i ? ctx.lineTo(tx(p.x, p.z), ty(p.x, p.z)) : ctx.moveTo(tx(p.x, p.z), ty(p.x, p.z))));
       if (r.closed) ctx.closePath();
+      ctx.stroke();
+    }
+    if (path?.length > 1) {
+      ctx.strokeStyle = 'rgba(53,174,226,0.95)';
+      ctx.lineWidth = 3.5;
+      ctx.beginPath();
+      path.forEach((p, i) => (i ? ctx.lineTo(tx(p.x, p.z), ty(p.x, p.z)) : ctx.moveTo(tx(p.x, p.z), ty(p.x, p.z))));
       ctx.stroke();
     }
     for (const c of cars) {
