@@ -137,9 +137,11 @@ export class Phone {
     const row = (part, label) => `<h3>${label}</h3><div class="swatches">${Object.entries(LOOKS[part]).map(([name, hex]) =>
       `<button class="sw ${state.look[part] === name ? 'on' : ''}" data-act="look" data-part="${part}" data-id="${name}" title="${name}" style="background:#${hex.toString(16).padStart(6, '0')}"></button>`).join('')}</div>
       <p class="note">${state.look[part]}</p>`;
-    const military = (state.look.outfit ?? 'Military uniform') === 'Military uniform';
-    return `<p class="note">What you're wearing around Monaco, Dubai, Singapore and Whitmore.</p>` +
-      row('outfit', 'Outfit') + (military ? row('camo', 'Camouflage') : row('top', 'Sweatshirt') + row('jeans', 'Jeans')) + row('skin', 'Skin tone');
+    const o = state.look.outfit ?? 'Realistic soldier';
+    const extra = o === 'Realistic soldier'
+      ? '<p class="note">A realistic soldier in army digital camouflage (Microsoft Rocketbox avatar, MIT licence). Pick the beret uniform to choose your own camouflage and skin tone.</p>'
+      : (o === 'Military uniform' ? row('camo', 'Camouflage') : row('top', 'Sweatshirt') + row('jeans', 'Jeans')) + row('skin', 'Skin tone');
+    return `<p class="note">What you're wearing around Monaco, Dubai, Singapore and Whitmore.</p>` + row('outfit', 'Outfit') + extra;
   }
 
   me() {

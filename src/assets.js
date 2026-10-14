@@ -64,7 +64,7 @@ export async function loadAll(r, onProgress = () => {}) {
     jobs.push(gltfLoader.loadAsync(`${BASE}/${p}`).then((g) => { store.gltf[k] = g; }));
   }
   if (REAL_FERRARI) jobs.push(texLoader.loadAsync(`${BASE}/models/ferrari_ao.png`).then((t) => { store.misc.ferrariAO = t; }));
-  jobs.push(loadMixamo(manager));
+  jobs.push(loadRocketbox(manager, texLoader));
   await Promise.all(jobs);
 }
 
@@ -195,27 +195,47 @@ export function gltf(name) {
 export const misc = (k) => store.misc[k];
 
 /**
- * Optional: your own Mixamo character. Drop these into public/assets/character/
- *   character.fbx (T-pose, "With Skin"), idle.fbx, walk.fbx, run.fbx ("Without Skin", walk/run "In Place")
- * If they're missing, the game uses the built-in soldier. See CHARACTER.md.
+ * The realistic soldier: Microsoft Rocketbox "Military_Male_06" (MIT licence, see
+ * public/assets/character/ROCKETBOX-LICENSE.md) with Rocketbox idle / walk / run / sprint clips.
+ * 3ds Max Biped rig ("Bip01"); the clips bind by bone name. Walk/run clips carry root motion,
+ * so the root's horizontal movement is pinned (the game moves the player) and each clip's real
+ * ground speed is kept in clip.userData.speed (m/s) so the feet don't slide.
  */
-async function loadMixamo(manager) {
+async function loadRocketbox(manager, texLoader) {
   const base = `${BASE}/character`;
-  const exists = async (f) => {
-    try {
-      const r = await fetch(`${base}/${f}`, { method: 'HEAD' });
-      return r.ok && !(r.headers.get('content-type') || '').includes('text/html'); // dev server falls back to index.html
-    } catch { return false; }
-  };
-  if (!(await exists('character.fbx'))) return;
+  try {
+    const head = await fetch(`${base}/rocketbox.fbx`, { method: 'HEAD' });
+    if (!head.ok || (head.headers.get('content-type') || '').includes('text/html')) return;
+  } catch { return; }
   const loader = new FBXLoader(manager);
-  const model = await loader.loadAsync(`${base}/character.fbx`);
+  // the FBX references .tga files we don't ship; textures are assigned by material name instead
+  manager.setURLModifier((url) => (/\.tga$/i.test(url) ? 'data:image/gif;base64,R0lGODlhAQABAAAAACw=' : url));
+  const [model, idle, walk, run, sprint, tex] = await Promise.all([
+    loader.loadAsync(`${base}/rocketbox.fbx`),
+    loader.loadAsync(`${base}/rb_idle.fbx`),
+    loader.loadAsync(`${base}/rb_walk.fbx`),
+    loader.loadAsync(`${base}/rb_run.fbx`),
+    loader.loadAsync(`${base}/rb_sprint.fbx`),
+    Promise.all(['body_color', 'body_normal', 'head_color', 'head_normal'].map((n) => texLoader.loadAsync(`${base}/${n}.jpg`))),
+  ]);
+  manager.setURLModifier(undefined);
   const clips = {};
-  for (const name of ['idle', 'walk', 'run']) {
-    if (!(await exists(`${name}.fbx`))) continue;
-    const a = await loader.loadAsync(`${base}/${name}.fbx`);
-    if (a.animations[0]) { clips[name] = a.animations[0]; clips[name].name = name; }
+  for (const [k, src] of Object.entries({ idle, walk, run, sprint })) {
+    const c = src.animations[0];
+    if (!c) continue;
+    c.name = k;
+    c.tracks = c.tracks.filter((t) => model.getObjectByName(t.name.slice(0, t.name.lastIndexOf('.'))));
+    const root = c.tracks.find((t) => /^Bip01\.position$/.test(t.name));
+    if (root) {
+      const v = root.values, n = v.length / 3;
+      const dist = Math.hypot(v[(n - 1) * 3] - v[0], v[(n - 1) * 3 + 2] - v[2]);
+      c.userData = { speed: dist / 100 / Math.max(0.001, c.duration) };
+      if (k !== 'idle') for (let i = 0; i < v.length; i += 3) { v[i] = v[0]; v[i + 2] = v[2]; }
+    }
+    clips[k] = c;
   }
-  if (!clips.idle && model.animations[0]) clips.idle = model.animations[0];
-  store.misc.mixamo = { model, clips };
+  const [bodyC, bodyN, headC, headN] = tex;
+  bodyC.colorSpace = headC.colorSpace = THREE.SRGBColorSpace;
+  for (const t of tex) t.anisotropy = 8;
+  store.misc.rocketbox = { model, clips, tex: { bodyC, bodyN, headC, headN } };
 }

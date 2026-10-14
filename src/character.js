@@ -15,13 +15,13 @@ export const CAMO = {
   Urban: [0x9a9c9e, 0x6d7073, 0x3d3f42, 0xd2d3d4],
 };
 export const LOOKS = {
-  outfit: { 'Military uniform': 0x4a5a2e, 'Jeans & sweatshirt': 0x2d5fb0 },
+  outfit: { 'Realistic soldier': 0x8b9184, 'Military uniform': 0x4a5a2e, 'Jeans & sweatshirt': 0x2d5fb0 },
   camo: Object.fromEntries(Object.entries(CAMO).map(([k, v]) => [k, v[1]])),
   top: { 'Royal blue': 0x2d5fb0, Navy: 0x1d2b4a, 'Sky blue': 0x6d9fd6, Black: 0x17181b, Grey: 0x8a8d92, White: 0xeceae4, Burgundy: 0x6e1f2c },
   jeans: { 'Dark denim': 0x24395c, 'Mid denim': 0x355a8a, 'Light denim': 0x7d9cc0, Black: 0x1c1d21 },
   skin: { 'Deep brown': 0x4a2c1a, Brown: 0x6b4429, 'Medium brown': 0x8d5a3a, Tan: 0xb07a52, Light: 0xe0b896 },
 };
-export const DEFAULT_LOOK = { outfit: 'Military uniform', camo: 'Woodland', top: 'Royal blue', jeans: 'Dark denim', skin: 'Brown' };
+export const DEFAULT_LOOK = { outfit: 'Realistic soldier', camo: 'Woodland', top: 'Royal blue', jeans: 'Dark denim', skin: 'Brown' };
 
 // ---------- fabric textures (canvas, so nothing to download) ----------
 function canvasTex(w, h, draw, repeat = [1, 1]) {

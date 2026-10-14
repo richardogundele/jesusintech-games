@@ -918,32 +918,70 @@ function buildGltfCar(spec) {
 
 // ---------- animated character (Mixamo, via the three.js examples) ----------
 
-/** idle / walk / run blended by speed. Missing clips fall back to whatever exists. */
-function locomotion(scene, clips) {
+/**
+ * Speed-matched locomotion: clips sit at their real ground speeds (m/s); the two clips that bracket
+ * the current speed are blended and played at speed / clipSpeed, so feet don't slide.
+ * gaits: [{ clip, speed }] in increasing speed order (the first is the idle, speed 0).
+ */
+function locomotion(scene, gaits) {
   const mixer = new THREE.AnimationMixer(scene);
-  const pick = (k) => clips[k] || clips.walk || clips.idle || clips.run;
-  const actions = { idle: mixer.clipAction(pick('idle')), walk: mixer.clipAction(pick('walk')), run: mixer.clipAction(pick('run')) };
-  for (const a of new Set(Object.values(actions))) { a.play(); a.setEffectiveWeight(0); }
-  actions.idle.setEffectiveWeight(1);
-  const weights = { idle: 1, walk: 0, run: 0 };
+  const list = gaits.filter((g) => g.clip);
+  const actions = list.map((g) => { const a = mixer.clipAction(g.clip); a.play(); a.setEffectiveWeight(0); return a; });
+  const weights = list.map((_, i) => (i === 0 ? 1 : 0));
+  let smooth = 0;
   return (speed, dt) => {
-    // blend by speed: idle < 0.3 m/s, walk around 1.5-4, run from ~6
-    const target = speed < 0.3 ? { idle: 1, walk: 0, run: 0 }
-      : speed < 5 ? { idle: 0, walk: 1, run: 0 }
-      : { idle: 0, walk: Math.max(0, 1 - (speed - 5) / 2), run: Math.min(1, (speed - 5) / 2) };
-    for (const k of Object.keys(weights)) {
-      weights[k] += (target[k] - weights[k]) * Math.min(1, dt * 8);
-      actions[k].setEffectiveWeight(weights[k]);
+    smooth += (speed - smooth) * Math.min(1, dt * 10);
+    const v = smooth;
+    const target = list.map(() => 0);
+    if (v < 0.25 || list.length === 1) target[0] = 1;
+    else {
+      let i = 1;
+      while (i < list.length - 1 && v > list[i + 1].speed) i++;
+      if (i === list.length - 1 || v <= list[i].speed) target[i] = 1;
+      else { const t = (v - list[i].speed) / (list[i + 1].speed - list[i].speed); target[i] = 1 - t; target[i + 1] = t; }
     }
-    actions.walk.timeScale = THREE.MathUtils.clamp(speed / 1.6, 0.6, 2.4);
-    actions.run.timeScale = THREE.MathUtils.clamp(speed / 6.5, 0.7, 1.5);
+    list.forEach((g, i) => {
+      weights[i] += (target[i] - weights[i]) * Math.min(1, dt * 8);
+      actions[i].setEffectiveWeight(weights[i]);
+      if (i > 0) actions[i].timeScale = THREE.MathUtils.clamp(Math.max(v, 0.5) / g.speed, 0.55, 1.7);
+    });
     mixer.update(dt);
   };
 }
 
 /**
- * You, in jeans and a sweatshirt: the Soldier's skeleton and Idle/Walk/Run animations drive a body
- * generated in character.js; the armoured mesh is hidden. root.userData.setLook({ top, jeans, skin }).
+ * The realistic soldier (Microsoft Rocketbox Military_Male_06, MIT): his own idle / walk / run /
+ * sprint clips, textures assigned by material name (the FBX's own materials are black).
+ */
+function buildRocketboxSoldier() {
+  const rb = misc('rocketbox');
+  if (!rb) return null;
+  const scene = cloneSkinned(rb.model);
+  scene.scale.setScalar(0.01); // centimetres -> metres
+  const body = new THREE.MeshStandardMaterial({ map: rb.tex.bodyC, normalMap: rb.tex.bodyN, roughness: 0.82, metalness: 0 });
+  const head = new THREE.MeshStandardMaterial({ map: rb.tex.headC, normalMap: rb.tex.headN, roughness: 0.55, metalness: 0 });
+  scene.traverse((o) => {
+    if (!o.isMesh) return;
+    o.castShadow = true;
+    o.receiveShadow = true;
+    o.frustumCulled = false;
+    const pick = (m) => (/head/i.test(m.name) ? head : body);
+    o.material = Array.isArray(o.material) ? o.material.map(pick) : pick(o.material);
+  });
+  const c = rb.clips;
+  const g = new THREE.Group();
+  g.add(scene);
+  g.userData.animate = locomotion(scene, [
+    { clip: c.idle, speed: 0 },
+    { clip: c.walk, speed: c.walk?.userData?.speed || 1.4 },
+    { clip: c.run, speed: c.run?.userData?.speed || 3.07 },
+    { clip: c.sprint, speed: c.sprint?.userData?.speed || 5.84 },
+  ]);
+  return g;
+}
+
+/**
+ * The built-in body (character.js) on the Soldier's skeleton and Idle/Walk/Run clips, the armour hidden.
  */
 export function buildCasual(look = DEFAULT_LOOK) {
   const { scene, animations } = loadGltf('soldier');
@@ -961,32 +999,34 @@ export function buildCasual(look = DEFAULT_LOOK) {
   body.mesh.quaternion.copy(src.quaternion);
   body.mesh.scale.copy(src.scale);
   src.parent.add(body.mesh);
-  root.add(blobShadow(0.9, 0.9, 0.45));
   const clip = (n) => animations.find((a) => a.name === n);
-  root.userData.animate = locomotion(scene, { idle: clip('Idle'), walk: clip('Walk'), run: clip('Run') });
+  root.userData.animate = locomotion(scene, [{ clip: clip('Idle'), speed: 0 }, { clip: clip('Walk'), speed: 1.6 }, { clip: clip('Run'), speed: 5.2 }]);
   root.userData.setLook = body.setLook;
   return root;
 }
 
-/** The player: your Mixamo character if you've added one, otherwise you in jeans and a sweatshirt. */
-export function buildPlayer(look) {
-  const mx = misc('mixamo');
-  if (!mx) return buildCasual(look);
-  const scene = cloneSkinned(mx.model);
-  const box = new THREE.Box3().setFromObject(scene);
-  scene.scale.setScalar(1.8 / Math.max(0.01, box.max.y - box.min.y)); // normalise to 1.8 m (FBX is in cm)
-  scene.traverse((o) => {
-    if (!o.isMesh) return;
-    o.castShadow = true;
-    o.receiveShadow = true;
-    o.frustumCulled = false;
-    const toStd = (m) => new THREE.MeshStandardMaterial({ map: m.map || null, normalMap: m.normalMap || null, color: m.map ? 0xffffff : m.color, roughness: 0.65, transparent: m.transparent, alphaTest: m.alphaTest });
-    o.material = Array.isArray(o.material) ? o.material.map(toStd) : toStd(o.material);
-  });
+
+/**
+ * You: the realistic soldier by default, or (Wardrobe) the built-in body in a beret uniform or
+ * jeans and a sweatshirt. root.userData.setLook(look) switches; animate(speed, dt) drives the one shown.
+ */
+export function buildPlayer(look = DEFAULT_LOOK) {
   const root = new THREE.Group();
-  root.add(scene);
+  const real = buildRocketboxSoldier();
+  const built = buildCasual(look);
+  if (real) root.add(real);
+  root.add(built);
   root.add(blobShadow(0.9, 0.9, 0.45));
-  root.userData.animate = locomotion(scene, mx.clips);
+  let active = built;
+  root.userData.setLook = (l) => {
+    const useReal = !!real && (l.outfit ?? DEFAULT_LOOK.outfit) === 'Realistic soldier';
+    if (real) real.visible = useReal;
+    built.visible = !useReal;
+    active = useReal ? real : built;
+    if (!useReal) built.userData.setLook(l);
+  };
+  root.userData.animate = (speed, dt) => active.userData.animate(speed, dt);
+  root.userData.setLook(look);
   return root;
 }
 

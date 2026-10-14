@@ -1,4 +1,4 @@
-// Real names, real-ish numbers. Private build only.
+// Real names, real-ish numbers.
 // topSpeed in km/h, accel in m/s^2 (roughly 0-100 time), grip = lateral grip, mass feel via steerResponse.
 
 export const CARS = {

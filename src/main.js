@@ -824,7 +824,8 @@ function updateCamera(dt) {
 function updateFoot(dt, input) {
   const turn = -input.steer;
   player.heading += turn * 2.6 * dt;
-  const target = (input.up ? 1 : 0) * (input.run ? 8.5 : 4.2) - (input.down ? 2.2 : 0);
+  // walk 1.9 m/s, Shift to run at 5.8 m/s (the speeds the animations were captured at)
+  const target = (input.up ? 1 : 0) * (input.run ? 5.8 : 1.9) - (input.down ? 1.2 : 0);
   player.speed += (target - player.speed) * Math.min(1, dt * 8);
   player.pos.x += Math.sin(player.heading) * player.speed * dt;
   player.pos.z += Math.cos(player.heading) * player.speed * dt;

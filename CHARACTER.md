@@ -1,25 +1,32 @@
-# Put yourself in the game (about 5 minutes)
+# The player character
 
-The game uses a stand-in character until you add your own. Mixamo is Adobe's free character library; it needs your Adobe login.
+You walk around as **Military_Male_06** from the Microsoft Rocketbox Avatar Library
+(https://github.com/microsoft/Microsoft-Rocketbox, MIT License, Copyright (c) 2020 Microsoft).
+The MIT notice ships with the game in `public/assets/character/ROCKETBOX-LICENSE.md`; keep it there.
 
-1. Go to **mixamo.com** and sign in.
-2. Click **Characters** and search **"suit"**. Pick a man in a suit you like.
-3. Download the character itself:
-   - Click **Download**
-   - Format: **FBX Binary (.fbx)**, Pose: **T-pose**
-   - Save it as **`character.fbx`**
-4. Click **Animations** and download three moves for that character. For each one:
-   - Search the name, click it, tick **In Place** (very important for walk and run)
-   - **Download** → Format **FBX Binary**, Skin: **Without Skin**
-   - **Idle** (for example "Breathing Idle") → save as **`idle.fbx`**
-   - **Walking** → save as **`walk.fbx`**
-   - **Running** → save as **`run.fbx`**
-5. Put all four files in this folder (create it if it isn't there):
+## Files (`public/assets/character/`)
 
-   ```
-   jesusintech-games/public/assets/character/
-   ```
+| File | What it is |
+| --- | --- |
+| `rocketbox.fbx` | the skinned avatar (`Export/Military_Male_06.fbx`, Bip01 biped rig, centimetres) |
+| `rb_idle.fbx`, `rb_walk.fbx`, `rb_run.fbx`, `rb_sprint.fbx` | Rocketbox animation clips on the same rig |
+| `body_color.jpg`, `body_normal.jpg`, `head_color.jpg`, `head_normal.jpg` | the avatar's TGA textures converted to JPG |
 
-6. Refresh the game. You'll be walking around as your new character. If a file is missing the game quietly uses the stand-in.
+The raw downloads (TGAs etc.) are in `assets-src/rocketbox/` (gitignored).
 
-Tip: you can grab a second and third suited character the same way to use for pedestrians later.
+## How it is wired
+
+- `loadRocketbox` in `src/assets.js` loads the files, keeps only tracks for bones the model has, measures each
+  clip's forward speed from the `Bip01` root track, then pins the root so the game moves you instead of the clip.
+- `buildRocketboxSoldier` in `src/models.js` assigns the textures by material name (the FBX's own materials load
+  black) and blends idle / walk (1.4 m/s) / run (3.1 m/s) / sprint (5.8 m/s) by your real speed, so feet don't slide.
+- `buildPlayer` holds this avatar plus the built-in body from `src/character.js`. The phone's **Wardrobe** tab
+  switches between "Realistic soldier" (this avatar), "Military uniform" (beret, pick the camouflage and skin tone)
+  and "Jeans & sweatshirt".
+- If `rocketbox.fbx` is missing the game falls back to the built-in body.
+
+## Swapping in another Rocketbox avatar
+
+Any avatar from the library uses the same Bip01 rig, so the same clips work. Copy its `Export/<Name>.fbx` to
+`rocketbox.fbx`, convert its `<name>_body_color.tga`, `_body_normal.tga`, `_head_color.tga` and `_head_normal.tga`
+to the four JPGs above, and refresh.

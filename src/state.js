@@ -15,7 +15,8 @@ const DEFAULTS = () => ({
   wins: { date: '', counts: {} },      // real-life wins logged today, per category
   radio: false,
   uk: { lessons: {}, licence: false, tests: 0 }, // driving lessons in Whitmore
-  look: { outfit: 'Military uniform', camo: 'Woodland', top: 'Royal blue', jeans: 'Dark denim', skin: 'Brown' }, // what you're wearing
+  look: { outfit: 'Realistic soldier', camo: 'Woodland', top: 'Royal blue', jeans: 'Dark denim', skin: 'Brown' }, // what you're wearing
+  lookV: 2, // bump to move existing saves onto a new default outfit once
 });
 
 function load() {
@@ -29,6 +30,7 @@ function load() {
   out.owned.cars = Array.isArray(out.owned.cars) ? out.owned.cars : [];
   out.owned.jets = Array.isArray(out.owned.jets) ? out.owned.jets : [];
   out.log = Array.isArray(out.log) ? out.log : [];
+  if ((saved.lookV || 0) < 2) { out.look.outfit = 'Realistic soldier'; out.lookV = 2; } // Richard chose the realistic soldier (2026-10-14)
   return out;
 }
 

@@ -31,7 +31,8 @@ npm run dev
 
 - Skies, textures and scenery models: [Poly Haven](https://polyhaven.com) (CC0)
 - Ferrari 458 Italia model by vicent091036, via the three.js examples (original Sketchfab listing no longer online; keep this build private)
-- Player character and animations: Mixamo "Vanguard" soldier, via the three.js examples (Soldier.glb). Add your own: see CHARACTER.md
+- Player character and animations: Military_Male_06 from the [Microsoft Rocketbox Avatar Library](https://github.com/microsoft/Microsoft-Rocketbox), Copyright (c) 2020 Microsoft, MIT License (full notice in public/assets/character/ROCKETBOX-LICENSE.md). See CHARACTER.md
+- Wardrobe outfits (beret uniform, jeans and sweatshirt): a body built in code (src/character.js) on the skeleton and clips of the Mixamo "Vanguard" soldier, via the three.js examples (Soldier.glb)
 - Arena crowd: Mixamo "Michelle" via the three.js examples (Michelle.glb) and Cesium Man, rendered into an impostor atlas
 - Pedestrians: "Cesium Man" from the Khronos glTF Sample Assets (CC-BY 4.0, Cesium)
 
