@@ -6,7 +6,8 @@ import { buildPlayer, buildJet } from './models.js';
 import { EngineAudio } from './audio.js';
 import { Hud } from './hud.js';
 import { state, save } from './state.js';
-import { JETS, ROUTES, flightTime, fameLevel, talkFee, LEARNER } from './catalog.js';
+import { JETS, CITIES, otherCities, fuelStop, flightTime, fameLevel, talkFee, LEARNER } from './catalog.js';
+import { buildSingapore } from './worlds/singapore.js';
 import * as P from './progress.js';
 import { Phone } from './phone.js';
 import { setupTrials, MEDAL_PAY } from './trials.js';
@@ -66,7 +67,7 @@ const audio = new EngineAudio();
 const $ = (id) => document.getElementById(id);
 
 // ---------- worlds ----------
-const builders = { monaco: buildMonaco, dubai: buildDubai, arena: buildArena, uk: buildUK };
+const builders = { monaco: buildMonaco, dubai: buildDubai, arena: buildArena, uk: buildUK, singapore: buildSingapore };
 const worlds = {};
 function getWorld(id) {
   if (!worlds[id]) {
@@ -85,7 +86,7 @@ function getWorld(id) {
     w.traffic = new Traffic(w.scene, w.life || {});
     w.interactions = w.interactions || [];
     w.trials = setupTrials(w, trialHooks);
-    if (w.terminal) w.interactions.push({ ...w.terminal, car: true, label: () => `Choose a jet to ${ROUTES[w.id].label}`, action: openJets });
+    if (w.terminal) w.interactions.push({ ...w.terminal, car: true, label: () => `Fly to ${otherCities(w.id).map((c) => CITIES[c].name).join(' or ')}`, action: openJets });
     if (w.jetPark) w.interactions.push({ ...w.jetPark, car: true, label: () => `Open the jet park (${P.ownedJetIds().length} aircraft)`, action: openJets });
     if (w.arenaDoor) w.interactions.push({ ...w.arenaDoor, car: true, label: () => 'Enter Dubai Arena', action: enterArena });
     if (w.exit) w.interactions.push({ ...w.exit, r: 1.6, label: () => 'Leave the arena', action: leaveArena });
@@ -222,23 +223,32 @@ function interact() {
 }
 
 // ---------- jets ----------
+let jetDest = null;
 function openJets() {
-  const route = ROUTES[world.id];
   if (car) car.park();
   mode = 'jets';
-  $('jets-title').textContent = `Choose your jet to ${route.label}`;
-  const list = $('jet-list');
-  list.innerHTML = '';
-  for (const id of P.ownedJetIds()) {
-    const j = JETS[id];
-    const b = document.createElement('button');
-    b.className = 'card';
-    b.innerHTML = `<div class="maker">${j.maker}</div><div class="model">${j.model}</div>
-      <div class="spec">Range ${j.range} · Mach ${j.mach}<br>Up to ${j.seats} passengers${j.note ? `<br>${j.note}` : ''}</div>
-      <div class="dest">${world.name.charAt(0) + world.name.slice(1).toLowerCase()} → ${route.label} · ${flightTime(j)}</div>`;
-    b.onclick = () => { closeJets(true); travel(id); };
-    list.appendChild(b);
-  }
+  const from = world.id;
+  const dests = otherCities(from);
+  if (!dests.includes(jetDest)) jetDest = dests[0];
+  const render = () => {
+    $('jets-title').textContent = `Where to, Richard?`;
+    $('jet-dest').innerHTML = dests.map((c) => `<button data-c="${c}" class="${c === jetDest ? 'on' : ''}">${CITIES[c].name}</button>`).join('');
+    for (const b of $('jet-dest').children) b.onclick = () => { jetDest = b.dataset.c; render(); };
+    const list = $('jet-list');
+    list.innerHTML = '';
+    for (const id of P.ownedJetIds()) {
+      const j = JETS[id];
+      const stop = fuelStop(j, from, jetDest);
+      const b = document.createElement('button');
+      b.className = 'card';
+      b.innerHTML = `<div class="maker">${j.maker}</div><div class="model">${j.model}</div>
+        <div class="spec">Range ${j.range} · Mach ${j.mach}<br>Up to ${j.seats} passengers${j.note ? `<br>${j.note}` : ''}</div>
+        <div class="dest">${CITIES[from].name} → ${CITIES[jetDest].name} · ${flightTime(j, from, jetDest)}${stop ? `<br><span class="stop">Fuel stop in ${stop}</span>` : ' · nonstop'}</div>`;
+      b.onclick = () => { closeJets(true); travel(id, jetDest); };
+      list.appendChild(b);
+    }
+  };
+  render();
   $('jets').classList.remove('hidden');
 }
 function closeJets(keepMode) {
@@ -321,11 +331,11 @@ function landing(w, jetId) {
 let flight = null;
 const titleCase = (n) => n.charAt(0) + n.slice(1).toLowerCase();
 
-async function travel(jetId) {
+async function travel(jetId, to) {
   const from = world;
-  const route = ROUTES[from.id];
+  const route = { to, label: CITIES[to].name };
   const j = JETS[jetId];
-  const time = flightTime(j);
+  const time = flightTime(j, from.id, to);
   if (car) car.park();
   car = null;
   mode = 'cutscene';
@@ -345,6 +355,8 @@ async function travel(jetId) {
   cabin.traffic = null;
   cabin.interactions.push({ ...cabin.mySeat, r: 0.9, label: () => `Take your seat and land in ${route.label}`, action: land });
   renderer.compile(cabin.scene, camera);
+  // build the destination now, while the card is up, so landing never stalls
+  renderer.compile(getWorld(route.to).scene, camera);
   flight = { jetId, to: route.to, cabin };
   await wait(1500);
   $('card').classList.add('hidden');
@@ -375,7 +387,9 @@ async function land() {
   hud.show(true);
   await fade(0);
   const names = dest.cars.map((c) => c.spec.maker).join(' and the ');
-  hud.toast(dest.id === 'monaco' ? 'Chauffeured home to the villa. Welcome back.' : `Chauffeured to your Dubai Hills mansion. The ${names} are waiting.`, 4200);
+  hud.toast(dest.id === 'monaco' ? 'Chauffeured home to the villa. Welcome back.'
+    : dest.id === 'singapore' ? 'Welcome to Singapore. Marina Bay Sands is behind you, the skyline is across the water. Your cars are at the drop-off.'
+    : `Chauffeured to your Dubai Hills mansion. The ${names} are waiting.`, 5200);
 }
 
 // ---------- the arena ----------
@@ -645,7 +659,7 @@ function updateSoundscape() {
   const p = car ? car.pos : player.pos;
   const kind = world.id === 'monaco' ? 'coast'
     : world.id === 'dubai' ? (world.indoors?.(p.x, p.z) ? 'indoor' : 'city')
-    : world.id === 'cabin' ? 'indoor' : world.id === 'uk' ? 'city' : 'none';
+    : world.id === 'cabin' ? 'indoor' : world.id === 'uk' || world.id === 'singapore' ? 'city' : 'none';
   audio.ambience.set(kind, mode === 'car');
 }
 

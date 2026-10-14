@@ -1,6 +1,6 @@
 // The phone (P or Tab): today's goals, logging real wins, the dealer, the hangar, giving, your profile.
 import { state, formatMoney } from './state.js';
-import { CARS, JETS, WINS, GIVING, fameLevel, talkFee, flightTime } from './catalog.js';
+import { CARS, JETS, WINS, GIVING, fameLevel, talkFee, flightTime, fuelStop } from './catalog.js';
 import * as P from './progress.js';
 import { fmtTime } from './trials.js';
 import { LESSONS } from './lessons.js';
@@ -121,7 +121,7 @@ export class Phone {
         const btn = owned ? '<span class="owned">Yours</span>'
           : `<button class="buy" data-act="jet" data-id="${id}" ${state.balance < j.price ? 'disabled' : ''}>${P.shortMoney(j.price)}</button>`;
         return `<div class="row"><div class="grow"><div class="m">${j.maker}</div><div class="t">${j.model}</div>
-          <div class="s">${j.range} · Mach ${j.mach} · Monaco to Dubai ${flightTime(j)}${j.note ? ` · ${j.note}` : ''}</div></div>${btn}</div>`;
+          <div class="s">${j.range} · Mach ${j.mach} · Monaco to Singapore ${flightTime(j, 'monaco', 'singapore')}${fuelStop(j, 'monaco', 'singapore') ? ' (fuel stop)' : ' nonstop'}${j.note ? ` · ${j.note}` : ''}</div></div>${btn}</div>`;
       }).join('');
   }
 

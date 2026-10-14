@@ -260,7 +260,7 @@ export function buildMonaco(renderer) {
   terminal.position.set(382, 5, -140);
   scene.add(terminal);
   colliders.box(382, -140, 60, 22);
-  const termLabel = label('Private Terminal', { size: 1.6, sub: 'Jets to Dubai' });
+  const termLabel = label('Private Terminal', { size: 1.6, sub: 'Jets to Dubai and Singapore' });
   termLabel.position.set(300, 12, -42);
   scene.add(termLabel);
   parkJets(scene, colliders, [

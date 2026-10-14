@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { curbTexture, facadeMaterial, label } from '../materials.js';
 import { pbr, instanced } from '../assets.js';
 
@@ -401,4 +402,26 @@ export function parkJets(scene, colliders, items, JETS, buildJet, { labels = tru
       scene.add(tag);
     }
   }
+}
+
+/** Instanced broadleaf trees (two meshes for any number of trees). spots: [{x, z, s?, r?}] */
+export function broadleafTrees(spots, { leaf = [0.27, 0.38, 0.26], trunk = 0x5a4632 } = {}) {
+  const trunkG = new THREE.CylinderGeometry(0.22, 0.32, 3.2, 7);
+  trunkG.translate(0, 1.6, 0);
+  const blobs = [[0, 5.2, 0, 2.6], [1.3, 4.4, 0.5, 1.9], [-1.2, 4.6, -0.4, 2.0], [0.2, 6.4, -0.6, 1.7]].map(([x, y, z, r]) => new THREE.IcosahedronGeometry(r, 1).translate(x, y, z));
+  const crownG = mergeGeometries(blobs);
+  const trunks = new THREE.InstancedMesh(trunkG, new THREE.MeshStandardMaterial({ color: trunk, roughness: 1 }), spots.length);
+  const crowns = new THREE.InstancedMesh(crownG, new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.95, flatShading: true }), spots.length);
+  const m = new THREE.Matrix4(), q = new THREE.Quaternion(), sc = new THREE.Vector3(), c = new THREE.Color(), up = new THREE.Vector3(0, 1, 0);
+  spots.forEach((p, i) => {
+    q.setFromAxisAngle(up, p.r ?? Math.random() * 6.28);
+    sc.set(p.sx ?? p.s ?? 1, p.s ?? 1, p.sx ?? p.s ?? 1);
+    m.compose(new THREE.Vector3(p.x, 0, p.z), q, sc);
+    trunks.setMatrixAt(i, m);
+    crowns.setMatrixAt(i, m);
+    crowns.setColorAt(i, c.setHSL(leaf[0] + (Math.random() - 0.5) * 0.06, leaf[1], leaf[2] + (Math.random() - 0.5) * 0.1));
+  });
+  const g = new THREE.Group();
+  for (const im of [trunks, crowns]) { im.castShadow = true; im.receiveShadow = true; im.computeBoundingSphere(); g.add(im); }
+  return g;
 }

@@ -155,7 +155,7 @@ export function buildDubai(renderer) {
   term.position.set(225, 6, 650);
   scene.add(term);
   colliders.box(225, 650, 24, 70);
-  const termLabel = label('Private Jet Terminal', { size: 1.6, sub: 'Jets to Monaco' });
+  const termLabel = label('Private Jet Terminal', { size: 1.6, sub: 'Jets to Monaco and Singapore' });
   termLabel.position.set(198, 13, 600);
   scene.add(termLabel);
   // Richard's jet park: the whole fleet in a row along the east side of the runway

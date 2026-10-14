@@ -101,8 +101,8 @@ export const JETS = {
   bbj: { maker: 'Boeing', model: 'BBJ 737 MAX 7', L: 35.6, span: 35.9, R: 1.9, engines: 'wing2', tail: 'low', win: 16, winW: 0.28, winH: 0.38, stripe: 0x0d2340, mach: 0.79, range: '7,000 nm', seats: 19 },
   acj220: { maker: 'Airbus', model: 'ACJ TwoTwenty', L: 35.0, span: 35.1, R: 1.75, engines: 'wing2', tail: 'low', win: 15, winW: 0.32, winH: 0.4, stripe: 0x35aee2, tailColor: 0x050607, mach: 0.82, range: '5,650 nm', seats: 18, note: 'JesusInTech livery' },
   // ---- for sale (list prices, roughly) ----
-  phenom300e: { price: 10_500_000, maker: 'Embraer', model: 'Phenom 300E', L: 15.9, span: 16.2, R: 0.92, engines: 'rear2', tail: 'T', win: 5, winW: 0.42, winH: 0.44, stripe: 0x2c5aa0, mach: 0.78, range: '2,010 nm', seats: 10, note: 'Fuel stop in Cairo' },
-  pc24: { price: 11_000_000, maker: 'Pilatus', model: 'PC-24', L: 16.9, span: 17.0, R: 0.95, engines: 'rear2', tail: 'T', win: 7, winW: 0.38, winH: 0.42, stripe: 0xb01c2e, mach: 0.63, range: '2,000 nm', seats: 10, note: 'Fuel stop in Cairo' },
+  phenom300e: { price: 10_500_000, maker: 'Embraer', model: 'Phenom 300E', L: 15.9, span: 16.2, R: 0.92, engines: 'rear2', tail: 'T', win: 5, winW: 0.42, winH: 0.44, stripe: 0x2c5aa0, mach: 0.78, range: '2,010 nm', seats: 10 },
+  pc24: { price: 11_000_000, maker: 'Pilatus', model: 'PC-24', L: 16.9, span: 17.0, R: 0.95, engines: 'rear2', tail: 'T', win: 7, winW: 0.38, winH: 0.42, stripe: 0xb01c2e, mach: 0.63, range: '2,000 nm', seats: 10 },
   g800: { price: 72_000_000, maker: 'Gulfstream', model: 'G800', L: 33.5, span: 31.4, R: 1.45, engines: 'rear2', tail: 'T', win: 10, winW: 0.62, winH: 0.46, stripe: 0x2a2a2a, mach: 0.925, range: '8,000 nm', seats: 19 },
   global8000: { price: 78_000_000, maker: 'Bombardier', model: 'Global 8000', L: 33.8, span: 31.7, R: 1.45, engines: 'rear2', tail: 'T', win: 14, winW: 0.36, winH: 0.42, stripe: 0x8a6d3b, mach: 0.94, range: '8,000 nm', seats: 19, note: 'Fastest business jet' },
   acj350: { price: 340_000_000, maker: 'Airbus', model: 'ACJ350', L: 66.8, span: 64.75, R: 2.98, engines: 'wing2', tail: 'low', win: 34, winW: 0.32, winH: 0.42, stripe: 0x35aee2, tailColor: 0x050607, mach: 0.85, range: '10,800 nm', seats: 25, note: 'The flagship' },
@@ -147,14 +147,19 @@ export function fameLevel(reached) {
 }
 export const talkFee = (reached, crowd) => 250_000 + fameLevel(reached).level * 250_000 + crowd * 20;
 
-// Nice/Monaco <-> Dubai is about 5,200 km
-export function flightTime(jet) {
-  const hours = 5200 / (jet.mach * 0.93 * 1062) + 0.35;
-  const h = Math.floor(hours), m = Math.round((hours - h) * 60 / 5) * 5;
-  return `${h}h ${String(m).padStart(2, '0')}m`;
+// The three cities you can fly between, and great-circle distances (km)
+export const CITIES = { monaco: { name: 'Monaco' }, dubai: { name: 'Dubai' }, singapore: { name: 'Singapore' } };
+const KM = { 'dubai-monaco': 5200, 'dubai-singapore': 5850, 'monaco-singapore': 10400 };
+const STOPS = { 'dubai-monaco': 'Cairo', 'dubai-singapore': 'Colombo', 'monaco-singapore': 'Dubai' };
+const key = (a, b) => [a, b].sort().join('-');
+export const otherCities = (from) => Object.keys(CITIES).filter((c) => c !== from);
+/** null if the jet can make it nonstop, else where it refuels */
+export function fuelStop(jet, from, to) {
+  const rangeKm = parseFloat(String(jet.range).replace(/,/g, '')) * 1.852;
+  return rangeKm < KM[key(from, to)] * 1.05 ? STOPS[key(from, to)] : null;
 }
-
-export const ROUTES = {
-  monaco: { to: 'dubai', label: 'Dubai', time: '6h 05m' },
-  dubai: { to: 'monaco', label: 'Monaco', time: '6h 50m' },
-};
+export function flightTime(jet, from = 'monaco', to = 'dubai') {
+  const hours = KM[key(from, to)] / (jet.mach * 0.93 * 1062) + 0.35 + (fuelStop(jet, from, to) ? 1.1 : 0);
+  const mins = Math.round((hours * 60) / 5) * 5;
+  return `${Math.floor(mins / 60)}h ${String(mins % 60).padStart(2, '0')}m`;
+}
