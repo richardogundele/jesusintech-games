@@ -1,4 +1,4 @@
-# The Dream Life (games.jesusintech.com)
+# The Dream Life
 
 Private 3D browser game. Monaco and Dubai, real cars and jets. Three.js + Vite, no downloaded assets: every model is built in code.
 
@@ -35,26 +35,11 @@ npm run dev
 - Arena crowd: Mixamo "Michelle" via the three.js examples (Michelle.glb) and Cesium Man, rendered into an impostor atlas
 - Pedestrians: "Cesium Man" from the Khronos glTF Sample Assets (CC-BY 4.0, Cesium)
 
-## Privacy and hosting
+## Hosting
 
-Real brand names and an unlicensed Ferrari model are in here, so it must stay private.
-`netlify/edge-functions/private.js` puts a password on every request (pages, scripts and models).
-It reads the password from the `GAME_PASSWORD` environment variable in Netlify (scope: Functions) and
-**fails closed**: until that variable is set, nobody can get in.
+Live at https://jesusintech-games.netlify.app (Netlify project `jesusintech-games`, public, no password; Richard chose this on 2026-10-14).
+The Ferrari 458 model's licence is unconfirmed, so it only loads in local dev: production builds give the 458 a lofted body
+and `vite.config.js` strips `ferrari.glb` / `ferrari_ao.png` from `dist`.
 
-First deploy (from this folder, with your own Netlify login). Set the password *before* deploying:
-edge functions only see environment values that existed when the deploy was made.
-
-```bash
-npx netlify-cli login
-npx netlify-cli sites:create --name jesusintech-games
-npx netlify-cli env:set GAME_PASSWORD "your-password-here" --scope functions
-npx netlify-cli deploy --build --prod
-```
-
-If you set or change `GAME_PASSWORD` later in the Netlify UI (Project configuration > Environment variables,
-scope must include Functions), run the deploy command again. Until then the site shows a password prompt
-that no password gets past. That's the fail-closed setting doing its job.
-
-After deploying, check both of these return 401 without the password:
-`curl -I https://<site>.netlify.app/` and `curl -I https://<site>.netlify.app/assets/models/ferrari.glb`.
+Deploys run from this folder (Netlify builds it with `npm run build`). Move `assets-src/` and `shots/` out of the folder
+first or the upload is ~400 MB.
