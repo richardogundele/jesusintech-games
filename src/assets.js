@@ -68,6 +68,8 @@ export async function loadAll(r, onProgress = () => {}) {
   }
   if (REAL_FERRARI) jobs.push(texLoader.loadAsync(`${BASE}/models/ferrari_ao.png`).then((t) => { store.misc.ferrariAO = t; }));
   jobs.push(loadRocketbox(manager, texLoader));
+  // the Kent road network (OpenStreetMap, ODbL); the world builds from it synchronously later
+  jobs.push(fetch(`${BASE}/kent/region.json`).then((r) => (r.ok ? r.json() : null)).then((d) => { store.misc.kentRegion = d; }).catch(() => { store.misc.kentRegion = null; }));
   await Promise.all(jobs);
 }
 

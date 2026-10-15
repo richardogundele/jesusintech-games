@@ -4,7 +4,7 @@
 const KEY = 'dreamlife.v1';
 const DEFAULTS = () => ({
   balance: 50_000_000,
-  world: 'monaco',
+  world: 'kent',
   log: [],
   reached: 0,
   owned: { cars: [], jets: [] },       // bought after launch; the starting fleet is always yours
@@ -17,6 +17,7 @@ const DEFAULTS = () => ({
   uk: { lessons: {}, licence: false, tests: 0 }, // driving lessons in Whitmore
   look: { outfit: 'Realistic soldier', camo: 'Woodland', top: 'Royal blue', jeans: 'Dark denim', skin: 'Brown' }, // what you're wearing
   lookV: 2, // bump to move existing saves onto a new default outfit once
+  homeV: 1, // bump to move existing saves to a new home once
   songs: { on: false, shuffle: false, volume: 0.8, last: null, yt: false }, // your own music (the files live in IndexedDB) and the YouTube radio
 });
 
@@ -32,6 +33,7 @@ function load() {
   out.owned.jets = Array.isArray(out.owned.jets) ? out.owned.jets : [];
   out.log = Array.isArray(out.log) ? out.log : [];
   if ((saved.lookV || 0) < 2) { out.look.outfit = 'Realistic soldier'; out.lookV = 2; } // Richard chose the realistic soldier (2026-10-14)
+  if ((saved.homeV || 0) < 1) { out.world = 'kent'; out.homeV = 1; } // home moved to Kent (2026-10-15)
   return out;
 }
 

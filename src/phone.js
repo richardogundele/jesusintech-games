@@ -149,7 +149,7 @@ export class Phone {
       return `<div class="row"><div class="swatch" style="background:#${c.color.toString(16).padStart(6, '0')}"></div>
         <div class="grow"><div class="m">${c.maker}</div><div class="t">${c.model}</div><div class="s">${c.topSpeed} km/h</div></div>${btn}</div>`;
     }).join('');
-    return `<p class="note">Delivered to your ${home === 'monaco' ? 'Monaco villa' : 'Dubai Hills mansion'}.</p>${rows}`;
+    return `<p class="note">Delivered to your ${{ kent: 'Kent home', monaco: 'Monaco villa', dubai: 'Dubai Hills mansion' }[home] || 'home'}.</p>${rows}`;
   }
 
   hangar() {

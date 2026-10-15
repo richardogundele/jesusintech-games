@@ -153,9 +153,10 @@ export function fameLevel(reached) {
 export const talkFee = (reached, crowd) => 250_000 + fameLevel(reached).level * 250_000 + crowd * 20;
 
 // The three cities you can fly between, and great-circle distances (km)
-export const CITIES = { monaco: { name: 'Monaco' }, dubai: { name: 'Dubai' }, singapore: { name: 'Singapore' } };
-const KM = { 'dubai-monaco': 5200, 'dubai-singapore': 5850, 'monaco-singapore': 10400 };
-const STOPS = { 'dubai-monaco': 'Cairo', 'dubai-singapore': 'Colombo', 'monaco-singapore': 'Dubai' };
+export const CITIES = { kent: { name: 'Kent' }, monaco: { name: 'Monaco' }, dubai: { name: 'Dubai' }, singapore: { name: 'Singapore' } };
+// great-circle km; Kent flights measured from Manston
+const KM = { 'dubai-monaco': 4800, 'dubai-singapore': 5850, 'monaco-singapore': 10400, 'kent-monaco': 960, 'dubai-kent': 5390, 'kent-singapore': 10750 };
+const STOPS = { 'dubai-monaco': 'Cairo', 'dubai-singapore': 'Colombo', 'monaco-singapore': 'Dubai', 'dubai-kent': 'Istanbul', 'kent-singapore': 'Dubai' };
 const key = (a, b) => [a, b].sort().join('-');
 export const otherCities = (from) => Object.keys(CITIES).filter((c) => c !== from);
 /** null if the jet can make it nonstop, else where it refuels */

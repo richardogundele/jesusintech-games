@@ -1,0 +1,6 @@
+region.json is derived from OpenStreetMap data.
+
+© OpenStreetMap contributors, ODbL 1.0, https://www.openstreetmap.org/copyright
+Data © OpenStreetMap contributors, licensed under the Open Database License (ODbL) 1.0: https://www.openstreetmap.org/copyright
+This derived database is itself offered under ODbL 1.0. Extract date (osm_base): 2026-10-14T21:55:03Z.
+Built by tools/kent-data.mjs from an Overpass extract; no OSM ids are kept for nodes.

@@ -8,6 +8,7 @@ import { Hud } from './hud.js';
 import { state, save } from './state.js';
 import { JETS, CITIES, otherCities, fuelStop, flightTime, fameLevel, talkFee, LEARNER, RADIO_STATION } from './catalog.js';
 import { buildSingapore } from './worlds/singapore.js';
+import { buildKent, setKentHooks } from './worlds/kent.js';
 import * as P from './progress.js';
 import { Phone } from './phone.js';
 import { Songs } from './songs.js';
@@ -71,7 +72,8 @@ const audio = new EngineAudio();
 const $ = (id) => document.getElementById(id);
 
 // ---------- worlds ----------
-const builders = { monaco: buildMonaco, dubai: buildDubai, arena: buildArena, uk: buildUK, singapore: buildSingapore };
+const builders = { kent: buildKent, monaco: buildMonaco, dubai: buildDubai, arena: buildArena, uk: buildUK, singapore: buildSingapore };
+const HOMES = ['kent', 'monaco', 'dubai']; // worlds you can live in: the save remembers the last one
 const worlds = {};
 function getWorld(id) {
   if (!worlds[id]) {
@@ -122,7 +124,7 @@ function enterWorld(target, spawn) {
   player.mesh.visible = true;
   car = null;
   mode = 'foot';
-  if (world.id === 'monaco' || world.id === 'dubai') { state.world = world.id; save(); }
+  if (HOMES.includes(world.id)) { state.world = world.id; save(); }
   snapCamera();
 }
 
@@ -393,7 +395,8 @@ async function land() {
   hud.show(true);
   await fade(0);
   const names = dest.cars.map((c) => c.spec.maker).join(' and the ');
-  hud.toast(dest.id === 'monaco' ? 'Chauffeured home to the villa. Welcome back.'
+  hud.toast(dest.id === 'kent' ? 'Chauffeured home to Beltinge. The sea is at the bottom of the garden.'
+    : dest.id === 'monaco' ? 'Chauffeured to the villa in Monaco.'
     : dest.id === 'singapore' ? 'Welcome to Singapore. Marina Bay Sands is behind you, the skyline is across the water. Your cars are at the drop-off.'
     : `Chauffeured to your Dubai Hills mansion. The ${names} are waiting.`, 5200);
 }
@@ -447,7 +450,7 @@ let lastPlace = '';
 let hudSlow = 0;
 let arenaMusic = 0;
 let prevMode = 'foot';
-const homeId = () => (world.id === 'monaco' || world.id === 'dubai' ? world.id : state.world === 'dubai' ? 'dubai' : 'monaco');
+const homeId = () => (HOMES.includes(world.id) ? world.id : HOMES.includes(state.world) ? state.world : 'kent');
 
 function refreshHudExtras() {
   hud.goals(P.dailyGoals(), state.streak.count);
@@ -488,7 +491,7 @@ const phone = new Phone({
     const i = P.boughtCarsIn(home).length - 1;
     if (w.slots?.[i]) w.addCar(carId, w.slots[i]);
   },
-  onJetBought(jetId) { worlds.dubai?.addJet(jetId); },
+  onJetBought(jetId) { worlds.kent?.addJet(jetId); worlds.dubai?.addJet(jetId); },
   setLook: (l) => { player.mesh.userData.setLook?.(l); save(); },
   startLesson: (id) => startLesson(id),
   goUK: () => goUK(),
@@ -704,7 +707,7 @@ async function goHome() {
   if (car) { car.park(); car = null; }
   hud.show(false);
   await fade(1);
-  enterWorld(state.world in builders && state.world !== 'uk' ? state.world : 'monaco');
+  enterWorld(state.world in builders && state.world !== 'uk' ? state.world : 'kent');
   hud.show(true);
   await fade(0);
 }
@@ -773,7 +776,8 @@ function updateSoundscape() {
   const p = car ? car.pos : player.pos;
   const kind = world.id === 'monaco' ? 'coast'
     : world.id === 'dubai' ? (world.indoors?.(p.x, p.z) ? 'indoor' : 'city')
-    : world.id === 'cabin' ? 'indoor' : world.id === 'uk' || world.id === 'singapore' ? 'city' : 'none';
+    : world.id === 'cabin' ? 'indoor' : world.id === 'kent' ? (world.indoors?.(p.x, p.z) ? 'indoor' : p.z < -5500 ? 'coast' : 'city')
+    : world.id === 'uk' || world.id === 'singapore' ? 'city' : 'none';
   audio.ambience.set(kind, mode === 'car');
 }
 
@@ -808,14 +812,15 @@ function camRig() {
     look.copy(target).addScaledVector(f, 3).setY(r.look);
     return { fov: r.fov };
   }
+  const ty = car ? 0 : target.y; // upstairs at home
   if (world.indoors?.(target.x, target.z)) {
     // tighter camera inside so it stays within the rooms
-    desired.copy(target).addScaledVector(f, -2.7).setY(2.2);
-    look.copy(target).addScaledVector(f, 3).setY(1.5);
+    desired.copy(target).addScaledVector(f, -2.7).setY(ty + 2.2);
+    look.copy(target).addScaledVector(f, 3).setY(ty + 1.5);
     return { fov: 68 };
   }
-  desired.copy(target).addScaledVector(f, -4.6).setY(2.5);
-  look.copy(target).addScaledVector(f, 2).setY(1.45);
+  desired.copy(target).addScaledVector(f, -4.6).setY(ty + 2.5);
+  look.copy(target).addScaledVector(f, 2).setY(ty + 1.45);
   return { fov: 58 };
 }
 
@@ -859,6 +864,9 @@ function updateFoot(dt, input) {
   const b = world.bounds;
   player.pos.x = THREE.MathUtils.clamp(player.pos.x, b.minX, b.maxX);
   player.pos.z = THREE.MathUtils.clamp(player.pos.z, b.minZ, b.maxZ);
+  // stairs at home: follow the floor height
+  if (world.floorY) player.pos.y += (world.floorY(player.pos.x, player.pos.z, player.pos.y) - player.pos.y) * Math.min(1, dt * 12);
+  else player.pos.y = 0;
   player.mesh.position.copy(player.pos);
   player.mesh.rotation.y = player.heading;
   player.mesh.userData.animate(Math.abs(player.speed), dt);
@@ -880,10 +888,11 @@ $('start').onclick = () => {
   if (state.songs.yt) ytradio.start(); // carry on where your music left off
   else if (state.songs.on && songs.available) songs.start();
   $('title').classList.add('hidden');
-  enterWorld(state.world in builders ? state.world : 'monaco');
+  enterWorld(state.world in builders ? state.world : 'kent');
   hud.show(true);
   refreshHudExtras();
-  hud.toast(`${world.id === 'monaco' ? 'Welcome home.' : 'Welcome home to Dubai Hills.'} Press P for your phone: today's goals are waiting.`, 5000);
+  const hello = { kent: 'Welcome home to Kent.', monaco: 'Welcome to the villa in Monaco.', dubai: 'Welcome to Dubai Hills.' }[world.id] || 'Welcome back.';
+  hud.toast(`${hello} Press P for your phone: today's goals are waiting.`, 5000);
 };
 
 // ---------- loop ----------
@@ -981,8 +990,14 @@ startBtn.disabled = true;
 startBtn.textContent = 'Loading 0%';
 await loadAll(renderer, (p) => { startBtn.textContent = `Loading ${Math.round(p * 100)}%`; });
 player.mesh = buildPlayer(state.look);
-getWorld('monaco');
-getWorld('dubai'); // build both up front so the flight never waits on a build
+setKentHooks({
+  toast: (t, ms) => hud.toast(t, ms),
+  openPhone: (tab) => { if (mode !== 'phone') togglePhone(); phone.tab = tab; phone.render(); },
+  quiz: (item) => quiz(item),
+  logWin: (id) => P.logWin(id),
+  sfx: (k) => audio.sfx(k),
+});
+getWorld('kent'); // home first; the other cities build on demand (travel compiles them during the flight)
 world = getWorld(state.world in builders ? state.world : 'monaco');
 renderer.compile(world.scene, camera);
 startBtn.disabled = false;

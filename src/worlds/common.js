@@ -268,17 +268,91 @@ export function streetLamps(points, offset, every, material, { double = false } 
 // ---------- collisions ----------
 
 export class Colliders {
-  constructor() { this.boxes = []; }
+  constructor() { this.boxes = []; this.cell = 100; this.grid = new Map(); this.big = []; this._n = 0; }
   /** carOnly boxes block cars but let people walk through (e.g. the front door). */
   box(cx, cz, w, d, pad = 0, carOnly = false) {
-    this.boxes.push({ minX: cx - w / 2 - pad, maxX: cx + w / 2 + pad, minZ: cz - d / 2 - pad, maxZ: cz + d / 2 + pad, carOnly });
+    return this._insert({ minX: cx - w / 2 - pad, maxX: cx + w / 2 + pad, minZ: cz - d / 2 - pad, maxZ: cz + d / 2 + pad, carOnly });
+  }
+  /**
+   * Oriented box: centre (cx, cz), w across, d along the yaw direction (sin yaw, cos yaw), i.e. the
+   * same convention as a BoxGeometry(w, h, d) rotated by yaw. Returns the box (pass it to remove()).
+   */
+  obb(cx, cz, w, d, yaw = 0, carOnly = false) {
+    const c = Math.cos(yaw), s = Math.sin(yaw), hw = w / 2, hd = d / 2;
+    const ex = Math.abs(hw * c) + Math.abs(hd * s), ez = Math.abs(hw * s) + Math.abs(hd * c);
+    return this._insert({ minX: cx - ex, maxX: cx + ex, minZ: cz - ez, maxZ: cz + ez, carOnly, obb: true, cx, cz, hw, hd, c, s });
+  }
+  /** index by 100 m cells so resolve() only looks at the boxes around the probe (streamed worlds add thousands) */
+  _insert(b) {
+    b.id = this._n++;
+    this.boxes.push(b);
+    const x0 = Math.floor(b.minX / this.cell), x1 = Math.floor(b.maxX / this.cell), z0 = Math.floor(b.minZ / this.cell), z1 = Math.floor(b.maxZ / this.cell);
+    if ((x1 - x0 + 1) * (z1 - z0 + 1) > 400) { b.cells = null; this.big.push(b); return b; }
+    b.cells = [];
+    for (let x = x0; x <= x1; x++) for (let z = z0; z <= z1; z++) {
+      const k = `${x},${z}`;
+      let list = this.grid.get(k);
+      if (!list) this.grid.set(k, (list = []));
+      list.push(b);
+      b.cells.push(k);
+    }
+    return b;
+  }
+  /** Drop a box added by box() or obb() (tiles that stream out). */
+  remove(b) {
+    if (!b || b.dead) return;
+    b.dead = true;
+    const i = this.boxes.indexOf(b);
+    if (i >= 0) this.boxes.splice(i, 1);
+    if (!b.cells) { const j = this.big.indexOf(b); if (j >= 0) this.big.splice(j, 1); return; }
+    for (const k of b.cells) {
+      const list = this.grid.get(k);
+      if (!list) continue;
+      const j = list.indexOf(b);
+      if (j >= 0) list.splice(j, 1);
+      if (!list.length) this.grid.delete(k);
+    }
+  }
+  /** boxes whose cells the probe touches, in insertion order (same result as scanning everything) */
+  _candidates(pos, r) {
+    const x0 = Math.floor((pos.x - r) / this.cell), x1 = Math.floor((pos.x + r) / this.cell), z0 = Math.floor((pos.z - r) / this.cell), z1 = Math.floor((pos.z + r) / this.cell);
+    if (x0 === x1 && z0 === z1 && !this.big.length) return this.grid.get(`${x0},${z0}`) || [];
+    const seen = new Set(), out = [];
+    for (let x = x0; x <= x1; x++) for (let z = z0; z <= z1; z++) {
+      const list = this.grid.get(`${x},${z}`);
+      if (list) for (const b of list) if (!seen.has(b.id)) { seen.add(b.id); out.push(b); }
+    }
+    for (const b of this.big) out.push(b);
+    return out.sort((a, b) => a.id - b.id);
   }
   /** Push a circle out of all boxes. Returns the summed push normal (zero if none). */
   resolve(pos, r, isCar = false) {
     const n = new THREE.Vector2();
-    for (const b of this.boxes) {
+    for (const b of this._candidates(pos, r)) {
       if (b.carOnly && !isCar) continue;
       if (pos.x < b.minX - r || pos.x > b.maxX + r || pos.z < b.minZ - r || pos.z > b.maxZ + r) continue;
+      if (b.obb) {
+        // work in the box's own frame: across = (c, -s), along = (s, c)
+        const dx0 = pos.x - b.cx, dz0 = pos.z - b.cz;
+        const lx = dx0 * b.c - dz0 * b.s, lz = dx0 * b.s + dz0 * b.c;
+        if (Math.abs(lx) > b.hw + r || Math.abs(lz) > b.hd + r) continue;
+        const qx = Math.max(-b.hw, Math.min(lx, b.hw)), qz = Math.max(-b.hd, Math.min(lz, b.hd));
+        let px = lx - qx, pz = lz - qz;
+        let d = Math.hypot(px, pz);
+        if (d === 0) {
+          const opts = [[lx + b.hw, -1, 0], [b.hw - lx, 1, 0], [lz + b.hd, 0, -1], [b.hd - lz, 0, 1]];
+          opts.sort((a, c) => a[0] - c[0]);
+          const [depth, ox, oz] = opts[0];
+          px = ox; pz = oz; d = -depth; // push by depth + r along (ox, oz)
+        } else { px /= d; pz /= d; }
+        if (d < r) {
+          const push = r - d;
+          const wx = px * b.c + pz * b.s, wz = -px * b.s + pz * b.c;
+          pos.x += wx * push; pos.z += wz * push;
+          n.x += wx; n.y += wz;
+        }
+        continue;
+      }
       const cx = Math.max(b.minX, Math.min(pos.x, b.maxX));
       const cz = Math.max(b.minZ, Math.min(pos.z, b.maxZ));
       let dx = pos.x - cx, dz = pos.z - cz;
