@@ -168,3 +168,6 @@ export function flightTime(jet, from = 'monaco', to = 'dubai') {
   const mins = Math.round((hours * 60) / 5) * 5;
   return `${Math.floor(mins / 60)}h ${String(mins % 60).padStart(2, '0')}m`;
 }
+
+// Richard's radio station: a YouTube channel played through YouTube's own player (see ytradio.js)
+export const RADIO_STATION = { name: 'Tribe Fuego', list: 'UU11Ojcr97zmdZilTkq-C1aw', url: 'https://www.youtube.com/@tribefuego', note: 'Jazz-gospel bass, 300+ videos' };

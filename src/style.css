@@ -203,9 +203,18 @@ h1 { font-size: clamp(44px, 9vw, 112px); letter-spacing: 0.06em; margin: 14px 0 
 #phone-body .pb.small { width: 32px; height: 32px; font-size: 12px; }
 #phone-body .pb.ghost { background: transparent; color: var(--muted); }
 #phone-body .pb.on { background: rgba(232,199,122,0.25); color: var(--gold); border-color: var(--gold); }
+#phone-body .player.radio { background: linear-gradient(135deg, rgba(255,0,0,0.14), rgba(232,199,122,0.08)); }
+#phone-body .player .note { margin: 12px 0 0; }
+#phone-body .player .note a { color: var(--gold); }
 #phone-body button.pb[title="Shuffle"] { width: auto; padding: 0 14px; font-size: 12px; font-weight: 700; margin-left: auto; }
 #phone-body .vol { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--muted); margin-top: 14px; }
 #phone-body .vol input { flex: 1; accent-color: var(--gold); }
 #phone-body .row.now { outline: 1px solid var(--gold); }
 #phone-body .buy.ghost { background: transparent; color: var(--muted); border: 1px solid var(--line); }
 #phone-body .buy.wide { width: 100%; margin-top: 6px; }
+
+/* YouTube radio card (YouTube's player must stay visible) */
+#ytradio { position: absolute; right: 24px; bottom: 150px; width: 224px; border-radius: 12px; overflow: hidden; background: rgba(0,0,0,0.55); border: 1px solid var(--line); box-shadow: 0 8px 24px rgba(0,0,0,0.4); }
+#yt-host, #ytradio iframe { display: block; width: 224px; height: 126px; border: 0; }
+#yt-title { font-size: 11px; padding: 6px 9px; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#yt-title::before { content: '♪ '; color: var(--gold); }

@@ -6,11 +6,12 @@ import { buildPlayer, buildJet } from './models.js';
 import { EngineAudio } from './audio.js';
 import { Hud } from './hud.js';
 import { state, save } from './state.js';
-import { JETS, CITIES, otherCities, fuelStop, flightTime, fameLevel, talkFee, LEARNER } from './catalog.js';
+import { JETS, CITIES, otherCities, fuelStop, flightTime, fameLevel, talkFee, LEARNER, RADIO_STATION } from './catalog.js';
 import { buildSingapore } from './worlds/singapore.js';
 import * as P from './progress.js';
 import { Phone } from './phone.js';
 import { Songs } from './songs.js';
+import { YtRadio } from './ytradio.js';
 import { setupTrials, MEDAL_PAY } from './trials.js';
 import { buildCabin } from './worlds/cabin.js';
 import { buildArena } from './worlds/arena.js';
@@ -148,8 +149,8 @@ window.addEventListener('keydown', (e) => {
   }
   if (mode === 'talk' && (e.code === 'ArrowRight' || e.code === 'ArrowLeft')) world.nextSlide(e.code === 'ArrowRight' ? 1 : -1);
   if (e.code === 'KeyC' && mode === 'car') camMode = (camMode + 1) % 3;
-  if (e.code === 'KeyM') { const m = audio.toggleMute(); songs.setMuted(m); hud.toast(m ? 'Sound off' : 'Sound on', 1200); }
-  if (e.code === 'KeyN' && !e.repeat && songs.available) songs.next();
+  if (e.code === 'KeyM') { const m = audio.toggleMute(); songs.setMuted(m); ytradio.setMuted(m); hud.toast(m ? 'Sound off' : 'Sound on', 1200); }
+  if (e.code === 'KeyN' && !e.repeat) { if (ytradio.on) ytradio.next(); else if (songs.available) songs.next(); }
   if (e.code === 'Escape' && mode === 'jets') closeJets();
 });
 window.addEventListener('keyup', (e) => keys.delete(e.code));
@@ -464,13 +465,20 @@ P.onNotify((r) => {
 // your own music: files from your computer, kept in this browser
 const songs = new Songs({
   settings: state.songs,
-  onTrack: (song, msg) => { hud.toast(song ? `♪ ${song.title}` : msg || 'Music paused', 2600); save(); if (phone?.open && phone.tab === 'music') phone.render(); },
+  onTrack: (song, msg) => { if (song && ytradio?.on) ytradio.stop(); hud.toast(song ? `♪ ${song.title}` : msg || 'Music paused', 2600); save(); if (phone?.open && phone.tab === 'music') phone.render(); },
   onList: () => { if (phone?.open && phone.tab === 'music') phone.render(); },
+});
+
+// the Tribe Fuego YouTube radio: on while a song from it plays; your own songs and it take turns
+const ytradio = new YtRadio({
+  el: $('ytradio'), host: 'yt-host', station: RADIO_STATION,
+  onState: (info) => { $('yt-title').textContent = info?.title || (ytradio.on ? 'Tuning in…' : ''); if (info) { if (songs.playing) songs.toggle(); hud.toast(`♪ ${info.title}`, 2600); } state.songs.yt = ytradio.on; save(); if (phone?.open && phone.tab === 'music') phone.render(); },
 });
 
 const phone = new Phone({
   homeId,
   songs,
+  ytradio,
   crowdSize: () => worlds.arena?.crowdSize ?? 11_500,
   sfx: (k) => audio.sfx(k),
   close: () => togglePhone(),
@@ -759,7 +767,7 @@ function updateSoundscape() {
   let track = null, level = 1;
   if (world.id === 'arena') { track = 'arena'; level = arenaMusic; }
   else if (mode === 'car' && state.radio) { track = 'radio'; level = 0.9; }
-  if (songs.playing) track = null; // your own songs outrank the synthesised radio and the arena anthem
+  if (songs.playing || ytradio.on) track = null; // your own songs and the YouTube radio outrank the synthesised radio and the arena anthem
   const key = `${track}:${level}`;
   if (key !== musicKey) { musicKey = key; audio.music.play(track, level); }
   const p = car ? car.pos : player.pos;
@@ -869,7 +877,8 @@ function updateMenuCamera(dt) {
 
 $('start').onclick = () => {
   audio.start();
-  if (state.songs.on && songs.available) songs.start(); // carry on where your music left off
+  if (state.songs.yt) ytradio.start(); // carry on where your music left off
+  else if (state.songs.on && songs.available) songs.start();
   $('title').classList.add('hidden');
   enterWorld(state.world in builders ? state.world : 'monaco');
   hud.show(true);
@@ -983,7 +992,7 @@ frame();
 // debug handle for testing in the console
 window.__game = {
   get world() { return world; }, get car() { return car; }, get mode() { return mode; }, player, keys, camera, pipeline, renderer,
-  state, P, phone, audio, songs, worlds, togglePhone, interact, enterWorld, hud, startLesson, goUK, goHome,
+  state, P, phone, audio, songs, ytradio, worlds, togglePhone, interact, enterWorld, hud, startLesson, goUK, goHome,
   get lesson() { return lesson; }, drive, autoDrive: false,
   // dev: render the current frame and save it to shots/<name>.jpg via the Vite dev server
   async shot(name = 'live', w = 1280, h = 800) {

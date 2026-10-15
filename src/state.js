@@ -17,7 +17,7 @@ const DEFAULTS = () => ({
   uk: { lessons: {}, licence: false, tests: 0 }, // driving lessons in Whitmore
   look: { outfit: 'Realistic soldier', camo: 'Woodland', top: 'Royal blue', jeans: 'Dark denim', skin: 'Brown' }, // what you're wearing
   lookV: 2, // bump to move existing saves onto a new default outfit once
-  songs: { on: false, shuffle: false, volume: 0.8, last: null }, // your own music (the files live in IndexedDB)
+  songs: { on: false, shuffle: false, volume: 0.8, last: null, yt: false }, // your own music (the files live in IndexedDB) and the YouTube radio
 });
 
 function load() {

@@ -1,6 +1,6 @@
 // The phone (P or Tab): today's goals, logging real wins, the dealer, the hangar, giving, your profile.
 import { state, formatMoney } from './state.js';
-import { CARS, JETS, WINS, GIVING, fameLevel, talkFee, flightTime, fuelStop } from './catalog.js';
+import { CARS, JETS, WINS, GIVING, fameLevel, talkFee, flightTime, fuelStop, RADIO_STATION } from './catalog.js';
 import * as P from './progress.js';
 import { fmtTime } from './trials.js';
 import { LESSONS } from './lessons.js';
@@ -68,6 +68,11 @@ export class Phone {
     if (what === 'shuffle') { S.settings.shuffle = !S.settings.shuffle; this.hooks.save?.(); }
     if (what === 'remove') S.remove(+id);
     if (what === 'clear' && confirm('Remove all your songs from the game?')) S.clear();
+    const Y = this.hooks.ytradio;
+    if (what === 'yt') { if (Y.on) Y.stop(); else { if (S.playing) S.toggle(); Y.start(); } }
+    if (what === 'ytnext') Y.next();
+    if (what === 'ytprev') Y.prev();
+    if (what === 'ytshuffle') Y.setShuffle(!Y.shuffle);
     this.render();
   }
 
@@ -172,7 +177,15 @@ export class Phone {
         <button class="pb small" data-act="song-play" data-id="${s.id}" title="Play">${cur?.id === s.id && on ? '❚❚' : '▶'}</button>
         <div class="grow"><div class="t">${esc(s.title)}</div><div class="s">${(s.size / 1e6).toFixed(1)} MB</div></div>
         <button class="pb small ghost" data-act="song-remove" data-id="${s.id}" title="Remove">✕</button></div>`).join('');
-    return `
+    const Y = this.hooks.ytradio;
+    const radio = `
+      <div class="hero player radio">
+        <div class="m">${Y.on ? 'On air' : 'Radio'} · ${RADIO_STATION.name}</div>
+        <div class="np">${Y.on ? esc(Y.title || 'Tuning in…') : RADIO_STATION.note}</div>
+        <div class="pbs">${mb('ytprev', '⏮')}${mb('yt', Y.on ? '■' : '▶', 'main')}${mb('ytnext', '⏭')}${mb('ytshuffle', 'Shuffle', Y.shuffle ? 'on' : 'ghost')}</div>
+        <p class="note">The whole <a href="${RADIO_STATION.url}" target="_blank" rel="noopener">Tribe Fuego</a> channel through YouTube's own player, shuffled. Needs internet; the small player stays on screen while it plays.</p>
+      </div>`;
+    return radio + `
       <div class="hero player">
         <div class="m">${cur ? (on ? 'Now playing' : 'Paused') : 'Your music'}</div>
         <div class="np">${cur ? esc(cur.title) : (S.list.length ? 'Press play to start your playlist' : 'Add songs from your computer')}</div>
