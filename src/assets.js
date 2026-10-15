@@ -24,7 +24,10 @@ const store = { hdri: {}, tex: {}, model: {}, gltf: {}, misc: {} };
 // The Ferrari model's licence is unconfirmed, so it only loads in local dev; the public build
 // gives the 458 a lofted body instead (see CARS.f458) and the files are stripped from dist.
 export const REAL_FERRARI = !import.meta.env.PROD;
-const GLTFS = { ...(REAL_FERRARI ? { ferrari: 'models/ferrari.glb' } : {}), soldier: 'models/soldier.glb', cesiumman: 'models/cesiumman.glb', michelle: 'models/michelle.glb' };
+// Sketchfab cars (CC-BY, credits in README): Draco + WebP compressed copies of assets-src/inbox
+const SF_CARS = ['revuelto', 'chiron', 'cullinan', 'g63', 'polo'];
+const GLTFS = { ...(REAL_FERRARI ? { ferrari: 'models/ferrari.glb' } : {}), soldier: 'models/soldier.glb', cesiumman: 'models/cesiumman.glb', michelle: 'models/michelle.glb',
+  ...Object.fromEntries(SF_CARS.map((k) => [`car_${k}`, `models/cars/${k}.glb`])) };
 let renderer = null;
 
 export async function loadAll(r, onProgress = () => {}) {

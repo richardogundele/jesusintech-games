@@ -233,7 +233,8 @@ function wheel(r, { rim = M.rim, caliper = 0xb3121b } = {}) {
 }
 
 export function buildCar(spec) {
-  if (spec.gltf) return buildGltfCar(spec);
+  if (spec.gltf === 'ferrari') return buildGltfCar(spec);
+  if (spec.gltf) return buildFittedCar(spec);
   const def = LOFTS[spec.loft] || LOFTS.sedan;
   const { L, W } = spec.dims;
   const root = new THREE.Group();
@@ -914,6 +915,104 @@ function buildGltfCar(spec) {
   root.add(ao);
 
   return { root, body, wheels, wheelR: 0.34, radius: Math.max(size.x, size.z) * 0.48, length: size.z, width: Math.min(size.x, spec.dims.W + 0.1), height: size.y };
+}
+
+/**
+ * Any downloaded car (the Sketchfab models in catalog.js): spec.fit says how to fit it.
+ *   yaw     rotation that puts the model's nose on +z (our cars face +z)
+ *   wheels  regex for the wheel nodes (top-most match wins; children come along)
+ *   split   true when one node holds both wheels of an axle (the G 63): split by side
+ *   paint   regex for the body-paint material; recoloured to spec.color when it has no texture (tint: also over a texture)
+ * The model is scaled so its length matches spec.dims.L, stood on the ground and centred.
+ * Wheels get world-aligned pivots (steer about y, spin about x) whatever the model's own frame.
+ */
+function buildFittedCar(spec) {
+  const { scene } = loadGltf(spec.gltf);
+  const fit = spec.fit || {};
+  const root = new THREE.Group();
+  const body = new THREE.Group();
+  root.add(body);
+  const holder = new THREE.Group();
+  holder.rotation.y = fit.yaw || 0;
+  body.add(holder);
+  holder.add(scene);
+
+  // fit: yaw first so z is the length, then scale to the real length, then ground and centre
+  holder.updateMatrixWorld(true);
+  let box = new THREE.Box3().setFromObject(holder);
+  holder.scale.setScalar(spec.dims.L / (box.max.z - box.min.z));
+  holder.updateMatrixWorld(true);
+  box = new THREE.Box3().setFromObject(holder);
+  holder.position.set(-(box.min.x + box.max.x) / 2, -box.min.y, -(box.min.z + box.max.z) / 2);
+  holder.updateMatrixWorld(true);
+  const size = box.getSize(new THREE.Vector3());
+
+  scene.traverse((o) => {
+    if (!o.isMesh) return;
+    o.castShadow = true;
+    o.receiveShadow = true;
+    for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
+      m.envMapIntensity = 1.1;
+      if (fit.paint && fit.paint.test(m.name) && (!m.map || fit.tint)) { m.color.set(spec.color); m.metalness = 0.55; m.roughness = 0.32; }
+    }
+  });
+
+  // wheels: the top-most nodes matching fit.wheels
+  const found = [];
+  scene.traverse((o) => { if (fit.wheels?.test(o.name) && !found.some((f) => f === o || isAncestor(f, o))) found.push(o); });
+  const parts = found.flatMap((w) => (fit.split ? splitSides(w) : [w]));
+  const wheels = [];
+  let wheelR = 0.33;
+  for (const part of parts) {
+    const pb = new THREE.Box3().setFromObject(part);
+    const c = pb.getCenter(new THREE.Vector3());
+    // align: its axes match the car's (undoes the model's own frame); pivot: steer; spin: roll
+    const align = new THREE.Group();
+    part.parent.add(align);
+    align.position.copy(part.parent.worldToLocal(c.clone()));
+    align.quaternion.copy(part.parent.getWorldQuaternion(new THREE.Quaternion()).invert());
+    const pivot = new THREE.Group();
+    const spin = new THREE.Group();
+    align.add(pivot);
+    pivot.add(spin);
+    spin.attach(part);
+    wheelR = Math.max(wheelR, (pb.max.y - pb.min.y) / 2);
+    wheels.push({ pivot, spin, front: c.z > 0, spinSign: 1 });
+  }
+  root.add(blobShadow(size.x * 1.15, size.z * 1.08, 0.45));
+  return { root, body, wheels, wheelR, radius: Math.max(size.x, size.z) * 0.48, length: size.z, width: Math.min(size.x, spec.dims.W + 0.1), height: size.y };
+}
+const isAncestor = (a, o) => { for (let p = o.parent; p; p = p.parent) if (p === a) return true; return false; };
+
+/** One node holding both wheels of an axle: rebuild it as a left and a right group, splitting every mesh by triangle side. */
+function splitSides(node) {
+  node.updateMatrixWorld(true);
+  const sides = [new THREE.Group(), new THREE.Group()]; // [right (x < 0), left (x > 0)]
+  for (const g of sides) { node.parent.add(g); g.matrix.copy(node.matrix); g.matrix.decompose(g.position, g.quaternion, g.scale); g.updateMatrixWorld(true); }
+  const meshes = [];
+  node.traverse((o) => { if (o.isMesh) meshes.push(o); });
+  const v = new THREE.Vector3();
+  for (const m of meshes) {
+    let geo = m.geometry;
+    if (!geo.index) { geo = geo.clone(); geo.setIndex([...Array(geo.attributes.position.count).keys()]); }
+    const pos = geo.attributes.position, idx = geo.index.array, side = [[], []];
+    for (let i = 0; i < idx.length; i += 3) {
+      let x = 0;
+      for (let k = 0; k < 3; k++) x += v.fromBufferAttribute(pos, idx[i + k]).applyMatrix4(m.matrixWorld).x;
+      side[x > 0 ? 1 : 0].push(idx[i], idx[i + 1], idx[i + 2]);
+    }
+    side.forEach((tri, si) => {
+      if (!tri.length) return;
+      const g2 = geo.clone();
+      g2.setIndex(tri);
+      const m2 = new THREE.Mesh(g2, m.material);
+      m2.castShadow = m2.receiveShadow = true;
+      m2.applyMatrix4(m.matrixWorld);
+      sides[si].attach(m2);
+    });
+  }
+  node.removeFromParent();
+  return sides;
 }
 
 // ---------- animated character (Mixamo, via the three.js examples) ----------

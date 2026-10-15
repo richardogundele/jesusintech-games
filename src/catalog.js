@@ -3,6 +3,7 @@
 
 export const CARS = {
   revuelto: {
+    gltf: 'car_revuelto', fit: { yaw: 0, wheels: /^Wheel_[FB][LR]$/, paint: /^Body$/ },
     loft: 'revuelto',
     maker: 'Lamborghini', model: 'Revuelto', type: 'super',
     color: 0x9fd13a, topSpeed: 350, accel: 11.5, grip: 7.5, steer: 0.62, engine: 'v12',
@@ -15,18 +16,21 @@ export const CARS = {
     dims: { L: 4.53, W: 1.94 },
   },
   cullinan: {
+    gltf: 'car_cullinan', fit: { yaw: 0, wheels: /^wheel_[fr][lr]$/, paint: /^colored$/, tint: true }, // its paint is baked red: tint it
     loft: 'cullinan',
     maker: 'Rolls-Royce', model: 'Cullinan', type: 'suv',
     color: 0x16181d, topSpeed: 250, accel: 6.5, grip: 6, steer: 0.55, engine: 'v12soft',
     dims: { L: 5.34, W: 2.16 },
   },
   chiron: {
+    gltf: 'car_chiron', fit: { yaw: -Math.PI / 2, wheels: /^Wheel-[FB][LR]$/, paint: /^Body$/ },
     loft: 'chiron',
     maker: 'Bugatti', model: 'Chiron Sport', type: 'super',
     color: 0x1d4fb8, accent: 0x0b0d12, topSpeed: 420, accel: 12.5, grip: 7.2, steer: 0.58, engine: 'w16',
     dims: { L: 4.54, W: 2.04 },
   },
   g63: {
+    gltf: 'car_g63', fit: { yaw: 0, wheels: /^(front|back)_tyre/, split: true, paint: /^jeep__paint$/ }, // GLTFLoader turns spaces in node names into underscores
     loft: 'g63',
     maker: 'Mercedes-AMG', model: 'G 63', type: 'box',
     color: 0x15161a, topSpeed: 220, accel: 7, grip: 5.5, steer: 0.56, engine: 'v8',
@@ -72,6 +76,7 @@ export const CARS = {
 };
 // the driving-school car in Whitmore (not for sale, so it isn't in CARS)
 export const LEARNER = {
+  gltf: 'car_polo', fit: { yaw: Math.PI / 2, wheels: /^wheel_sto/ },
   loft: 'sedan', maker: 'Volkswagen', model: 'Polo (learner)', type: 'sedan',
   color: 0xf2f2f0, topSpeed: 187, accel: 4.4, grip: 7.5, steer: 0.66, engine: 'i4',
   dims: { L: 4.07, W: 1.75 },

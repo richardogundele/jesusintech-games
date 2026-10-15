@@ -1,0 +1,52 @@
+{
+ "revuelto": {
+  "uid": "cf52245eb68f48daa909c7ad2a8deaa3",
+  "name": "Free Lamborghini Revuelto",
+  "author": "ALIEEEN",
+  "authorUrl": "https://sketchfab.com/ALIEEEN",
+  "url": "https://sketchfab.com/3d-models/free-lamborghini-revuelto-cf52245eb68f48daa909c7ad2a8deaa3",
+  "licence": "CC Attribution",
+  "licenceUrl": "http://creativecommons.org/licenses/by/4.0/",
+  "faces": 91671
+ },
+ "chiron": {
+  "uid": "374890e62c5a44e9a739ca638b6e0a18",
+  "name": "Free Bugatti Chiron",
+  "author": "ALIEEEN",
+  "authorUrl": "https://sketchfab.com/ALIEEEN",
+  "url": "https://sketchfab.com/3d-models/free-bugatti-chiron-374890e62c5a44e9a739ca638b6e0a18",
+  "licence": "CC Attribution",
+  "licenceUrl": "http://creativecommons.org/licenses/by/4.0/",
+  "faces": 97531
+ },
+ "cullinan": {
+  "uid": "61f16a1d5be2403abcdd8fa552f730f7",
+  "name": "Rolls Royce Cullinan",
+  "author": "newvistudios",
+  "authorUrl": "https://sketchfab.com/newvistudios",
+  "url": "https://sketchfab.com/3d-models/rolls-royce-cullinan-61f16a1d5be2403abcdd8fa552f730f7",
+  "licence": "CC Attribution",
+  "licenceUrl": "http://creativecommons.org/licenses/by/4.0/",
+  "faces": 8360
+ },
+ "g63": {
+  "uid": "fa70ea228e5749c2b4951a895385b055",
+  "name": "Mercedes-Benz G-Class G63 AMG",
+  "author": "pranav27",
+  "authorUrl": "https://sketchfab.com/pranav27",
+  "url": "https://sketchfab.com/3d-models/mercedes-benz-g-class-g63-amg-fa70ea228e5749c2b4951a895385b055",
+  "licence": "CC Attribution",
+  "licenceUrl": "http://creativecommons.org/licenses/by/4.0/",
+  "faces": 187912
+ },
+ "polo": {
+  "uid": "021de920b682415c9de3737154cddedb",
+  "name": "Volkswagen- Polo-GTI- Mk5- Typ-6R-2012",
+  "author": "giuffrida.rosario",
+  "authorUrl": "https://sketchfab.com/giuffrida.rosario",
+  "url": "https://sketchfab.com/3d-models/volkswagen-polo-gti-mk5-typ-6r-2012-021de920b682415c9de3737154cddedb",
+  "licence": "CC Attribution",
+  "licenceUrl": "http://creativecommons.org/licenses/by/4.0/",
+  "faces": 171514
+ }
+}
