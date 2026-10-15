@@ -90,7 +90,7 @@ function getWorld(id) {
     if (w.parked) addEyesightCar(w);
     // cars bought from the phone fill the extra bays at this home
     P.boughtCarsIn(id).forEach((carId, i) => w.slots?.[i] && w.addCar(carId, w.slots[i]));
-    w.traffic = new Traffic(w.scene, w.life || {});
+    w.traffic = w.trafficSystem || new Traffic(w.scene, w.life || {});
     w.interactions = w.interactions || [];
     w.trials = setupTrials(w, trialHooks);
     if (w.terminal) w.interactions.push({ ...w.terminal, car: true, label: () => `Fly to ${otherCities(w.id).map((c) => CITIES[c].name).join(' or ')}`, action: openJets });

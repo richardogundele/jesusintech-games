@@ -1,0 +1,897 @@
+import * as THREE from 'three';
+import { PAVE_W, KERB_W, Y_PAVE } from './markings.js';
+import { netView, _internals } from './roads.js';
+
+const { nodeInfo } = _internals;
+
+// Live traffic for the Kent world: cars that drive real routes over the RoadNet and people on the
+// pavements. A car spawns on a lane 150-700 m from the player (never in sight), takes net.route to
+// a junction 1-3 km away and drives net.lanePath's lane-centre polyline: its position rides the
+// polyline (eased up to half a metre towards the kerb to pass oncoming traffic in a squeeze) and it
+// faces a pursuit point 1.5 m + 0.1 s ahead, so it can't leave its lane. Speed is the road's limit
+// less 0-5 mph (capped by the class of road, as net.js routes), slowed for bends and rings and for
+// whatever is ahead:
+//   - the car in front, the player, anyone on the carriageway: anything whose body reaches into the
+//     strip mine sweeps along my path (follow the leader),
+//   - a car whose path crosses or pinches mine and gets there first (crossing traffic at junctions),
+//   - lights (SignalSystem.isStop at the stop line), roundabout entries (a gap on the ring to the
+//     right, the same arc test as LessonRun.rbConflict), give-way lines when something on the main
+//     road is within 30 m (or 5.5 s) of the junction, and zebras with someone on or waiting at them.
+// Two cars that still end up nose to nose sort it out like drivers do: whoever can get past goes,
+// else one backs off a couple of metres. As a last resort no car ever moves deeper into another.
+// Cars past 900 m, at the end of their route or stuck (not waiting at a line) for 120 s are
+// recycled once out of sight. Pedestrians stroll the pavements of the streets round the player and
+// sometimes cross at zebras and signal-controlled crossings (pressing the button, waiting for red).
+//
+// Same face as src/traffic.js's Traffic, so main.js treats them alike: update(dt, obstacle, camPos),
+// collide(car), `cars` and `peds`. A car: { pos, x, z, v, heading, r, radius, lane: { rb }, u, mesh,
+// model, stunned }; lane.rb is the roundabout id once the car is past the give-way line onto the
+// ring and u is then its ring angle as a fraction of a turn in circulation order (u = s, metres
+// along its path, elsewhere). Meshes come from the bodies / buildCar / buildPedestrian the world
+// passes in (models.js needs Vite, so node tests pass stand-ins). The per-frame code creates no objects; spawning
+// (a route and its lane path) is the only heavy work and is rate limited.
+//
+// Conventions: x east, z south, a heading h travels along (sin h, cos h), left-hand traffic.
+
+const MPH = 0.44704;
+const TAU = Math.PI * 2;
+// realistic cruising speeds by class (mph), as net.js routes with: a 60 mph lane is not a 60 mph road
+const CRUISE = { trunk: 70, trunk_link: 50, primary: 50, primary_link: 40, secondary: 45, secondary_link: 40, tertiary: 35, unclassified: 28, residential: 22, living_street: 10, service: 10 };
+const A_LAT = 2.6;        // m/s2 sideways in bends and on rings
+const PLAN_BRAKE = 2.0;   // m/s2 to slow for bends and lower limits ahead
+const STOP_BRAKE = 3.5;   // m/s2 to stop at a line
+const FOLLOW_BRAKE = 5;   // m/s2 at most behind a car
+const ACCEL = 2.4, MAX_BRAKE = 9;
+const GAP = 1.6;          // bumper to bumper in a queue (m)
+const NUDGE = 0.5;        // how far a driver eases left to pass oncoming traffic in a squeeze (m)
+const SPAWN_MIN = 150, SPAWN_MAX = 700, DESPAWN = 900, UNSEEN = 120, HIDE = 420, STUCK = 120;
+const PED_MIN = 60, PED_MAX = 350, PED_DROP = 450, PED_HIDE = 160;
+const SIGNAL_CROSSINGS = new Set(['pelican', 'puffin', 'toucan', 'signals']);
+const PAVE_OFF = KERB_W + PAVE_W / 2; // pavement centre beyond the carriageway edge
+const now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
+// not Math.hypot: V8 allocates for its arguments on every call, and this runs hundreds of times a frame
+const len = (x, z) => Math.sqrt(x * x + z * z);
+const paveOk = (w) => !!w.pave && !w.rb && w.cls !== 'service' && !w.link && w.limit < 50;
+
+// scratch frame for a point on a way (no allocation)
+const F = { x: 0, z: 0, dx: 1, dz: 0, i: 0 };
+function wayFrame(way, s, hint) {
+  const cum = way.cum, pts = way.pts, last = cum.length - 2;
+  let i = hint < 0 ? 0 : hint > last ? last : hint;
+  while (i < last && cum[i + 1] < s) i++;
+  while (i > 0 && cum[i] > s) i--;
+  const a = pts[i], b = pts[i + 1], L = cum[i + 1] - cum[i];
+  const t = L > 0 ? Math.max(0, Math.min(1, (s - cum[i]) / L)) : 0;
+  F.dx = L > 0 ? (b[0] - a[0]) / L : 1; F.dz = L > 0 ? (b[1] - a[1]) / L : 0;
+  F.x = a[0] + (b[0] - a[0]) * t; F.z = a[1] + (b[1] - a[1]) * t; F.i = i;
+  return F;
+}
+
+export class KentTraffic {
+  /**
+   * net: RoadNet, scene: THREE.Scene, signals: SignalSystem (or null), bodies: catalog TRAFFIC,
+   * buildCar(spec) -> { root, wheels, wheelR, radius }, buildPedestrian(i) -> Object3D with
+   * userData.animate(speed, dt). onEvent(kind, car, e) is a test hook ('line' when a car's front
+   * crosses an event line, 'spawn' / 'despawn').
+   */
+  constructor({ net, scene, signals = null, maxCars = 45, maxPeds = 40, bodies = [], buildCar = null, buildPedestrian = null, rnd = Math.random, onEvent = null } = {}) {
+    this.net = net; this.scene = scene; this.signals = signals;
+    this.maxCars = maxCars; this.maxPeds = maxPeds;
+    this.bodies = bodies; this.buildCar = buildCar; this.buildPedestrian = buildPedestrian;
+    this.rnd = rnd; this.onEvent = onEvent;
+    this.cars = []; this.peds = [];
+    this.pool = []; this.pedPool = [];
+    this.nextId = 1;
+    this.P = { x: net.home?.x ?? 0, z: net.home?.z ?? 0 };
+    this.spawnT = 0; this.pedT = 0;
+    this.stats = { spawned: 0, despawned: 0, failed: 0, watchdog: 0, extended: 0, zebraCrossings: 0, signalCrossings: 0, updateMs: 0, houseMs: 0 };
+    // where a route may end: junctions off the rings (lanePath needs a ring's exit to draw it)
+    this.destNodes = [...net.nodes.values()].filter((n) => n.kind === 'junction' && !n.rb && n.ways.some((r) => !r.way.rb && r.way.cls !== 'service'));
+    // zebras and signal-controlled crossings, by the key lanePath names them with and by way
+    this.crossings = new Map(); this.crossByWay = new Map();
+    for (const c of net.data.crossings || []) {
+      const zebra = c.type === 'zebra';
+      if (!zebra && !SIGNAL_CROSSINGS.has(c.type)) continue;
+      const way = net.ways.get(c.way); if (!way || way.rb) continue;
+      const key = String(c.node || Math.round(c.x) + ':' + Math.round(c.z));
+      const rec = { key, zebra, group: zebra ? null : `x-${key}`, x: c.x, z: c.z, way, s: c.s, busy: 0 };
+      this.crossings.set(key, rec);
+      let a = this.crossByWay.get(way.id); if (!a) this.crossByWay.set(way.id, (a = [])); a.push(rec);
+    }
+    this.touched = []; // crossings someone was at this frame
+    this.ext = 0;      // scratch: #onPath's along-path half-extent of what it found
+    this.view = netView(net); // roads.js's junction geometry (where it paints the stop lines)
+    this.cache = { kx: NaN, kz: NaN, cars: [], carCum: null, peds: [], pedCum: null };
+    this.boxes = [...net.ways.values()].map((way) => {
+      let x0 = Infinity, z0 = Infinity, x1 = -Infinity, z1 = -Infinity;
+      for (const p of way.pts) { if (p[0] < x0) x0 = p[0]; if (p[0] > x1) x1 = p[0]; if (p[1] < z0) z0 = p[1]; if (p[1] > z1) z1 = p[1]; }
+      return { way, x0, z0, x1, z1 };
+    });
+  }
+
+  // ---------- the frame ----------
+  /** obstacle: { x, z, r } for the player (on foot or in a car) or null; camPos: where the camera is */
+  update(dt, obstacle, camPos) {
+    const t0 = now();
+    const P = obstacle || camPos;
+    if (P) { this.P.x = P.x; this.P.z = P.z; }
+    if (dt > 0) {
+      this.#peds(dt);
+      for (let i = 0; i < this.cars.length; i++) this.cars[i].want = this.#plan(this.cars[i], obstacle);
+      for (let i = 0; i < this.cars.length; i++) this.#move(this.cars[i], dt);
+    }
+    this.#meshes(dt, camPos || this.P);
+    const t1 = now();
+    this.stats.updateMs = t1 - t0;
+    if (dt > 0) this.#housekeep(dt);
+    this.stats.houseMs = now() - t1;
+  }
+
+  /** is anyone on, or waiting at, this crossing? (a node id or the crossing key) */
+  crossingBusy(node) { const r = this.crossings.get(String(node)); return !!r && r.busy > 0; }
+
+  /** Bump the player's car out of any traffic car and stop that car briefly. Returns true on impact. */
+  collide(car) {
+    let hit = false;
+    for (const c of this.cars) {
+      if (!c.mesh || !c.mesh.visible) continue;
+      const dx = car.pos.x - c.x, dz = car.pos.z - c.z;
+      const d = len(dx, dz), min = (car.model.radius + c.radius) * 0.62;
+      if (d > 0 && d < min) {
+        const nx = dx / d, nz = dz / d;
+        car.pos.x += nx * (min - d);
+        car.pos.z += nz * (min - d);
+        const into = car.vel.x * nx + car.vel.y * nz;
+        if (into < 0) { car.vel.x -= nx * into * 1.3; car.vel.y -= nz * into * 1.3; car.vel.multiplyScalar(0.7); }
+        c.v = 0;
+        c.stun = 2.5;
+        hit = true;
+      }
+    }
+    return hit;
+  }
+
+  // ---------- cars: what speed do I want? ----------
+  #plan(A, obstacle) {
+    const v = A.v, s = A.s, n = A.n;
+    let want = Math.min(A.vcap[A.idx], A.vcap[Math.min(n - 1, A.idx + 1)]);
+    const look = Math.min(130, 18 + (v * v) / 6 + A.L);
+    const front = s + A.L / 2;
+    let freeD = Infinity, held = false, blockId = 0, nudge = 0, firstGroup = null;
+    A.minorNode = 0;
+    // the route's lines: lights, ring entries, give-ways, zebras
+    for (let k = A.evI; k < A.ev.length; k++) {
+      const e = A.ev[k];
+      if (e.s > s + look) break;
+      const d = e.s - front;
+      let stop = false;
+      switch (e.kind) {
+        case 'lights': {
+          if (!this.signals) break;
+          // one junction, one decision: only the first stop line of a group counts (OSM splits big
+          // junctions over several signal nodes, each with a line for the same lights)
+          if (A.lastGroup === e.group && e.s - A.lastGroupS < 90) break; // already through its first line
+          if (e.group === firstGroup) break;
+          firstGroup = e.group;
+          if (e.go) break; // committed on amber
+          if (!this.signals.isStop(e.group, e.yaw, d, v)) { // green, or amber and too close to stop: go
+            if (this.signals.stateFor(e.group, e.yaw) === 'amber') e.go = true; // and keep going
+            break;
+          }
+          if ((v * v) / 16 > d + 0.5 && this.signals.stateFor(e.group, e.yaw) === 'red') break; // already at the line when it went red
+          stop = true;
+          break;
+        }
+        case 'rb': {
+          want = Math.min(want, Math.sqrt(36 + 5 * Math.max(0, d))); // about 13 mph at the line
+          if (d < 30) {
+            A.minorNode = e.node;
+            if (!e.go) { if (this.#ringBusy(A, e)) stop = true; else if (d < 1.5 && v > 1) e.go = true; }
+          }
+          break;
+        }
+        case 'emerge': case 'cross': case 'mini': {
+          if (e.signalled) break; // the lights decide
+          want = Math.min(want, Math.sqrt(16 + 4 * Math.max(0, d))); // creep up to the line
+          if (d < 30) {
+            A.minorNode = e.node;
+            if (!e.go) { if (this.#majorBusy(A, e, e.kind === 'mini' ? 15 : 30)) stop = true; else if (d < 1 && v > 0.5) e.go = true; }
+          }
+          break;
+        }
+        case 'right': { // wait in the junction for a gap in the oncoming traffic (Highway Code 180)
+          if (e.signalled) break;
+          if (d < 25) {
+            want = Math.min(want, Math.sqrt(25 + 4 * Math.max(0, d)));
+            A.minorNode = e.node;
+            if (!e.go) { if (this.#majorBusy(A, e, 30, e.yaw)) stop = true; else if (d < 1 && v > 0.5) e.go = true; }
+          }
+          break;
+        }
+        case 'zebra':
+          if (e.rec && e.rec.busy > 0 && (v * v) / 12 < d + 0.5) stop = true;
+          break;
+      }
+      if (stop) {
+        want = Math.min(want, Math.sqrt(2 * STOP_BRAKE * Math.max(0, d - 0.3)));
+        held = true;
+        if (d < freeD) freeD = d;
+      }
+    }
+    // other cars: on my path ahead (follow), or crossing it ahead and getting there first (yield)
+    const cars = this.cars, reach = (look + 6) * (look + 6);
+    for (let b = 0; b < cars.length; b++) {
+      const B = cars[b]; if (B === A) continue;
+      const dx = B.x - A.x, dz = B.z - A.z, d2 = dx * dx + dz * dz;
+      if (d2 > reach) continue;
+      if (dx * A.fx + dz * A.fz < -3) continue; // behind me: it's their job to look
+      const cosR = A.fx * B.fx + A.fz * B.fz;
+      // oncoming and close on my right (a narrow road, a bend): ease over towards the kerb to pass
+      if (cosR < -0.5 && d2 < 196) {
+        const lat = dx * A.fz - dz * A.fx, room = (A.W + B.W) / 2 + 0.9; // lat > 0: on my left
+        if (lat < 0 && -lat < room) nudge = Math.max(nudge, Math.min(NUDGE, room + lat));
+      }
+      // in my way if its body reaches into the strip my body sweeps along my path (a car alongside
+      // in the next lane is not)
+      const chord = Math.sqrt(d2);
+      const arc = this.#onPath(A, B.x, B.z, B.fx, B.fz, B.L / 2, B.W / 2, 0.15, chord, s + look + 3);
+      if (arc >= 0) {
+        // two cars each waiting for the other (a squeeze on a bend, a turn across a junction mouth):
+        // whoever can actually get past the other's body without touching it goes; both can, lower id
+        if (B.blockId === A.id && A.blockId === B.id && v < 0.3 && B.v < 0.3 && A.stopT > 1.5) {
+          if (this.#clearPast(A, B) && (A.id < B.id || !this.#clearPast(B, A))) continue;
+          // neither can: after a few seconds the higher id backs off a couple of metres to let the other by
+          // (or the lower id, if the other has someone right behind it)
+          if (A.stopT > 4 && (A.id > B.id || B.noRoom) && !A.noRoom && A.backUp <= 0 && !this.#clearPast(B, A)) A.backUp = 2.5;
+        }
+        const g = arc - s - A.L / 2 - this.ext - GAP;
+        const was = want;
+        want = follow(want, g, Math.max(0, B.v * cosR), v);
+        if (want < was) blockId = B.id;
+        if (g < freeD) freeD = g;
+        continue;
+      }
+      if (chord < 70) {
+        const dA = this.#yieldTo(A, B, look);
+        if (dA >= 0) {
+          const g = dA - A.L / 2 - 2.5, was = want;
+          want = Math.min(want, Math.sqrt(2 * FOLLOW_BRAKE * Math.max(0, g)));
+          if (want < was) blockId = B.id;
+          if (g < freeD) freeD = g;
+        }
+      }
+    }
+    // the player, and anyone walking on the carriageway
+    if (obstacle) {
+      const dx = obstacle.x - A.x, dz = obstacle.z - A.z, d2 = dx * dx + dz * dz;
+      if (d2 < reach) {
+        const arc = this.#onPath(A, obstacle.x, obstacle.z, 1, 0, obstacle.r, obstacle.r, 0.4, Math.sqrt(d2), s + look + 3);
+        if (arc >= 0) { const g = arc - s - A.L / 2 - obstacle.r - GAP; want = follow(want, g, 0, v); if (g < freeD) freeD = g; }
+      }
+    }
+    for (let p = 0; p < this.peds.length; p++) {
+      const q = this.peds[p]; if (!q.inRoad) continue;
+      const dx = q.x - A.x, dz = q.z - A.z, d2 = dx * dx + dz * dz;
+      if (d2 > reach) continue;
+      const arc = this.#onPath(A, q.x, q.z, 1, 0, 0.4, 0.4, 0.4, Math.sqrt(d2), s + look + 3);
+      if (arc >= 0) { const g = arc - s - A.L / 2 - 0.4 - 1.2; want = follow(want, g, 0, v); if (g < freeD) freeD = g; }
+    }
+    if (A.stun > 0) want = 0;
+    A.held = held; A.freeD = freeD; A.blockId = blockId; A.nudgeT = nudge;
+    return want;
+  }
+
+  /** position and heading from s: on the polyline, facing a pursuit point just ahead, eased kerbwards */
+  #pose(A, dt) {
+    const n = A.n, ps = A.ps, px = A.px, pz = A.pz, i = A.idx;
+    const L = ps[i + 1] - ps[i], t = L > 0 ? Math.min(1, (A.s - ps[i]) / L) : 0;
+    A.x = px[i] + (px[i + 1] - px[i]) * t; A.z = pz[i] + (pz[i + 1] - pz[i]) * t;
+    // the pursuit point is close (1.5 m + 0.1 s): the body follows the bend instead of snapping round
+    // at the points, and a longer look would swing the nose across the next lane on tight bends
+    const target = A.s + 1.5 + 0.1 * A.v;
+    let j = Math.max(A.aim, i + 1);
+    while (j < n - 1 && ps[j] < target) j++;
+    A.aim = j;
+    const hx = px[j] - A.x, hz = pz[j] - A.z;
+    if (hx * hx + hz * hz > 0.04) { A.heading = Math.atan2(hx, hz); A.fx = Math.sin(A.heading); A.fz = Math.cos(A.heading); }
+    // the sideways ease towards the kerb, at a walking pace, off the lane centre to the left
+    const dn = A.nudgeT - A.nudge, rate = 0.8 * dt;
+    A.nudge += dn > rate ? rate : dn < -rate ? -rate : dn;
+    if (A.nudge) { A.x += A.fz * A.nudge; A.z -= A.fx * A.nudge; }
+  }
+  /** does A's new box overlap some car more than its old box (at ox, oz facing ofx, ofz) did? Its id, else 0 */
+  #worse(A, ox, oz, ofx, ofz) {
+    const cars = this.cars;
+    for (let b = 0; b < cars.length; b++) {
+      const B = cars[b];
+      if (B === A || Math.abs(B.x - A.x) > 7 || Math.abs(B.z - A.z) > 7) continue;
+      const next = boxDepth(A.x, A.z, A.fx, A.fz, A.L, A.W, B);
+      if (next > 0 && next > boxDepth(ox, oz, ofx, ofz, A.L, A.W, B) + 1e-4) return B.id;
+    }
+    return 0;
+  }
+  /** can A drive the next 10 m of its path without its box touching B's box where B stands? */
+  #clearPast(A, B) {
+    const ps = A.ps, px = A.px, pz = A.pz, n = A.n;
+    let i = A.idx;
+    for (let d = 0.5; d <= 10; d += 0.75) {
+      const s = A.s + d;
+      while (i < n - 2 && ps[i + 1] <= s) i++;
+      if (s > ps[n - 1]) break;
+      const t = Math.min(1, (s - ps[i]) / ((ps[i + 1] - ps[i]) || 1));
+      const x = px[i] + (px[i + 1] - px[i]) * t, z = pz[i] + (pz[i + 1] - pz[i]) * t;
+      const j = Math.min(n - 1, i + 2), k = Math.max(0, i - 1);
+      let fx = px[j] - px[k], fz = pz[j] - pz[k]; const fl = len(fx, fz) || 1; fx /= fl; fz /= fl;
+      if (boxDepth(x, z, fx, fz, A.L, A.W, B) > 0) return false;
+    }
+    return true;
+  }
+  /**
+   * Does a body (centre x, z, facing bfx, bfz, half length hl, half width hw) reach into the strip
+   * my body sweeps along my path ahead? Measured at each path point against the path's direction
+   * there, so a car I'll pass alongside once round a corner isn't "in my way" now. Returns the arc
+   * length of the first such point (and its half-extent along my path in this.ext), else -1.
+   */
+  #onPath(A, x, z, bfx, bfz, hl, hw, margin, chord, maxS) {
+    const ps = A.ps, px = A.px, pz = A.pz, n = A.n, half = A.W / 2 + margin, big = half + hl + hw;
+    // the path is never shorter than the straight line, so start where it could first come close
+    let i = this.#idxAt(A, A.s + Math.max(0, chord - big - 2));
+    if (i <= A.idx) i = A.idx + 1;
+    for (; i < n; i++) {
+      if (ps[i] > maxS) return -1;
+      const dx = px[i] - x, dz = pz[i] - z, d2 = dx * dx + dz * dz;
+      if (d2 >= big * big) continue;
+      const j = i + 1 < n ? i + 1 : i, k = i - 1;
+      let tx = px[j] - px[k], tz = pz[j] - pz[k]; const tl = len(tx, tz) || 1; tx /= tl; tz /= tl;
+      const c = Math.abs(tx * bfx + tz * bfz), sn = Math.abs(tx * bfz - tz * bfx);
+      const thr = half + hl * sn + hw * c;
+      if (d2 < thr * thr) { this.ext = hl * c + hw * sn; return ps[i]; }
+    }
+    return -1;
+  }
+  #idxAt(A, s) {
+    const ps = A.ps; let lo = A.idx, hi = A.n - 1;
+    if (s <= ps[lo]) return lo;
+    while (lo < hi) { const m = (lo + hi + 1) >> 1; if (ps[m] <= s) lo = m; else hi = m - 1; }
+    return lo;
+  }
+  /**
+   * Do A's and B's paths cross in the next ~40 m, and does B get there first? Returns how far
+   * along A the crossing is if A should wait, else -1. B held short of the crossing (lights, a
+   * give-way, a queue) makes no claim; a tie goes to the lower id so two cars never both wait.
+   */
+  #yieldTo(A, B, look) {
+    // my path every 1.5 m against theirs every 3 m: anything that brings the two lane centres within
+    // 2.2 m is a conflict (crossing, merging, or a carriageway split that pinches two lanes together)
+    const DA = Math.min(look, 40), DB = 40, R2 = 4.84;
+    const n = A.n, m = B.n;
+    for (let i = A.idx + 1; i < n && A.ps[i] - A.s <= DA; i++) {
+      const ax = A.px[i], az = A.pz[i];
+      const ex = ax - B.x, ez = az - B.z;
+      if (ex * ex + ez * ez > (DB + 4) * (DB + 4)) continue;
+      for (let j = B.idx + 1; j < m && B.ps[j] - B.s <= DB; j += 2) {
+        const dx = B.px[j] - ax, dz = B.pz[j] - az;
+        if (dx * dx + dz * dz >= R2) continue;
+        const dA = A.ps[i] - A.s, dB = B.ps[j] - B.s;
+        if (dB - B.L / 2 > B.freeD + 1) return -1;
+        if (B.v < 0.5 && B.stopT > 3) return -1; // parked up or stuck: it isn't coming
+        const tA = dA / Math.max(A.v, 2), tB = dB / Math.max(B.v, 2);
+        return tA > tB + 0.25 || (tA >= tB - 0.25 && A.id > B.id) ? dA : -1;
+      }
+    }
+    return -1;
+  }
+  /** a car on the ring coming round to my entry (the gap test LessonRun.rbConflict makes) */
+  #ringBusy(A, e) {
+    const rb = e.rb, cars = this.cars;
+    for (let b = 0; b < cars.length; b++) {
+      const B = cars[b];
+      if (B === A || B.lane.rb !== rb.id) continue;
+      if (B.v < 0.3 && B.blockId === A.id) continue; // stopped for my nose: it can't come until I go
+      const th = Math.atan2(B.z - rb.z, B.x - rb.x), R = len(B.x - rb.x, B.z - rb.z);
+      let d = (e.thE - th) * rb.sense; d = ((d % TAU) + TAU) % TAU; // how far round it has to come to reach me
+      const arc = d * R;
+      if ((TAU - d) * R < B.L / 2 + 3) return true; // just past my entry, still across it
+      if (B.v < 0.3 && arc > B.L / 2 + 2) continue; // queued round the ring, not coming: I can go in front
+      if (arc < Math.max(12, B.v * 3.2)) return true;
+    }
+    return false;
+  }
+  /**
+   * Something on the main road coming to this junction (moving, within r m or 5.5 s, not itself
+   * giving way here). With `yaw`, only traffic coming the other way counts (a right turn's view).
+   */
+  #majorBusy(A, e, r, yaw = null) {
+    const ox = yaw == null ? 0 : Math.sin(yaw), oz = yaw == null ? 0 : Math.cos(yaw);
+    const cars = this.cars, r2 = r * r;
+    for (let b = 0; b < cars.length; b++) {
+      const B = cars[b];
+      if (B === A || B.minorNode === e.node) continue;
+      if (B.v < 0.3 && B.blockId === A.id) continue; // it's waiting for me to get my nose out of its way
+      if (yaw != null && B.fx * ox + B.fz * oz > -0.5) continue; // not oncoming
+      const dx = e.nx - B.x, dz = e.nz - B.z, d2 = dx * dx + dz * dz, rr = B.v * 5.5; // or within 5.5 s
+      if (d2 > r2 && d2 > rr * rr) continue;
+      if ((B.v < 1.5 || B.held) && d2 > 144) continue; // stopped or held away from the mouth: not coming
+
+      if (dx * B.fx + dz * B.fz < -2) continue; // past the junction, going away
+      return true;
+    }
+    return false;
+  }
+
+  // ---------- cars: move ----------
+  #move(A, dt) {
+    const dv = A.want - A.v;
+    A.v += dv > ACCEL * dt ? ACCEL * dt : dv < -MAX_BRAKE * dt ? -MAX_BRAKE * dt : dv;
+    if (A.v < 0) A.v = 0;
+    if (A.stun > 0) A.stun -= dt;
+    A.stunned = A.stun > 0;
+    const n = A.n, ps = A.ps;
+    // where I am now, to come back to if the move would push me into someone
+    const os = A.s, oi = A.idx, oa = A.aim, ox = A.x, oz = A.z, oh = A.heading, ofx = A.fx, ofz = A.fz, on = A.nudge;
+    let back = 0;
+    if (A.backUp > 0 && dt > 0) { // reversing out of a jam, slowly
+      back = Math.min(A.backUp, 0.8 * dt, A.s);
+      A.s -= back; A.v = 0;
+      while (A.idx > 0 && ps[A.idx] > A.s) A.idx--;
+      A.aim = A.idx + 1;
+    }
+    if (A.v > 1) A.noRoom = false;
+    A.s = Math.min(A.s + A.v * dt, ps[n - 1]);
+    while (A.idx < n - 2 && ps[A.idx + 1] <= A.s) A.idx++;
+    this.#pose(A, dt);
+    // last resort: never move deeper into another car's box (the rules above should keep clear anyway)
+    const bumped = dt > 0 && (A.v > 0 || back > 0) ? this.#worse(A, ox, oz, ofx, ofz) : 0;
+    if (bumped) {
+      A.s = os; A.idx = oi; A.aim = oa; A.x = ox; A.z = oz; A.heading = oh; A.fx = ofx; A.fz = ofz; A.nudge = on; A.v = 0;
+      A.freeD = 0; A.blockId = bumped; // so others know I'm going nowhere, and who for
+      if (back > 0) { A.backUp = 0; A.noRoom = true; } // no room behind
+    } else if (back > 0) {
+      A.backUp -= back;
+      while (A.evI > 0 && A.ev[A.evI - 1].s > A.s + A.L / 2) A.ev[--A.evI].go = false; // back behind a line: look again
+    }
+    const i = A.idx;
+    // lines the front has crossed
+    const front = A.s + A.L / 2;
+    while (A.evI < A.ev.length && A.ev[A.evI].s <= front) {
+      const e = A.ev[A.evI++];
+      if (e.kind === 'lights' && !(A.lastGroup === e.group && e.s - A.lastGroupS < 90)) { A.lastGroup = e.group; A.lastGroupS = e.s; }
+      if (this.onEvent) this.onEvent('line', A, e);
+    }
+    // on a ring: its id and where round it I am (fraction of a turn in circulation order)
+    const rb = A.rbArr[i];
+    if (rb) { A.lane.rb = rb.id; const u = (Math.atan2(A.z - rb.z, A.x - rb.x) * rb.sense) / TAU; A.u = u - Math.floor(u); }
+    else { A.lane.rb = null; A.u = A.s; }
+    A.pos.set(A.x, 0, A.z);
+    if (A.v < 0.3) { if (!A.held) A.stopT += dt; } else if (A.v > 1) A.stopT = 0; // waiting at a line is not being stuck
+  }
+
+  #meshes(dt, cam) {
+    for (const c of this.cars) {
+      const m = c.mesh; if (!m) continue;
+      const near = len(c.x - cam.x, c.z - cam.z) < HIDE;
+      m.visible = near;
+      if (!near) continue;
+      m.position.set(c.x, 0, c.z);
+      m.rotation.y = c.heading;
+      const { wheels, wheelR } = c.model;
+      if (wheels) for (const w of wheels) w.spin.rotation.x += (w.spinSign ?? 1) * (c.v / (wheelR || 0.35)) * dt;
+    }
+    for (const p of this.peds) {
+      const m = p.mesh; if (!m) continue;
+      const near = len(p.x - cam.x, p.z - cam.z) < PED_HIDE;
+      m.visible = near;
+      if (!near) continue;
+      m.position.set(p.x, p.inRoad ? 0.02 : Y_PAVE, p.z);
+      m.rotation.y = p.heading;
+      m.userData.animate?.(p.speed, dt);
+    }
+  }
+
+  // ---------- spawning and recycling ----------
+  #housekeep(dt) {
+    const P = this.P, cars = this.cars;
+    let heavy = false;
+    for (let i = cars.length - 1; i >= 0; i--) {
+      const A = cars[i], d = len(A.x - P.x, A.z - P.z);
+      const end = A.s >= A.ps[A.n - 1] - 0.5;
+      const jammed = A.stopT > 30 && A.noRoom && A.blockId && this.#byId(A.blockId)?.blockId === A.id; // nose to nose, no way back
+      if (d > DESPAWN || (d > UNSEEN && (end || A.stopT > STUCK || jammed))) {
+        if (!end && (A.stopT > STUCK || jammed) && d <= DESPAWN) this.stats.watchdog++;
+        this.#despawn(i, d);
+        continue;
+      }
+      // nearly home and the player is about: carry on somewhere new rather than vanish in sight
+      if (!heavy && !A.extTried && A.s > A.ps[A.n - 1] - 120 && d < 400) { A.extTried = true; heavy = true; if (this.#extend(A)) this.stats.extended++; }
+    }
+    this.spawnT -= dt;
+    if (!heavy && cars.length < this.maxCars && this.spawnT <= 0) { this.spawnT = 0.06; this.#refreshCache(); this.#spawnCar(); }
+    for (let i = this.peds.length - 1; i >= 0; i--) {
+      const p = this.peds[i];
+      if (len(p.x - P.x, p.z - P.z) > PED_DROP && p.state === 'walk') { if (p.mesh) p.mesh.visible = false; this.peds.splice(i, 1); this.pedPool.push(p); }
+    }
+    this.pedT -= dt;
+    if (this.peds.length < this.maxPeds && this.pedT <= 0) { this.pedT = 0.1; this.#refreshCache(); this.#spawnPed(); }
+  }
+  #byId(id) { for (const c of this.cars) if (c.id === id) return c; return null; }
+  #despawn(i, d) {
+    const A = this.cars[i];
+    if (A.mesh) A.mesh.visible = false;
+    A.lane.rb = null; A.v = 0;
+    this.cars.splice(i, 1); this.pool.push(A);
+    this.stats.despawned++;
+    if (this.onEvent) this.onEvent('despawn', A, d);
+  }
+  /** ways round the player to spawn on (cars, people), refreshed when the player moves 250 m */
+  #refreshCache() {
+    const P = this.P, kx = Math.floor(P.x / 250), kz = Math.floor(P.z / 250);
+    if (this.cache.kx === kx && this.cache.kz === kz) return;
+    const R = SPAWN_MAX + 250, x0 = P.x - R, x1 = P.x + R, z0 = P.z - R, z1 = P.z + R;
+    const cars = [], peds = [];
+    for (const b of this.boxes) {
+      if (b.x1 < x0 || b.x0 > x1 || b.z1 < z0 || b.z0 > z1) continue;
+      const w = b.way;
+      if (!w.rb && w.cls !== 'service' && w.len > 70) cars.push(w);
+      if (paveOk(w)) peds.push(w);
+    }
+    const cum = (list) => { const a = new Float64Array(list.length); let t = 0; list.forEach((w, i) => { t += w.len; a[i] = t; }); return a; };
+    this.cache = { kx, kz, cars, carCum: cum(cars), peds, pedCum: cum(peds) };
+  }
+  /** a random point on a random way of a list, weighted by length: [way, seg, s, x, z] */
+  #pickOn(list, cum) {
+    if (!list.length) return null;
+    const r = this.rnd() * cum[cum.length - 1];
+    let lo = 0, hi = cum.length - 1; while (lo < hi) { const m = (lo + hi) >> 1; if (cum[m] < r) lo = m + 1; else hi = m; }
+    const w = list[lo], s = this.rnd() * w.len, f = wayFrame(w, s, 0);
+    return [w, f.i, s, f.x, f.z];
+  }
+  #nearNode(w, s, m) { // within m of a junction or road end along this way?
+    for (let k = 0; k < w.nodes.length; k++) {
+      if (!w.nodes[k]) continue;
+      const nd = this.net.nodes.get(w.nodes[k]);
+      if (nd && nd.kind !== 'via' && Math.abs(w.cum[k] - s) < m) return true;
+    }
+    return s < m || s > w.len - m;
+  }
+  #carNear(x, z, r) {
+    for (const c of this.cars) if (Math.abs(c.x - x) < r && Math.abs(c.z - z) < r && len(c.x - x, c.z - z) < r) return true;
+    return false;
+  }
+  /** a junction 1-3 km from (x, z) and at least 1 km from the player, so most cars leave by the 900 m rule */
+  #pickDest(x, z) {
+    const list = this.destNodes, P = this.P;
+    for (let k = 0; k < 40; k++) {
+      const n = list[Math.floor(this.rnd() * list.length)];
+      const d = len(n.x - x, n.z - z);
+      if (d < 1000 || d > 3000 || len(n.x - P.x, n.z - P.z) < 1000) continue;
+      return n;
+    }
+    return null;
+  }
+  #spawnCar() {
+    const P = this.P, net = this.net;
+    for (let tries = 0; tries < 12; tries++) {
+      const pick = this.#pickOn(this.cache.cars, this.cache.carCum); if (!pick) return false;
+      const [w, , s, x, z] = pick;
+      const dp = len(x - P.x, z - P.z);
+      if (dp < SPAWN_MIN || dp > SPAWN_MAX) continue;
+      if (this.#nearNode(w, s, 30) || this.#carNear(x, z, 30)) continue;
+      const dest = this.#pickDest(x, z); if (!dest) continue;
+      // one route per call: they cost a few milliseconds
+      let route = null;
+      try { route = net.route({ x, z, maxD: 10 }, dest.id); } catch { route = null; }
+      const lp = route && route.ways.length ? net.lanePath(route) : null;
+      if (!lp || lp.pts.length < 30 || route.ways[0].way !== w || len(lp.pts[0].x - P.x, lp.pts[0].z - P.z) < SPAWN_MIN) { this.stats.failed++; return false; }
+      const A = this.pool.pop() || this.#newCar();
+      A.under = this.rnd() * 5;
+      this.#setPath(A, lp, route, dest);
+      // start at a speed that can still stop for the first line on the route (lights, a give-way)
+      const first = A.ev.length ? A.ev[0].s - A.L / 2 : Infinity;
+      A.v = Math.min(A.vcap[0] * 0.9, Math.sqrt(2 * STOP_BRAKE * Math.max(0, first - 3))); A.stun = 0; A.stopT = 0; A.extTried = false; A.lastGroup = null; A.lastGroupS = -1e9;
+      A.held = false; A.freeD = Infinity; A.minorNode = 0; A.nudge = 0; A.nudgeT = 0; A.blockId = 0; A.backUp = 0; A.noRoom = false;
+      this.#move(A, 0);
+      this.cars.push(A);
+      this.stats.spawned++;
+      if (this.onEvent) this.onEvent('spawn', A, dp);
+      return true;
+    }
+    return false;
+  }
+  #newCar() {
+    const bodies = this.bodies, body = bodies.length ? bodies[Math.floor(this.rnd() * bodies.length)] : { dims: { L: 4.6, W: 1.85 }, colors: [0x8a8f96] };
+    const spec = { ...body, color: body.colors ? body.colors[Math.floor(this.rnd() * body.colors.length)] : 0x8a8f96 };
+    const model = this.buildCar ? this.buildCar(spec) : null;
+    const L = body.dims?.L ?? 4.6, W = body.dims?.W ?? 1.85, radius = model?.radius ?? len(L, W) / 2;
+    if (model) { model.root.visible = false; this.scene.add(model.root); }
+    return {
+      id: this.nextId++, model, mesh: model ? model.root : null, L, W, r: radius, radius,
+      pos: new THREE.Vector3(), x: 0, z: 0, heading: 0, fx: 0, fz: 1, v: 0, want: 0,
+      lane: { rb: null }, u: 0, stun: 0, stunned: false, under: 0,
+      n: 0, px: null, pz: null, ps: null, vcap: null, rbArr: [], ev: [], evI: 0, s: 0, idx: 0, aim: 0,
+      route: null, dest: null, held: false, freeD: Infinity, blockId: 0, nudge: 0, nudgeT: 0, backUp: 0, noRoom: false, minorNode: 0, lastGroup: null, lastGroupS: -1e9, stopT: 0, extTried: false,
+    };
+  }
+  /** load a lane path into a car: typed arrays, the speed it may do at each point, its lines */
+  #setPath(A, lp, route, dest) {
+    const net = this.net, pts = lp.pts, n = pts.length;
+    if (!A.px || A.px.length < n) { const cap = Math.ceil(n * 1.25); A.px = new Float32Array(cap); A.pz = new Float32Array(cap); A.ps = new Float32Array(cap); A.vcap = new Float32Array(cap); }
+    A.n = n; A.route = route; A.dest = dest;
+    const px = A.px, pz = A.pz, ps = A.ps, vcap = A.vcap;
+    let lastWay = null, cls = null;
+    for (let i = 0; i < n; i++) {
+      const p = pts[i];
+      px[i] = p.x; pz[i] = p.z; ps[i] = p.s;
+      if (p.way !== lastWay) { lastWay = p.way; cls = net.ways.get(p.way)?.cls; }
+      const lim = Math.min(p.road?.limit ?? 30, CRUISE[cls] ?? 30);
+      vcap[i] = Math.max(4, (lim - A.under) * MPH);
+    }
+    // bends: heading change across +-3 m
+    for (let i = 2; i < n - 2; i++) {
+      const h1 = Math.atan2(px[i] - px[i - 2], pz[i] - pz[i - 2]), h2 = Math.atan2(px[i + 2] - px[i], pz[i + 2] - pz[i]);
+      let dh = Math.abs(h2 - h1); if (dh > Math.PI) dh = TAU - dh;
+      const k = dh / Math.max(1, ps[i + 2] - ps[i - 2]);
+      if (k > 1e-4) vcap[i] = Math.min(vcap[i], Math.sqrt(A_LAT / k));
+    }
+    vcap[n - 1] = 0; // pull up at the end
+    for (let i = n - 2; i >= 0; i--) vcap[i] = Math.min(vcap[i], Math.sqrt(vcap[i + 1] * vcap[i + 1] + 2 * PLAN_BRAKE * (ps[i + 1] - ps[i])));
+    // the lines along the route
+    const idxAt = (s) => { let lo = 0, hi = n - 1; while (lo < hi) { const m = (lo + hi + 1) >> 1; if (ps[m] <= s) lo = m; else hi = m - 1; } return lo; };
+    const yawAt = (s) => { const i = Math.max(1, Math.min(n - 2, idxAt(s))); return Math.atan2(px[i + 1] - px[i - 1], pz[i + 1] - pz[i - 1]); };
+    const ev = [], lightNodes = new Set();
+    for (const e of lp.events) if (e.kind === 'lights' && !e.crossing && e.node) lightNodes.add(e.node);
+    // the path point nearest (x, z) within s0..s1
+    const nearestS = (x, z, s0, s1) => { let best = -1, bd = Infinity; for (let i = idxAt(s0); i < n && ps[i] <= s1; i++) { const d = (px[i] - x) ** 2 + (pz[i] - z) ** 2; if (d < bd) { bd = d; best = ps[i]; } } return best; };
+    for (const e of lp.events) {
+      if (e.kind === 'lights') {
+        // stop lines where roads.js paints them, so the front stops on the paint: at a crossing 3.4 m
+        // before its centre (the event is 4.5 m before it); at a junction the arm's line distance
+        // back from the node (the cross road's half width + 1 m), measured from where the path passes it
+        let line = e.s + 1.1;
+        if (!e.crossing) {
+          const node = net.nodes.get(e.node), here = pts[idxAt(e.s - 3)]?.way;
+          let dist = 0;
+          if (node) {
+            const j = idxAt(e.s - 3), tx = px[Math.min(n - 1, j + 1)] - px[j], tz = pz[Math.min(n - 1, j + 1)] - pz[j];
+            const info = nodeInfo(this.view, e.node);
+            let best = -2; for (const a of info?.arms || []) { if (a.way.id !== here) continue; const dot = -(a.ax * tx + a.az * tz); if (dot > best && a.lineDist) { best = dot; dist = a.lineDist; } }
+            if (!dist) { let hw = 3; for (const r of node.ways) if (r.way.id !== here && !r.way.rb) hw = Math.max(hw, r.way.halfW); dist = hw + 1; }
+          }
+          const nodeS = node ? nearestS(node.x, node.z, e.s - 10, e.s + 12) : e.s + 2;
+          line = Math.max(0, (nodeS >= 0 ? nodeS : e.s + 2) - (dist || 4.5));
+        }
+        ev.push({ kind: 'lights', s: line, group: e.group, yaw: yawAt(line), node: e.node, go: false });
+      } else if (e.kind === 'rb') {
+        const rb = net.roundabouts.get(e.rb), node = net.nodes.get(e.node); if (!rb || !node) continue;
+        // the give-way line is painted along the ring's outer edge: where the path first comes inside it
+        let edge = e.entryS;
+        for (let i = idxAt(e.entryS - 10); i < n && ps[i] <= e.entryS + 10; i++) if (len(px[i] - rb.x, pz[i] - rb.z) <= rb.r) { edge = ps[i]; break; }
+        ev.push({ kind: 'rb', s: edge - 0.8, ringS: edge + 1, rb, node: e.node, thE: Math.atan2(node.z - rb.z, node.x - rb.x), go: false }); // the front waits just behind the paint
+      } else if (e.kind === 'emerge' || e.kind === 'cross' || e.kind === 'mini') {
+        const node = net.nodes.get(e.node); if (!node) continue;
+        ev.push({ kind: e.kind, s: e.kind === 'mini' ? e.s : (e.lineS ?? e.s - 4), node: e.node, nx: node.x, nz: node.z, signalled: lightNodes.has(e.node) || node.signals, go: false });
+      } else if (e.kind === 'turn' && e.dir === 'right') { // turning right across the oncoming lane
+        const node = net.nodes.get(e.node); if (!node) continue;
+        const line = Math.max(0, e.s - 4);
+        ev.push({ kind: 'right', s: line, yaw: yawAt(line), node: e.node, nx: node.x, nz: node.z, signalled: lightNodes.has(e.node) || node.signals, go: false });
+      } else if (e.kind === 'zebra') {
+        const at = pts[idxAt(e.s + 4.5)]; let rec = null, bd = 144;
+        if (at) for (const r of this.crossings.values()) { if (!r.zebra) continue; const d2 = (r.x - at.x) ** 2 + (r.z - at.z) ** 2; if (d2 < bd) { bd = d2; rec = r; } }
+        ev.push({ kind: 'zebra', s: e.s + 1.5, rec, go: false }); // the give-way line, 3 m before the stripes' centre
+      }
+    }
+    ev.sort((a, b) => a.s - b.s);
+    A.ev = ev; A.evI = 0;
+    // ring membership, from the give-way line on (the blend before it is still the approach)
+    const rbArr = A.rbArr; rbArr.length = n; rbArr.fill(null);
+    for (const e of ev) {
+      if (e.kind !== 'rb') continue;
+      const id = e.rb.id;
+      let i = idxAt(e.s); const stop = Math.min(n, i + 30);
+      while (i < stop && pts[i].rb !== id) i++; // the arc proper can start a point or two past the line
+      for (; i < n && pts[i].rb === id; i++) if (ps[i] >= e.ringS && len(px[i] - e.rb.x, pz[i] - e.rb.z) <= e.rb.r + 1) rbArr[i] = e.rb;
+    }
+    A.s = 0; A.idx = 0; A.aim = 0;
+    A.x = px[0]; A.z = pz[0];
+    A.heading = Math.atan2(px[Math.min(n - 1, 3)] - px[0], pz[Math.min(n - 1, 3)] - pz[0]); A.fx = Math.sin(A.heading); A.fz = Math.cos(A.heading);
+  }
+  /**
+   * Re-route from a junction the car has already passed, through its old destination, on to a new
+   * one, and put the car back where it is on the new path. False if that can't be done cleanly.
+   */
+  #extend(A) {
+    const net = this.net, route = A.route; if (!route || !A.dest) return false;
+    let from = null, j = 0;
+    for (const id of route.nodes) {
+      const nd = net.nodes.get(id); if (!nd) continue;
+      let best = -1, bd = 49;
+      for (let i = j; i < A.n && A.ps[i] < A.s; i++) { const dx = A.px[i] - nd.x, dz = A.pz[i] - nd.z, d2 = dx * dx + dz * dz; if (d2 < bd) { bd = d2; best = i; } }
+      if (best < 0) break;
+      j = best;
+      if (!nd.rb && A.ps[best] < A.s - 15) from = nd;
+    }
+    if (!from) return false;
+    const dest = this.#pickDest(A.dest.x, A.dest.z); if (!dest) return false;
+    let r2 = null;
+    try { r2 = net.route(from.id, dest.id, { via: [A.dest.id] }); } catch { r2 = null; }
+    if (!r2) return false;
+    for (let k = 0; k + 1 < r2.ways.length; k++) if (r2.ways[k].way === r2.ways[k + 1].way && r2.ways[k].dir !== r2.ways[k + 1].dir) return false; // a U-turn at the old destination
+    const lp = net.lanePath(r2);
+    let bi = -1, bd = 2.25;
+    for (let i = 0; i < lp.pts.length - 1; i++) {
+      const p = lp.pts[i], dx = p.x - A.x, dz = p.z - A.z, d2 = dx * dx + dz * dz;
+      if (d2 >= bd) continue;
+      const q = lp.pts[i + 1], hx = q.x - p.x, hz = q.z - p.z;
+      if (hx * A.fx + hz * A.fz <= 0) continue; // the other way along the same road
+      bd = d2; bi = i;
+    }
+    if (bi < 0) return false;
+    const v = A.v, group = A.lastGroup, since = A.s - A.lastGroupS; // keep how far past its last lights it is
+    this.#setPath(A, lp, r2, dest);
+    A.s = lp.pts[bi].s; A.idx = bi; A.aim = bi + 1; A.v = v;
+    A.lastGroup = group; A.lastGroupS = A.s - since;
+    const front = A.s + A.L / 2;
+    while (A.evI < A.ev.length && A.ev[A.evI].s <= front) A.evI++;
+    this.#move(A, 0);
+    return true;
+  }
+
+  // ---------- pedestrians ----------
+  #peds(dt) {
+    const peds = this.peds, touched = this.touched;
+    for (let i = 0; i < touched.length; i++) touched[i].busy = 0; // people say they're there again every frame
+    touched.length = 0;
+    for (let i = 0; i < peds.length; i++) {
+      const p = peds[i];
+      if (p.state === 'walk') this.#walk(p, dt);
+      else if (p.state === 'wait') this.#waitAt(p, dt);
+      else this.#crossOver(p, dt);
+    }
+  }
+  #walk(p, dt) {
+    const w = p.way, s0 = p.s;
+    p.s += p.v * dt * p.dir;
+    if (p.s < 0 || p.s > w.len) this.#corner(p);
+    else {
+      const list = this.crossByWay.get(w.id);
+      if (list) for (let k = 0; k < list.length; k++) {
+        const rec = list[k];
+        if ((s0 - rec.s) * (p.s - rec.s) > 0 || p.lastRec === rec) continue;
+        p.lastRec = rec;
+        if (this.rnd() < 0.5) { p.state = 'wait'; p.rec = rec; p.t = 0; p.s = rec.s; p.lat = p.side * p.off; break; }
+      }
+    }
+    const f = wayFrame(p.way, p.s, p.i); p.i = f.i;
+    this.#stepTo(p, f.x + f.dz * p.side * p.off, f.z - f.dx * p.side * p.off, dt, true);
+  }
+  /** move towards a target point at no more than a brisk walk (corners are cut, not jumped) */
+  #stepTo(p, tx, tz, dt, face) {
+    const dx = tx - p.x, dz = tz - p.z, d = len(dx, dz), max = Math.max(2.2, p.v * 2) * dt;
+    if (d > 25) { p.x = tx; p.z = tz; p.speed = p.v; return; }
+    const k = d > max ? max / d : 1;
+    p.x += dx * k; p.z += dz * k;
+    p.speed = dt > 0 ? (d * k) / dt : 0;
+    if (face && d * k > 1e-4) p.heading = Math.atan2(dx, dz);
+  }
+  #corner(p) {
+    const w = p.way, atEnd = p.s > w.len, nid = w.nodes[atEnd ? w.nodes.length - 1 : 0];
+    const node = nid ? this.net.nodes.get(nid) : null;
+    let pick = null;
+    if (node) {
+      let count = 0;
+      for (const r of node.ways) if (r.way !== w && paveOk(r.way)) count++;
+      if (count) { let k = Math.floor(this.rnd() * count); for (const r of node.ways) if (r.way !== w && paveOk(r.way) && k-- === 0) { pick = r; break; } }
+    }
+    if (!pick) { p.dir = -p.dir; p.s = Math.max(0, Math.min(w.len, p.s)); return; } // a dead end: turn round
+    const walkSide = p.side * p.dir, nw = pick.way;
+    p.way = nw; p.i = Math.max(0, Math.min(pick.idx, nw.pts.length - 2)); p.s = nw.cum[pick.idx];
+    p.dir = pick.idx === 0 ? 1 : pick.idx === nw.nodes.length - 1 ? -1 : this.rnd() < 0.5 ? 1 : -1;
+    p.side = walkSide * p.dir; // stay on the same side of the walker
+    p.off = nw.halfW + PAVE_OFF;
+    p.lastRec = null;
+  }
+  #waitAt(p, dt) {
+    const rec = p.rec, sig = this.signals;
+    p.t += dt;
+    if (rec.busy++ === 0) this.touched.push(rec);
+    let go = false;
+    if (rec.zebra) go = p.t > 0.8 && this.#zebraClear(rec);
+    else if (sig) { sig.press(rec.group); go = sig.pedGreen(rec.group); }
+    else go = p.t > 3;
+    const f = wayFrame(rec.way, rec.s, p.i); p.i = f.i;
+    this.#stepTo(p, f.x + f.dz * p.lat, f.z - f.dx * p.lat, dt, false);
+    p.heading = Math.atan2(-f.dz * p.side, f.dx * p.side); // facing across the road
+    if (go) { p.state = 'cross'; p.t = 0; if (rec.zebra) this.stats.zebraCrossings++; else this.stats.signalCrossings++; }
+    else if (p.t > 45) { p.state = 'walk'; p.rec = null; } // gave up
+  }
+  #crossOver(p, dt) {
+    const rec = p.rec, sig = this.signals;
+    if (rec.busy++ === 0) this.touched.push(rec);
+    if (!rec.zebra && sig) sig.occupy(rec.group);
+    p.lat -= p.side * p.v * 1.1 * dt;
+    const f = wayFrame(rec.way, rec.s, p.i); p.i = f.i;
+    p.x = f.x + f.dz * p.lat; p.z = f.z - f.dx * p.lat; p.speed = p.v * 1.1;
+    p.heading = Math.atan2(-f.dz * p.side, f.dx * p.side);
+    p.inRoad = Math.abs(p.lat) < rec.way.halfW + 0.3;
+    if (p.lat * p.side <= -p.off) { // over: carry on along the far pavement
+      p.side = -p.side; p.state = 'walk'; p.inRoad = false; p.dir = this.rnd() < 0.5 ? 1 : -1; p.rec = null;
+    }
+  }
+  /** nothing approaching the zebra that couldn't stop comfortably before it */
+  #zebraClear(rec) {
+    for (const B of this.cars) {
+      const dx = rec.x - B.x, dz = rec.z - B.z, d2 = dx * dx + dz * dz;
+      if (d2 > 3600) continue;
+      const d = Math.sqrt(d2);
+      if (d < 5) return false; // on it
+      if (dx * B.fx + dz * B.fz <= 0) continue; // going away
+      if ((B.v * B.v) / 10 > d - B.L / 2 - 5) return false;
+    }
+    return true;
+  }
+  #spawnPed() {
+    const P = this.P;
+    for (let tries = 0; tries < 8; tries++) {
+      // a third of people start near a crossing, walking towards it: that's where people cross
+      const pick = this.rnd() < 0.33 ? this.#nearCrossing() : this.#pickOn(this.cache.peds, this.cache.pedCum); if (!pick) continue;
+      const [w, seg, s, x, z] = pick;
+      const dp = len(x - P.x, z - P.z);
+      if (dp < PED_MIN || dp > PED_MAX) continue;
+      const p = this.pedPool.pop() || this.#newPed();
+      p.way = w; p.i = seg; p.s = s;
+      p.dir = pick[5] || (this.rnd() < 0.5 ? 1 : -1); p.side = this.rnd() < 0.5 ? 1 : -1; p.off = w.halfW + PAVE_OFF;
+      p.v = 1.15 + this.rnd() * 0.35; p.state = 'walk'; p.rec = null; p.lastRec = null; p.inRoad = false; p.t = 0;
+      const f = wayFrame(w, p.s, p.i);
+      p.x = f.x + f.dz * p.side * p.off; p.z = f.z - f.dx * p.side * p.off;
+      p.heading = Math.atan2(f.dx * p.dir, f.dz * p.dir); p.speed = p.v;
+      this.peds.push(p);
+      return true;
+    }
+    return false;
+  }
+  /** a point on a pavement 5-25 m from a crossing in range of the player (same shape as #pickOn) */
+  #nearCrossing() {
+    const P = this.P;
+    let rec = null, k = 0;
+    for (const r of this.crossings.values()) { // reservoir pick among those in range
+      const d = len(r.x - P.x, r.z - P.z);
+      if (d < PED_MIN || d > PED_MAX || !paveOk(r.way)) continue;
+      if (this.rnd() * ++k < 1) rec = r;
+    }
+    if (!rec) return null;
+    const w = rec.way, s = Math.max(0, Math.min(w.len, rec.s + (this.rnd() < 0.5 ? -1 : 1) * (5 + this.rnd() * 20))), f = wayFrame(w, s, 0);
+    return [w, f.i, s, f.x, f.z, rec.s > s ? 1 : -1];
+  }
+  #newPed() {
+    const mesh = this.buildPedestrian ? this.buildPedestrian(this.pedPool.length + this.peds.length) : null;
+    if (mesh) { mesh.visible = false; this.scene.add(mesh); }
+    return { mesh, x: 0, z: 0, heading: 0, v: 1.3, speed: 0, way: null, i: 0, s: 0, dir: 1, side: 1, off: 4, state: 'walk', rec: null, lastRec: null, lat: 0, t: 0, inRoad: false };
+  }
+
+  dispose() {
+    for (const c of [...this.cars, ...this.pool]) if (c.mesh) this.scene.remove(c.mesh);
+    for (const p of [...this.peds, ...this.pedPool]) if (p.mesh) this.scene.remove(p.mesh);
+    this.cars.length = 0; this.peds.length = 0; this.pool.length = 0; this.pedPool.length = 0;
+  }
+}
+
+/** how far a box at (x, z) facing (fx, fz), L x W, overlaps car B's box (m, 0 if apart; 0.1 m grace a side) */
+function boxDepth(x, z, fx, fz, L, W, B) {
+  const ahl = L / 2 - 0.1, ahw = W / 2 - 0.1, bhl = B.L / 2 - 0.1, bhw = B.W / 2 - 0.1, dx = B.x - x, dz = B.z - z;
+  let m = Infinity;
+  for (let a = 0; a < 4; a++) {
+    const ux = a === 0 ? fx : a === 1 ? fz : a === 2 ? B.fx : B.fz, uz = a === 0 ? fz : a === 1 ? -fx : a === 2 ? B.fz : -B.fx;
+    const ra = ahl * Math.abs(fx * ux + fz * uz) + ahw * Math.abs(fz * ux - fx * uz);
+    const rb = bhl * Math.abs(B.fx * ux + B.fz * uz) + bhw * Math.abs(B.fz * ux - B.fx * uz);
+    const o = ra + rb - Math.abs(dx * ux + dz * uz);
+    if (o <= 0) return 0;
+    if (o < m) m = o;
+  }
+  return m;
+}
+
+/** the speed that keeps a safe gap g (m) to something ahead going lv m/s, when I'm doing v */
+function follow(want, g, lv, v) {
+  let w = Math.sqrt(2 * FOLLOW_BRAKE * Math.max(0, g));
+  if (g < v * 1.5) w = Math.min(w, lv + Math.max(0, g - v * 0.9) * 0.4);
+  return want < w ? want : w;
+}

@@ -2,13 +2,14 @@
 // (data © OpenStreetMap contributors, ODbL: public/assets/kent/ATTRIBUTION.txt). Richard's home is on
 // the Beltinge cliff top, his jets fly from Maypole Airfield. The world streams in 500 m tiles around
 // the player: roads and markings (kent/roads.js), buildings / trees / sea (kent/scenery.js), signs
-// (kent/signs-place.js). Left-hand traffic, mph. x = east, z = south.
+// (kent/signs-place.js). Traffic lights run in kent/signals.js and live traffic and pedestrians in
+// kent/traffic.js. Left-hand traffic, mph. x = east, z = south.
 import * as THREE from 'three';
 import { setupSky, Colliders } from './common.js';
 import { hdri, pbr, misc, instanced } from '../assets.js';
 import { markingTexture } from '../signs.js';
-import { buildJet } from '../models.js';
-import { JETS, STARTER_JETS } from '../catalog.js';
+import { buildJet, buildCar, buildPedestrian } from '../models.js';
+import { JETS, STARTER_JETS, TRAFFIC } from '../catalog.js';
 import { state } from '../state.js';
 import { RoadNet } from '../kent/net.js';
 import { TileManager } from '../kent/tiles.js';
@@ -17,6 +18,8 @@ import { makeSceneryBuilder } from '../kent/scenery.js';
 import { makeSignBuilder } from '../kent/signs-place.js';
 import { buildKentHouse } from '../kent/house.js';
 import { buildAirfield } from '../kent/airfield.js';
+import { SignalSystem } from '../kent/signals.js';
+import { KentTraffic } from '../kent/traffic.js';
 
 // main.js hands the house its hooks (toasts, the phone, quizzes) before the world is built
 let hooks = {};
@@ -55,6 +58,10 @@ export function buildKent(renderer) {
   const signs = makeSignBuilder({ net, colliders });
   tickers.push((t) => signs.tick(t)); // Belisha beacons blink
   const tiles = new TileManager({ net, scene, builders: [roads, scenery, signs], near: 1000, far: 2500, dropAt: 3200, budgetMs: 4 });
+  // every set of lights in the region keeps time; the heads the sign tiles build show it
+  const signals = new SignalSystem({ net, signsBuilder: signs });
+  // live traffic: main.js picks this up as world.traffic (update / collide like the other worlds')
+  const traffic = new KentTraffic({ net, scene, signals, bodies: TRAFFIC, buildCar, buildPedestrian });
 
   // home on the cliff top and the jet centre at Maypole
   const house = buildKentHouse({ scene, colliders, tickers, origin: data.home, interactions, hooks, materials: { pbr }, driveEnd: 44 }); // the synthetic "Home Drive" road takes over at the gate
@@ -68,16 +75,22 @@ export function buildKent(renderer) {
     ...data.landmarks.filter((l) => /cathedral|clock tower|reculver towers|^herne bay pier$/i.test(l.name || '')).map((l) => ({ x: l.x, z: l.z, color: '#ffffff', name: l.name })),
   ];
 
+  // rings as LessonRun.rbConflict reads them: name = the ring id traffic cars report in lane.rb,
+  // lane = the outer lane's radius (its arc maths); every Kent ring circulates clockwise (sense +1)
+  const rbs = [...net.roundabouts.values()].map((rb) => ({ name: rb.id, x: rb.x, z: rb.z, lane: rb.laneRadius(1), outer: rb.r, sense: rb.sense }));
+
   const player = { x: data.home.x, z: data.home.z + 38, r: 0 };
   let last = 0;
   return {
     id: 'kent', name: 'KENT', units: 'mph', scene, env, colliders, tickers, interactions, net, tiles, house, air,
+    signals, trafficSystem: traffic, rbs, rbSenseSign: rbs.every((r) => r.sense === rbs[0]?.sense) ? rbs[0]?.sense ?? 1 : 1,
     get roads() { return tiles.roadsNear(); },
     bounds: data.bounds,
     tick(t) {
       const dt = last ? Math.min(0.1, t - last) : 0;
       last = t;
       tiles.update(this.player?.x ?? player.x, this.player?.z ?? player.z, dt);
+      signals.update(dt);
       for (const f of tickers) f(t);
     },
     spawn: house.spawn,
