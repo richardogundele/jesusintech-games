@@ -7,7 +7,8 @@ import { LESSONS } from './lessons.js';
 import { LOOKS } from './character.js';
 
 const $ = (id) => document.getElementById(id);
-const TABS = [['today', 'Today'], ['wins', 'Log a win'], ['lessons', 'Driving lessons'], ['dealer', 'Dealer'], ['hangar', 'Hangar'], ['giving', 'Giving'], ['wardrobe', 'Wardrobe'], ['me', 'Profile']];
+const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const TABS = [['today', 'Today'], ['wins', 'Log a win'], ['lessons', 'Driving lessons'], ['dealer', 'Dealer'], ['hangar', 'Hangar'], ['giving', 'Giving'], ['music', 'Music'], ['wardrobe', 'Wardrobe'], ['me', 'Profile']];
 const TRIAL_NAMES = { 'monaco-loop': 'Monte Carlo Grand Loop', 'dubai-szr': 'Sheikh Zayed Sprint' };
 
 export class Phone {
@@ -36,8 +37,38 @@ export class Phone {
       if (act === 'gouk') { this.hooks.close(); this.hooks.goUK(); return; }
       if (act === 'gohome') { this.hooks.close(); this.hooks.goHome(); return; }
       if (act === 'look') { state.look[b.dataset.part] = id; this.hooks.setLook(state.look); }
+      if (act?.startsWith('song-')) { this.song(act.slice(5), id, b); return; }
       if (act) this.render();
     });
+    // your own music: a hidden file picker (opened from the Music tab) and the volume slider
+    this.file = document.createElement('input');
+    this.file.type = 'file'; this.file.accept = 'audio/*,.mp3,.m4a,.aac,.wav,.ogg,.flac,.opus'; this.file.multiple = true; this.file.hidden = true;
+    this.el.appendChild(this.file);
+    this.file.addEventListener('change', async () => {
+      const n = await this.hooks.songs.add(this.file.files);
+      this.file.value = '';
+      this.hooks.toast?.(n ? `${n} song${n === 1 ? '' : 's'} added` : 'No audio files in that selection', 2200);
+      if (n && !this.hooks.songs.playing) this.hooks.songs.start();
+      this.render();
+    });
+    this.el.addEventListener('input', (e) => {
+      if (e.target.dataset.vol !== undefined) { this.hooks.songs.setVolume(+e.target.value); }
+    });
+    this.el.addEventListener('change', (e) => { if (e.target.dataset.vol !== undefined) this.hooks.save?.(); });
+  }
+
+  /** Music tab actions */
+  song(what, id, btn) {
+    const S = this.hooks.songs;
+    if (what === 'add') { this.file.click(); return; }
+    if (what === 'play') S.play(+id);
+    if (what === 'toggle') S.toggle();
+    if (what === 'next') S.next();
+    if (what === 'prev') S.prev();
+    if (what === 'shuffle') { S.settings.shuffle = !S.settings.shuffle; this.hooks.save?.(); }
+    if (what === 'remove') S.remove(+id);
+    if (what === 'clear' && confirm('Remove all your songs from the game?')) S.clear();
+    this.render();
   }
 
   get open() { return !this.el.classList.contains('hidden'); }
@@ -131,6 +162,27 @@ export class Phone {
     return `<div class="hero"><div class="big">${state.stats.impact.toLocaleString('en-GB')}<span>lives impacted</span></div></div>` +
       GIVING.map((g) => `<div class="row"><div class="grow"><div class="t">${g.label}</div><div class="s">${g.impact.toLocaleString('en-GB')} lives</div></div>
         <button class="buy" data-act="give" data-id="${g.id}" ${state.balance < g.price ? 'disabled' : ''}>${P.shortMoney(g.price)}</button></div>`).join('');
+  }
+
+  music() {
+    const S = this.hooks.songs, cur = S.current, on = S.playing;
+    const mb = (what, label, cls = '') => `<button class="pb ${cls}" data-act="song-${what}" title="${label}">${label}</button>`;
+    const rows = S.list.map((s) => `
+      <div class="row ${cur?.id === s.id ? 'now' : ''}">
+        <button class="pb small" data-act="song-play" data-id="${s.id}" title="Play">${cur?.id === s.id && on ? '❚❚' : '▶'}</button>
+        <div class="grow"><div class="t">${esc(s.title)}</div><div class="s">${(s.size / 1e6).toFixed(1)} MB</div></div>
+        <button class="pb small ghost" data-act="song-remove" data-id="${s.id}" title="Remove">✕</button></div>`).join('');
+    return `
+      <div class="hero player">
+        <div class="m">${cur ? (on ? 'Now playing' : 'Paused') : 'Your music'}</div>
+        <div class="np">${cur ? esc(cur.title) : (S.list.length ? 'Press play to start your playlist' : 'Add songs from your computer')}</div>
+        <div class="pbs">${mb('prev', '⏮')}${mb('toggle', on ? '❚❚' : '▶', 'main')}${mb('next', '⏭')}${mb('shuffle', 'Shuffle', S.settings.shuffle ? 'on' : 'ghost')}</div>
+        <label class="vol">Volume <input type="range" min="0" max="1" step="0.02" value="${S.settings.volume ?? 0.8}" data-vol></label>
+      </div>
+      <div class="row"><div class="grow"><div class="t">Add songs</div><div class="s">MP3, M4A, WAV, FLAC or OGG files. They stay in this browser on this computer; nothing is uploaded.</div></div>
+        <button class="buy" data-act="song-add">Choose files</button></div>
+      <h3>Playlist (${S.list.length})</h3>${rows || '<p class="note">No songs yet.</p>'}
+      ${S.list.length ? '<p class="note"><b>N</b> skips to the next song while you play. Your songs replace the game\'s radio while they play; press <b>R</b> in a car for Dream Life FM instead.</p><button class="buy ghost wide" data-act="song-clear">Remove all songs</button>' : ''}`;
   }
 
   wardrobe() {

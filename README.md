@@ -25,6 +25,7 @@ npm run dev
 - `src/state.js`: the save (one localStorage key; old saves are upgraded in place)
 - `src/progress.js`, `src/phone.js`: daily goals, streaks, real-life wins, purchases, fame
 - `src/trials.js`: time trials. `src/music.js`, `src/audio.js`: all sound is synthesised
+- `src/songs.js`: your own music. The phone's Music tab takes audio files from your computer, keeps them in the browser (IndexedDB, never uploaded) and plays them in place of the radio; N skips
 - `src/worlds/uk.js`, `src/lessons.js`: the UK town and the driving-lesson engine (lessons are data at the top of lessons.js)
 
 ## Credits

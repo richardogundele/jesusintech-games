@@ -54,8 +54,8 @@ export class Hud {
       : mode === 'car' && world.units === 'mph'
       ? '<kbd>W</kbd><kbd>S</kbd> drive · <kbd>A</kbd><kbd>D</kbd> steer · <kbd>Z</kbd><kbd>X</kbd> indicators · <kbd>Q</kbd> mirrors · <kbd>Space</kbd> handbrake · <kbd>E</kbd> get out · <kbd>P</kbd> phone'
       : mode === 'car'
-      ? '<kbd>W</kbd><kbd>S</kbd> drive · <kbd>A</kbd><kbd>D</kbd> steer · <kbd>Space</kbd> handbrake · <kbd>E</kbd> get out · <kbd>C</kbd> camera · <kbd>R</kbd> radio · <kbd>P</kbd> phone'
-      : '<kbd>W</kbd><kbd>S</kbd> walk · <kbd>A</kbd><kbd>D</kbd> turn · <kbd>Shift</kbd> run · <kbd>E</kbd> interact · <kbd>P</kbd> phone · <kbd>M</kbd> mute';
+      ? '<kbd>W</kbd><kbd>S</kbd> drive · <kbd>A</kbd><kbd>D</kbd> steer · <kbd>Space</kbd> handbrake · <kbd>E</kbd> get out · <kbd>C</kbd> camera · <kbd>R</kbd> radio · <kbd>N</kbd> next song · <kbd>P</kbd> phone'
+      : '<kbd>W</kbd><kbd>S</kbd> walk · <kbd>A</kbd><kbd>D</kbd> turn · <kbd>Shift</kbd> run · <kbd>E</kbd> interact · <kbd>P</kbd> phone · <kbd>N</kbd> next song · <kbd>M</kbd> mute';
     this.set('keys', this.keys, keys, 'innerHTML');
   }
 

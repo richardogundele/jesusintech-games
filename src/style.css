@@ -119,7 +119,7 @@ h1 { font-size: clamp(44px, 9vw, 112px); letter-spacing: 0.06em; margin: 14px 0 
 .phone-head { display: flex; justify-content: space-between; align-items: flex-start; padding: 0 6px 12px; }
 #phone-balance { font-size: 26px; font-weight: 800; color: #9ef0a6; margin-top: 6px; font-variant-numeric: tabular-nums; }
 .phone .x { margin-top: 0; padding: 7px 14px; font-size: 11px; }
-#phone-tabs { display: flex; gap: 6px; overflow-x: auto; padding: 0 2px 12px; scrollbar-width: none; }
+#phone-tabs { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 2px 12px; }
 #phone-tabs button { flex: none; background: rgba(255,255,255,0.05); border: 1px solid var(--line); color: var(--muted); border-radius: 999px;
   padding: 7px 12px; font: inherit; font-size: 12px; cursor: pointer; }
 #phone-tabs button.on { background: var(--gold); color: var(--ink); border-color: var(--gold); font-weight: 700; }
@@ -194,3 +194,18 @@ h1 { font-size: clamp(44px, 9vw, 112px); letter-spacing: 0.06em; margin: 14px 0 
 #phone-body .swatches { display: flex; flex-wrap: wrap; gap: 10px; margin: 4px 4px 0; }
 #phone-body .sw { width: 42px; height: 42px; border-radius: 50%; border: 2px solid rgba(255,255,255,0.15); cursor: pointer; }
 #phone-body .sw.on { border-color: var(--gold); box-shadow: 0 0 0 3px rgba(232,199,122,0.35); }
+
+/* Music tab */
+#phone-body .player .np { font-size: 20px; font-weight: 800; margin: 4px 0 12px; line-height: 1.25; overflow-wrap: anywhere; }
+#phone-body .pbs { display: flex; gap: 8px; align-items: center; }
+#phone-body .pb { background: rgba(255,255,255,0.1); color: var(--text, #fff); border: 1px solid var(--line); border-radius: 999px; width: 40px; height: 40px; font: inherit; font-size: 15px; cursor: pointer; flex: none; display: grid; place-items: center; }
+#phone-body .pb.main { background: var(--gold); color: var(--ink); border-color: var(--gold); width: 52px; height: 52px; font-size: 18px; }
+#phone-body .pb.small { width: 32px; height: 32px; font-size: 12px; }
+#phone-body .pb.ghost { background: transparent; color: var(--muted); }
+#phone-body .pb.on { background: rgba(232,199,122,0.25); color: var(--gold); border-color: var(--gold); }
+#phone-body button.pb[title="Shuffle"] { width: auto; padding: 0 14px; font-size: 12px; font-weight: 700; margin-left: auto; }
+#phone-body .vol { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--muted); margin-top: 14px; }
+#phone-body .vol input { flex: 1; accent-color: var(--gold); }
+#phone-body .row.now { outline: 1px solid var(--gold); }
+#phone-body .buy.ghost { background: transparent; color: var(--muted); border: 1px solid var(--line); }
+#phone-body .buy.wide { width: 100%; margin-top: 6px; }

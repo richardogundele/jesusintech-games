@@ -17,6 +17,7 @@ const DEFAULTS = () => ({
   uk: { lessons: {}, licence: false, tests: 0 }, // driving lessons in Whitmore
   look: { outfit: 'Realistic soldier', camo: 'Woodland', top: 'Royal blue', jeans: 'Dark denim', skin: 'Brown' }, // what you're wearing
   lookV: 2, // bump to move existing saves onto a new default outfit once
+  songs: { on: false, shuffle: false, volume: 0.8, last: null }, // your own music (the files live in IndexedDB)
 });
 
 function load() {
@@ -24,7 +25,7 @@ function load() {
   let saved = {};
   try { saved = JSON.parse(localStorage.getItem(KEY) || '{}') || {}; } catch { /* corrupt: start fresh */ }
   const out = { ...d, ...saved };
-  for (const k of ['owned', 'stats', 'best', 'daily', 'streak', 'wins', 'uk', 'look']) {
+  for (const k of ['owned', 'stats', 'best', 'daily', 'streak', 'wins', 'uk', 'look', 'songs']) {
     out[k] = { ...d[k], ...(saved[k] && typeof saved[k] === 'object' ? saved[k] : {}) };
   }
   out.owned.cars = Array.isArray(out.owned.cars) ? out.owned.cars : [];
