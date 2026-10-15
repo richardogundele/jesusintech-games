@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { facadeMaterial, waterMaterial } from '../materials.js';
+import { PAVE_W, KERB_W } from './markings.js';
 
 // Kent scenery: everything in a tile that is not road, sign or traffic. Buildings from OSM
 // footprints, fields, hedges, trees, lamps, railways, the sea and cliffs, and a few landmarks.
@@ -564,7 +565,7 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
     (w.nodes || []).forEach((id, i) => { const nd = NODES[id]; if (nd && nd.ways && nd.ways.length >= 2 && i > 0 && i < w.pts.length - 1) junctions.push(cum[i]); });
     const way = { w, cum, len: cum[cum.length - 1], junctions, halfW: halfW(w) };
     if (way.len < 4) continue;
-    for (let i = 0; i < w.pts.length - 1; i++) putBox(idx.ways, bboxOf([w.pts[i], w.pts[i + 1]]), way, 12);
+    for (let i = 0; i < w.pts.length - 1; i++) putBox(idx.ways, bboxOf([w.pts[i], w.pts[i + 1]]), way, 25); // houses sit up to ~18 m off their street
   }
   // de-duplicate the way index (a way touches a tile through many segments)
   for (const [k, list] of idx.ways) idx.ways.set(k, [...new Set(list)]);
@@ -580,7 +581,8 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
 
   // ---- landmarks: decide what gets a bespoke model, and clear OSM footprints it replaces ----
   const landmarks = [];
-  const clear = (x, z, r) => { for (const b of nearBuildings(x, z, r)) b.skip = true; };
+  const KEEP = []; // keep-clear circles round bespoke landmarks (procedural houses stay out too)
+  const clear = (x, z, r) => { KEEP.push({ x, z, r }); for (const b of nearBuildings(x, z, r)) b.skip = true; };
   const addLm = (lm) => { landmarks.push(lm); put(idx.landmarks, Math.floor(lm.x / TILE), Math.floor(lm.z / TILE), lm); };
   for (const tc of data.testCentres || []) { clear(tc.x, tc.z, 32); addLm({ type: 'testCentre', x: tc.x, z: tc.z, name: tc.name }); }
   for (const lm of data.landmarks || []) {
@@ -595,7 +597,8 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
     else if (cat === 'supermarket') {
       const b = buildingAt(lm.x, lm.z, 45);
       const brand = lm.brand || name || 'Supermarket';
-      if (b) { b.sign = brand; b.kind = 'shop'; b.pitched = false; if (b.h < 6) b.h = 6.5; } else addLm({ type: 'supermarket', x: lm.x, z: lm.z, name: brand });
+      if (b) { b.sign = brand; b.kind = 'shop'; b.pitched = false; if (b.h < 6) b.h = 6.5; KEEP.push({ x: b.cx, z: b.cz, r: b.rad + 10 }); }
+      else { KEEP.push({ x: lm.x, z: lm.z, r: 40 }); addLm({ type: 'supermarket', x: lm.x, z: lm.z, name: brand }); }
     }
   }
 
@@ -722,12 +725,255 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
     return geo;
   }
 
+  // ---- procedural houses: OSM only has buildings near main roads, so the side streets get rows
+  // of houses here. Each way's houses are a pure function of that way (seeded by its id, cached),
+  // so tiles agree on the seams whatever order they build in; a tile shows the ones centred in it.
+  const places = (data.places || []).filter((p) => p.r > 0);
+  const placeAt = (x, z) => { let best = null; for (const p of places) if (Math.hypot(x - p.x, z - p.z) <= p.r && (!best || p.r < best.r)) best = p; return best; };
+  const landuseAt = (x, z) => {
+    let best = null, ba = Infinity;
+    for (const lu of idx.landuse.get(tileKey(Math.floor(x / TILE), Math.floor(z / TILE))) || []) {
+      const a = (lu.bb.x1 - lu.bb.x0) * (lu.bb.z1 - lu.bb.z0);
+      if (a < ba && x >= lu.bb.x0 && x <= lu.bb.x1 && z >= lu.bb.z0 && z <= lu.bb.z1 && pointInPoly(lu.pts, x, z)) { best = lu.kind; ba = a; }
+    }
+    return best;
+  };
+  const osmGrid = new Map();
+  const osmBig = []; // the few large footprints are checked directly so the grid search stays small
+  for (const b of buildings) {
+    if (b.rad > 40) { osmBig.push(b); continue; }
+    const k = `${Math.floor(b.cx / 50)},${Math.floor(b.cz / 50)}`; if (!osmGrid.has(k)) osmGrid.set(k, []); osmGrid.get(k).push(b);
+  }
+  /** an OSM building within 25 m of (x, z), or close enough to touch a house of radius rad */
+  const osmNear = (x, z, rad) => {
+    for (const b of osmBig) if (Math.hypot(b.cx - x, b.cz - z) - b.rad < rad + 3) return true;
+    const R = 25 + 40, g0x = Math.floor((x - R) / 50), g1x = Math.floor((x + R) / 50), g0z = Math.floor((z - R) / 50), g1z = Math.floor((z + R) / 50);
+    for (let gx = g0x; gx <= g1x; gx++) for (let gz = g0z; gz <= g1z; gz++) for (const b of osmGrid.get(`${gx},${gz}`) || []) {
+      const d = Math.hypot(b.cx - x, b.cz - z);
+      if (d < 25 || d - b.rad < rad + 3) return true;
+    }
+    return false;
+  };
+  // a fine 20 m grid of road segments: "is another street nearer than mine?" is asked a lot
+  const SEG = 20, segGrid = new Map();
+  for (const w of WAYS) {
+    if (!w.pts) continue;
+    for (let i = 0; i < w.pts.length - 1; i++) {
+      const a = w.pts[i], b = w.pts[i + 1];
+      for (let gx = Math.floor(Math.min(a[0], b[0]) / SEG); gx <= Math.floor(Math.max(a[0], b[0]) / SEG); gx++)
+        for (let gz = Math.floor(Math.min(a[1], b[1]) / SEG); gz <= Math.floor(Math.max(a[1], b[1]) / SEG); gz++) {
+          const k = `${gx},${gz}`; if (!segGrid.has(k)) segGrid.set(k, []); segGrid.get(k).push([w, a, b]);
+        }
+    }
+  }
+  /** true when a road other than `w` comes within d of (x, z) */
+  const otherRoadWithin = (x, z, d, w) => {
+    for (let gx = Math.floor((x - d) / SEG); gx <= Math.floor((x + d) / SEG); gx++) for (let gz = Math.floor((z - d) / SEG); gz <= Math.floor((z + d) / SEG); gz++) {
+      for (const [o, a, b] of segGrid.get(`${gx},${gz}`) || []) if (o !== w && o.id !== w.id && segDist(x, z, a, b) < d) return true;
+    }
+    return false;
+  };
+  const ANY = { id: NaN };
+  const roadWithin = (x, z, d) => otherRoadWithin(x, z, d, ANY); // any road centreline within d
+  const NO_HOUSES = new Set(['farmland', 'wood', 'grass', 'industrial', 'retail', 'water', 'beach']);
+  const a299 = [];
+  for (const w of WAYS) if (w.ref === 'A299' && w.pts) for (let i = 0; i < w.pts.length - 1; i++) a299.push([w.pts[i], w.pts[i + 1]]);
+  const segDist = (x, z, a, b) => {
+    const dx = b[0] - a[0], dz = b[1] - a[1], L2 = dx * dx + dz * dz || 1;
+    const t = clamp(((x - a[0]) * dx + (z - a[1]) * dz) / L2, 0, 1);
+    return Math.hypot(x - a[0] - dx * t, z - a[1] - dz * t);
+  };
+  const distA299 = (x, z) => { let d = Infinity; for (const [a, b] of a299) d = Math.min(d, segDist(x, z, a, b)); return d; };
+  /** every tile the circle (x, z, r) touches */
+  const tilesAround = (x, z, r) => { const out = []; for (let tx = Math.floor((x - r) / TILE); tx <= Math.floor((x + r) / TILE); tx++) for (let tz = Math.floor((z - r) / TILE); tz <= Math.floor((z + r) / TILE); tz++) out.push(tileKey(tx, tz)); return out; };
+  const nearRail = (x, z, r) => {
+    for (const k of tilesAround(x, z, r)) for (const rail of idx.rails.get(k) || []) {
+      for (let i = 0; i < rail.pts.length - 1; i++) if (segDist(x, z, rail.pts[i], rail.pts[i + 1]) < r) return true;
+    }
+    return false;
+  };
+  /** within r of the coastline (sea wall or cliff edge) */
+  const nearCoast = (x, z, r) => {
+    for (const k of tilesAround(x, z, r)) for (const [a, b] of idx.coast.get(k) || []) if (segDist(x, z, a, b) < r) return true;
+    return false;
+  };
+  const INTERWAR = new Set(['Beltinge', 'Greenhill', 'Hillborough', 'Studd Hill', 'Hampton', 'Bishopstone', 'Swalecliffe', 'Herne', 'Herne Common', 'Broomfield', 'Eddington', 'Chestfield', 'Hunters Forstal', 'Thanington', 'Wincheap', 'Harbledown']);
+  /** Period by place: Victorian/Edwardian terraces in the Herne Bay seafront grid and inner
+   * Canterbury, 1930s semis and post-war bungalows in the suburbs, modern estates by the A299. */
+  function styleAt(x, z) {
+    const pl = placeAt(x, z);
+    const name = pl?.name || '';
+    if (name === 'Herne Bay' && Math.hypot(x - 1750, z + 5700) < 950) return 'victorian';
+    if (name === 'Canterbury' && Math.hypot(x - pl.x, z - pl.z) < 1300) return 'victorian';
+    if (name !== 'Beltinge' && name !== 'Greenhill' && distA299(x, z) < 450) return 'modern';
+    if (INTERWAR.has(name) || name === 'Herne Bay' || name === 'Canterbury') return 'interwar';
+    return 'village';
+  }
+  const PAL = {
+    brick: [0x9a4a36, 0x8f4a3c, 0xa8664a, 0x7f3f30],
+    stucco: [0xeee8da, 0xe8dcc0, 0xd9e3e0, 0xf0e0d0, 0xdfe6ea],
+    render: [0xe8dfc8, 0xc9c4b8, 0xf0ece2, 0xd8cdb4],
+    modern: [0xc9a77c, 0xb4643f, 0xd8c3a0, 0xbf8b62, 0xeeeae2],
+  };
+  const pickc = (r, arr) => arr[Math.floor(r() * arr.length) % arr.length];
+  const rr = (r, a, b) => a + r() * (b - a);
+  /** one plot's worth: a terrace row, a pair of semis, a detached house or a bungalow */
+  function makeUnit(style, r) {
+    const roofCol = pickc(r, ROOF_COLOURS);
+    if (style === 'victorian') {
+      const n = 3 + Math.floor(r() * 6), each = rr(r, 5.0, 5.7), tall = r() < 0.2;
+      const painted = r() < 0.35;
+      return { kind: 'terrace', w: n * each, n, d: rr(r, 9.5, 11), h: tall ? rr(r, 9.8, 10.8) : rr(r, 7.2, 8.4), setback: rr(r, 4, 4.8), gap: rr(r, 1.2, 2.4), drive: false,
+        col: pickc(r, painted ? PAL.stucco : PAL.brick), roofCol, edge: r() < 0.8 ? 'wall' : 'hedge', wallCol: painted ? 0xe8e2d4 : 0x8f4a3c };
+    }
+    if (style === 'interwar') {
+      if (r() < 0.35) return { kind: 'house', w: rr(r, 9, 11), n: 1, d: rr(r, 9, 10.5), h: rr(r, 3.2, 3.6), setback: rr(r, 6.5, 8), gap: rr(r, 3.4, 4.5), drive: true, col: pickc(r, PAL.render), roofCol, edge: r() < 0.6 ? 'hedge' : 'wall', wallCol: 0xd8d2c4 };
+      const half = rr(r, 6.2, 7);
+      return { kind: 'house', w: 2 * half, n: 2, d: rr(r, 8.5, 9.5), h: rr(r, 6.5, 7.1), setback: rr(r, 6, 8), gap: rr(r, 3.4, 4.4), drive: true, col: pickc(r, r() < 0.7 ? PAL.render : PAL.brick), roofCol, edge: r() < 0.6 ? 'hedge' : 'wall', wallCol: 0xa8664a };
+    }
+    if (style === 'modern') {
+      if (r() < 0.3) { const each = rr(r, 4.8, 5.4); return { kind: 'terrace', w: 3 * each, n: 3, d: rr(r, 8.5, 9.5), h: rr(r, 6.4, 7), setback: rr(r, 5, 6), gap: rr(r, 3, 3.6), drive: true, col: pickc(r, PAL.modern), roofCol, edge: r() < 0.6 ? 'none' : 'hedge', wallCol: 0xc9a77c }; }
+      return { kind: 'house', w: rr(r, 7.5, 9), n: 1, d: rr(r, 8, 9.5), h: rr(r, 6.2, 6.8), setback: rr(r, 5, 6), gap: rr(r, 2.8, 3.6), drive: true, col: pickc(r, PAL.modern), roofCol, edge: r() < 0.6 ? 'none' : 'hedge', wallCol: 0xc9a77c };
+    }
+    if (r() < 0.4) return { kind: 'house', w: rr(r, 9, 12), n: 1, d: rr(r, 8.5, 10.5), h: rr(r, 3.2, 3.7), setback: rr(r, 6.5, 8), gap: rr(r, 5, 8), drive: true, col: pickc(r, PAL.render), roofCol, edge: 'hedge', wallCol: 0xd8d2c4 };
+    return { kind: 'house', w: rr(r, 8, 11), n: 1, d: rr(r, 8, 10), h: rr(r, 6.3, 7), setback: rr(r, 6.5, 8), gap: rr(r, 5, 8), drive: true, col: pickc(r, r() < 0.5 ? PAL.brick : PAL.render), roofCol, edge: r() < 0.5 ? 'hedge' : 'wall', wallCol: 0x9a4a36 };
+  }
+  const PROC_CLS = new Set(['residential', 'living_street', 'unclassified']);
+  const procCache = new Map();
+  /** corners plus points every ~3 m along each edge (long terraces must not straddle a street) */
+  const edgeSamples = (poly) => {
+    const out = [];
+    for (let i = 0; i < poly.length; i++) {
+      const a = poly[i], b = poly[(i + 1) % poly.length], n = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / 3));
+      for (let k = 0; k < n; k++) out.push([a[0] + ((b[0] - a[0]) * k) / n, a[1] + ((b[1] - a[1]) * k) / n]);
+    }
+    return out;
+  };
+  const obbCorners = (cx, cz, ux, uz, nx, nz, hw, hd) => [[cx - ux * hw - nx * hd, cz - uz * hw - nz * hd], [cx + ux * hw - nx * hd, cz + uz * hw - nz * hd], [cx + ux * hw + nx * hd, cz + uz * hw + nz * hd], [cx - ux * hw + nx * hd, cz - uz * hw + nz * hd]];
+  const sepAxis = (A, B) => {
+    // two convex quads overlap unless some edge normal separates them (SAT)
+    for (const P of [A, B]) for (let i = 0; i < 4; i++) {
+      const a = P[i], b = P[(i + 1) % 4], ax = b[1] - a[1], az = a[0] - b[0];
+      let a0 = Infinity, a1 = -Infinity, b0 = Infinity, b1 = -Infinity;
+      for (const p of A) { const v = p[0] * ax + p[1] * az; a0 = Math.min(a0, v); a1 = Math.max(a1, v); }
+      for (const p of B) { const v = p[0] * ax + p[1] * az; b0 = Math.min(b0, v); b1 = Math.max(b1, v); }
+      const m = 0.3 * Math.hypot(ax, az); // keep 0.3 m of air between neighbours
+      if (a1 + m <= b0 || b1 + m <= a0) return true;
+    }
+    return false;
+  };
+  function procForWay(way) {
+    const w = way.w;
+    if (procCache.has(w.id)) return procCache.get(w.id);
+    const out = [];
+    procCache.set(w.id, out);
+    if (!PROC_CLS.has(w.cls) || w.rb || w.dual || w.link || w.bridge || w.tunnel || way.len < 30) return out;
+    const mid = pointAt(way, way.len / 2);
+    if (w.cls === 'unclassified' && !placeAt(mid.x, mid.z)) return out;
+    const style = styleAt(mid.x, mid.z);
+    const J = 14 + way.halfW;
+    const gaps = way.junctions.map((s) => [s - J, s + J]);
+    const nIds = w.nodes || [];
+    const endShared = (i) => { const nd = NODES[nIds[i]]; return nd && nd.ways && nd.ways.length >= 2; };
+    gaps.push([-Infinity, nIds.length && endShared(0) ? J : 6], [way.len - (nIds.length && endShared(nIds.length - 1) ? J : 6), Infinity]);
+    const blocked = (s0, s1) => gaps.some(([a, b]) => s1 > a && s0 < b);
+    const pave = w.pave ? KERB_W + PAVE_W : 0.8;
+    const ownDist = (x, z) => { let d = Infinity; for (let i = 0; i < w.pts.length - 1; i++) d = Math.min(d, segDist(x, z, w.pts[i], w.pts[i + 1])); return d; };
+    // corners and side midpoints must belong to this street (no other road is nearer, so houses of
+    // different streets never meet) and stay off its own pavement where it loops back behind them
+    const owned = (poly) => edgeSamples(poly).every(([x, z]) => {
+      const d0 = ownDist(x, z);
+      if (d0 < way.halfW + pave + 0.3) return false;
+      return !otherRoadWithin(x, z, d0 + 1.5, w); // a 1.5 m margin past the halfway line between streets
+    });
+    for (const side of [1, -1]) {
+      const r = mulberry32((Math.imul(w.id % 2147483647, 2654435761) ^ (side > 0 ? 0x5bd1e995 : 0x1b873593)) >>> 0);
+      let s = 0, guard = 0;
+      while (s < way.len && guard++ < 4000) {
+        const u = makeUnit(style, r);
+        if (blocked(s, s + u.w)) { const g = gaps.find(([a, b]) => s + u.w > a && s < b); s = Math.max(s + 2, g[1] + 0.5); continue; }
+        if (s + u.w > way.len) break;
+        const p0 = pointAt(way, s), p1 = pointAt(way, s + u.w), pm = pointAt(way, s + u.w / 2);
+        let ux = p1.x - p0.x, uz = p1.z - p0.z;
+        const L = Math.hypot(ux, uz) || 1;
+        ux /= L; uz /= L;
+        if (L < u.w * 0.92) { s += 3; continue; } // too tight a bend for a straight frontage
+        const nx = uz * side, nz = -ux * side; // away from the road (driver's left for side 1)
+        const front = way.halfW + Math.max(pave, u.setback);
+        const off = front + u.d / 2;
+        const cx = pm.x + nx * off, cz = pm.z + nz * off;
+        const poly = obbCorners(cx, cz, ux, uz, nx, nz, u.w / 2, u.d / 2);
+        const rad = Math.hypot(u.w, u.d) / 2;
+        const ok = !poly.some(([x, z]) => excluded(x, z) || inSea(x, z)) && !nearCoast(cx, cz, rad + 12)
+          && !KEEP.some((k) => Math.hypot(cx - k.x, cz - k.z) < k.r + rad)
+          && (() => { const lu = landuseAt(cx, cz); return lu ? !NO_HOUSES.has(lu) : !!placeAt(cx, cz); })()
+          && !nearRail(cx, cz, rad + 6)
+          && !osmNear(cx, cz, rad)
+          && !out.some((q) => Math.abs(q.cx - cx) < q.rad + rad && Math.abs(q.cz - cz) < q.rad + rad && !sepAxis(q.poly, poly))
+          && owned(poly);
+        if (!ok) { s += 3; continue; }
+        const yaw = Math.atan2(-uz, ux); // local x along the street
+        const rec = {
+          proc: true, way: w.id, side, style, poly: ensureCW(poly), area: u.w * u.d, obb: { cx, cz, w: u.w, d: u.d, yaw }, cx, cz, kind: u.kind, h: u.h, rect: true, pitched: true,
+          name: null, col: u.col, roofCol: u.roofCol, skip: false, sign: null, rad, n: u.n,
+          front: { nx: -nx, nz: -nz, len: u.w, cx: cx - nx * u.d / 2, cz: cz - nz * u.d / 2 },
+          extras: [],
+        };
+        // front boundary just behind the pavement (clear of sign posts at edge + 2.3 m): a wall or
+        // hedge per house with a gate gap (rural lanes already get the field hedgerow there)
+        if (u.edge !== 'none' && !w.rural) {
+          const bo = way.halfW + pave + 0.7, each = u.w / u.n;
+          for (let k = 0; k < u.n; k++) {
+            const sc = s + (k + 0.5) * each, q = pointAt(way, sc);
+            const len = each - 1.1;
+            if (len < 1.5) continue;
+            const wall = u.edge === 'wall';
+            rec.extras.push({ type: wall ? 'wall' : 'hedge', x: q.x + nx * bo - ux * 0.45, z: q.z + nz * bo - uz * 0.45, w: len, h: wall ? 0.7 : 1.05, d: wall ? 0.28 : 0.7, yaw, col: wall ? u.wallCol : 0x3f6b2e });
+          }
+        }
+        // a drive in the gap beside the house, from the pavement to halfway down the side
+        if (u.drive && u.gap >= 2.8 && !blocked(s + u.w, s + u.w + u.gap)) {
+          const dw = Math.min(3, u.gap - 0.4), sc = s + u.w + u.gap / 2, q = pointAt(way, sc);
+          const d0 = way.halfW + pave, d1 = front + u.d * 0.6;
+          rec.extras.push({ type: 'drive', x: q.x + nx * (d0 + d1) / 2, z: q.z + nz * (d0 + d1) / 2, w: dw, h: 0.05, d: d1 - d0, yaw, col: 0xb7b2aa });
+        }
+        out.push(rec);
+        s += u.w + u.gap;
+      }
+    }
+    return out;
+  }
+  const PROC_CAP = 250;
+  /** procedural houses centred in this tile, the same set for near and far, capped by a stable hash */
+  function procForTile(tile) {
+    const ways = idx.ways.get(tileKey(tile.tx, tile.tz)) || [];
+    const list = [];
+    for (const way of ways) for (const h of procForWay(way)) if (h.cx >= tile.x0 && h.cx < tile.x1 && h.cz >= tile.z0 && h.cz < tile.z1) list.push(h);
+    if (list.length > PROC_CAP) { list.sort((a, b) => hash2(a.cx, a.cz) - hash2(b.cx, b.cz)); list.length = PROC_CAP; }
+    return list;
+  }
+
   // ---- colliders: register through the world's Colliders and remember what to take back ----
-  // Colliders has no remove(), so each add() notes the entries it appended (by identity, in any
-  // array the Colliders keeps) and the tile's dispose() filters exactly those out again.
+  // Colliders keeps a cell grid and has remove(box): keep the box each add() returns and hand it
+  // back on dispose, so the grid forgets streamed-out tiles. An older Colliders without remove()
+  // gets the fallback: note what was appended (by identity) and filter it out of its arrays.
   function colliderScope() {
     const list = [];
     if (!colliders) return { list, add(cx, cz, w, d, yaw, carOnly = false) { list.push({ cx, cz, w, d, yaw, carOnly }); }, remove() {} };
+    if (typeof colliders.remove === 'function') {
+      const boxes = [];
+      return {
+        list,
+        add(cx, cz, w, d, yaw, carOnly = false) {
+          list.push({ cx, cz, w, d, yaw, carOnly });
+          let b;
+          if (typeof colliders.obb === 'function') b = colliders.obb(cx, cz, w, d, yaw, carOnly);
+          else { const c = Math.abs(Math.cos(yaw)), s = Math.abs(Math.sin(yaw)); b = colliders.box(cx, cz, w * c + d * s, w * s + d * c, 0, carOnly); }
+          if (b) boxes.push(b);
+        },
+        remove() { for (const b of boxes) colliders.remove(b); boxes.length = 0; },
+      };
+    }
     const tagged = [];
     return {
       list,
@@ -766,7 +1012,7 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
   // ---- building pieces ----
   function buildBuildings(list, tile, lod, rng, M, out, cs) {
     const near = lod === 'near';
-    const boxesBrick = [], boxesPlain = [], gables = [], chimneys = [];
+    const boxesBrick = [], boxesPlain = [], gables = [], chimneys = [], hedges = [];
     const walls = new GB({ uv: true, color: true });
     const roofs = new GB({ uv: false, color: true });
     const fronts = new GB({ uv: true, color: false });
@@ -774,7 +1020,16 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
     const counts = {};
     for (const b of list) {
       if (b.skip) continue;
-      counts[b.kind] = (counts[b.kind] || 0) + 1;
+      if (b.proc) {
+        counts.proc = (counts.proc || 0) + 1;
+        // far tiles: the box only; near: roof, front, garden edge and drive go through the usual paths below
+        if (!near) { boxesBrick.push({ x: b.obb.cx, z: b.obb.cz, w: b.obb.w, d: b.obb.d, h: b.h, yaw: b.obb.yaw, col: b.col }); continue; }
+        for (const e of b.extras) {
+          if (e.type === 'hedge') hedges.push({ x: e.x, z: e.z, len: e.w, h: e.h, wd: e.d, yaw: e.yaw + Math.PI / 2, t: hash2(e.x, e.z) });
+          else (e.type === 'wall' ? boxesBrick : boxesPlain).push({ x: e.x, z: e.z, w: e.w, d: e.d, h: e.h, yaw: e.yaw, col: e.col });
+          if (e.type !== 'drive') cs.add(e.x, e.z, e.w, e.d, e.yaw);
+        }
+      } else counts[b.kind] = (counts[b.kind] || 0) + 1;
       const roofH = clamp(Math.min(b.obb.w, b.obb.d) * 0.45, 2.2, b.kind === 'church' ? 5 : 3.5);
       if (b.rect) {
         const o = b.obb;
@@ -832,15 +1087,15 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
     merged(walls, M.walls);
     merged(roofs, M.roof);
     merged(fronts, M.front, false);
-    return counts;
+    return { counts, hedges };
   }
   /** a canvas front on the face that looks at the nearest road */
   function addFront(b, fronts, rng) {
-    const hit = nearestRoad(b.cx, b.cz, 60);
-    if (!hit) return;
-    const tx = hit.px - b.cx, tz = hit.pz - b.cz;
-    let face = null;
-    if (b.rect) {
+    let face = b.front || null; // procedural houses know which face looks at their street
+    const hit = face ? null : nearestRoad(b.cx, b.cz, 60);
+    if (!face && !hit) return;
+    const tx = hit ? hit.px - b.cx : 0, tz = hit ? hit.pz - b.cz : 0;
+    if (face) { /* known */ } else if (b.rect) {
       const o = b.obb, c = Math.cos(o.yaw), s = Math.sin(o.yaw);
       // the four outward normals with their face length and half-extent
       const cands = [[c, -s, o.d, o.w / 2], [-c, s, o.d, o.w / 2], [s, c, o.w, o.d / 2], [-s, -c, o.w, o.d / 2]];
@@ -861,7 +1116,7 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
       if (!face) return;
     }
     const shop = b.kind === 'shop';
-    const units = Math.max(1, Math.round(face.len / FRONT_W)), unitW = face.len / units;
+    const units = b.n || Math.max(1, Math.round(face.len / FRONT_W)), unitW = face.len / units;
     const hgt = b.h > 7.5 ? FRONT_H : b.h, crop = b.h < 5 ? b.h / FRONT_H : 1;
     const ux = face.nz, uz = -face.nx; // along the face
     const white = new THREE.Color(1, 1, 1);
@@ -945,7 +1200,7 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
       for (let x = x0 + sp / 2; x < x1; x += sp) for (let z = z0 + sp / 2; z < z1; z += sp) {
         const px = x + (rng() - 0.5) * sp * 0.8, pz = z + (rng() - 0.5) * sp * 0.8;
         if (!inside(px, pz) || !pointInPoly(lu.pts, px, pz)) continue;
-        if (nearestRoad(px, pz, 6)) continue;
+        if (roadWithin(px, pz, 6)) continue;
         add(px, pz, 0.9 + rng() * 0.5);
       }
     }
@@ -962,7 +1217,7 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
         for (let s = 11; s < L; s += 22) {
           if (rng() > 0.45) continue;
           const t = s / L, px = a[0] + ex * t + inx * 3, pz = a[1] + ez * t + inz * 3;
-          if (!inside(px, pz) || nearestRoad(px, pz, 9) || nearBuilding(px, pz, 2)) continue;
+          if (!inside(px, pz) || roadWithin(px, pz, 9) || nearBuilding(px, pz, 2)) continue;
           add(px, pz, 0.8 + rng() * 0.6);
         }
       }
@@ -974,7 +1229,7 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
       const n = Math.floor(((x1 - x0) * (z1 - z0)) / 700);
       for (let k = 0; k < n; k++) {
         const px = x0 + rng() * (x1 - x0), pz = z0 + rng() * (z1 - z0);
-        if (!pointInPoly(lu.pts, px, pz) || nearestRoad(px, pz, 12) || nearBuilding(px, pz, 2.5)) continue;
+        if (!pointInPoly(lu.pts, px, pz) || roadWithin(px, pz, 12) || nearBuilding(px, pz, 2.5)) continue;
         add(px, pz, 0.7 + rng() * 0.5);
       }
     }
@@ -982,7 +1237,7 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
     if (!lus.length) {
       for (let k = 0; k < 110; k++) {
         const px = tile.x0 + rng() * TILE, pz = tile.z0 + rng() * TILE;
-        if (nearestRoad(px, pz, 20) || nearBuilding(px, pz, 4) || inSea(px, pz)) continue;
+        if (roadWithin(px, pz, 20) || nearBuilding(px, pz, 4) || inSea(px, pz)) continue;
         add(px, pz, 0.8 + rng() * 0.6);
       }
     }
@@ -1013,10 +1268,10 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
     const a = w.pts[i - 1], b = w.pts[i], L = cum[i] - cum[i - 1] || 1, t = clamp((s - cum[i - 1]) / L, 0, 1);
     return { x: a[0] + (b[0] - a[0]) * t, z: a[1] + (b[1] - a[1]) * t, dx: (b[0] - a[0]) / L, dz: (b[1] - a[1]) / L };
   };
-  function buildWayside(tile, lod, rng, out, M) {
+  function buildWayside(tile, lod, rng, out, M, extraHedges = []) {
     const ways = idx.ways.get(tileKey(tile.tx, tile.tz)) || [];
     const inside = (x, z) => x >= tile.x0 && x < tile.x1 && z >= tile.z0 && z < tile.z1;
-    const hedges = [], lamps = [];
+    const hedges = [...extraHedges], lamps = [];
     for (const way of ways) {
       const w = way.w;
       const nearJ = (s, d) => way.junctions.some((j) => Math.abs(j - s) < d);
@@ -1320,10 +1575,15 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
     const rng = mulberry32(tileSeed(tile.tx, tile.tz));
     const bList = (idx.buildings.get(key) || []);
     const st = result.stats;
-    st.buildings = buildBuildings(bList, tile, lod, rng, M, group, cs);
+    const proc = procForTile(tile);
+    const all = proc.length ? bList.concat(proc) : bList;
+    const bb = buildBuildings(all, tile, lod, rng, M, group, cs);
+    st.buildings = bb.counts;
     st.fields = buildFields(tile, lod, group, M);
-    st.trees = buildTrees(tile, lod, rng, group, M, bList);
-    Object.assign(st, buildWayside(tile, lod, rng, group, M));
+    st.trees = buildTrees(tile, lod, rng, group, M, all);
+    Object.assign(st, buildWayside(tile, lod, rng, group, M, bb.hedges));
+    st.hedges -= bb.hedges.length;
+    st.gardenHedges = bb.hedges.length;
     Object.assign(st, buildRails(tile, lod, group, M, cs));
     st.landmarks = buildLandmarks(tile, lod, group, M, cs);
     if (lod === 'near') st.coast = coastColliders(tile, cs);
@@ -1345,6 +1605,8 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
     landGeometry,
     seaLevelAt,
     /** how many buildings, landmarks etc. the index holds (for checks) */
+    /** every procedural house generated so far (for checks) */
+    _procHouses: () => [...procCache.values()].flat(),
     counts: { buildings: buildings.length, skipped: buildings.filter((b) => b.skip).length, landmarks: landmarks.length, ways: WAYS.length, coast: coast.length },
     dispose() {
       statics.traverse((o) => { o.geometry?.dispose?.(); });

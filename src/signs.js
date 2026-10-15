@@ -761,7 +761,9 @@ function townEntryTexture(opts, detail) {
 
 function dualAheadTexture(opts, detail) {
   const xh = opts.xh || 100;
-  const lines = ['Dual', 'carriageway', `${opts.miles || 2} miles`, 'ahead'];
+  // a mile or less reads 'mile' (¼ mile, 1 mile); more reads 'miles'
+  const m = opts.miles || 2, n = typeof m === 'number' ? m : parseFloat(String(m).replace('¼', '.25').replace('½', '.5').replace('¾', '.75')) || 2;
+  const lines = ['Dual', 'carriageway', `${m} ${n <= 1 ? 'mile' : 'miles'}`, 'ahead'];
   return legendBox({ xh, lines: lines.map((t) => ({ text: t, font: 'medium' })), bg: PALETTE.blue, border: PALETTE.white, pad: { top: 2.5, bottom: 1.5, sides: 2.5 }, detail });
 }
 

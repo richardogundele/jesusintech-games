@@ -31,6 +31,8 @@ npm run dev
 ## Credits
 
 - Skies, textures and scenery models: [Poly Haven](https://polyhaven.com) (CC0)
+- Kent roads, buildings, coastline and places: map data © [OpenStreetMap contributors](https://www.openstreetmap.org/copyright), ODbL 1.0. The derived file public/assets/kent/region.json (built by tools/kent-data.mjs) is itself offered under the ODbL (notice in public/assets/kent/ATTRIBUTION.txt)
+- UK traffic signs and road markings: drawn in code (src/signs.js) to the Traffic Signs Regulations and General Directions 2016 and the Traffic Signs Manual; sign designs are Crown copyright, reproduced under the Open Government Licence v3.0
 - Ferrari 458 Italia model by vicent091036, via the three.js examples (original Sketchfab listing no longer online; keep this build private)
 - Lamborghini Revuelto: "Free Lamborghini Revuelto" by [ALIEEEN](https://sketchfab.com/ALIEEEN) on [Sketchfab](https://sketchfab.com/3d-models/free-lamborghini-revuelto-cf52245eb68f48daa909c7ad2a8deaa3), [CC BY 4.0](http://creativecommons.org/licenses/by/4.0/); Draco/WebP-compressed, fitted and recoloured in the game (public/assets/models/cars, credits also in CREDITS.json there)
 - Bugatti Chiron: "Free Bugatti Chiron" by [ALIEEEN](https://sketchfab.com/ALIEEEN) on [Sketchfab](https://sketchfab.com/3d-models/free-bugatti-chiron-374890e62c5a44e9a739ca638b6e0a18), [CC BY 4.0](http://creativecommons.org/licenses/by/4.0/); Draco/WebP-compressed, fitted and recoloured in the game (public/assets/models/cars, credits also in CREDITS.json there)

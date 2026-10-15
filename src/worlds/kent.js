@@ -14,6 +14,7 @@ import { RoadNet } from '../kent/net.js';
 import { TileManager } from '../kent/tiles.js';
 import { makeRoadBuilder, makeRoadMaterials } from '../kent/roads.js';
 import { makeSceneryBuilder } from '../kent/scenery.js';
+import { makeSignBuilder } from '../kent/signs-place.js';
 import { buildKentHouse } from '../kent/house.js';
 import { buildAirfield } from '../kent/airfield.js';
 
@@ -51,7 +52,9 @@ export function buildKent(renderer) {
   const mats = makeRoadMaterials({ pbr, decal, planting: (spots) => instanced('shrub_01', spots, { maxDist: 600 }) });
   const roads = makeRoadBuilder({ net, colliders, mats });
   // fog is 90 % thick at 1.4 km, so full detail to 1 km and bare roads to 2.5 km is plenty
-  const tiles = new TileManager({ net, scene, builders: [roads, scenery], near: 1000, far: 2500, dropAt: 3200, budgetMs: 4 });
+  const signs = makeSignBuilder({ net, colliders });
+  tickers.push((t) => signs.tick(t)); // Belisha beacons blink
+  const tiles = new TileManager({ net, scene, builders: [roads, scenery, signs], near: 1000, far: 2500, dropAt: 3200, budgetMs: 4 });
 
   // home on the cliff top and the jet centre at Maypole
   const house = buildKentHouse({ scene, colliders, tickers, origin: data.home, interactions, hooks, materials: { pbr }, driveEnd: 44 }); // the synthetic "Home Drive" road takes over at the gate
