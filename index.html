@@ -23,38 +23,79 @@
 
     <!-- HUD -->
     <div id="hud" class="hidden">
+      <!-- top left: where you are, today's goals (a chip that opens the phone), the sat nav in a test -->
       <div class="hud-top-left">
-        <div id="loc-city">MONACO</div>
-        <div id="loc-place">Port Hercule</div>
-        <div id="goals"></div>
-      </div>
-      <div id="trial" class="hidden"></div>
-      <div id="mirror" class="hidden"></div>
-      <div id="lesson" class="hidden"><div class="l-title"></div><div class="l-text"></div><div class="l-coach"></div><div class="l-faults"></div></div>
-      <div id="satnav" class="hidden"></div>
-      <div id="indicators" class="hidden"><span class="ind l">&#9664;</span><span class="ind r">&#9654;</span></div>
-      <div id="limit" class="hidden"></div>
-      <div id="reward" class="hidden"><div class="r-title"></div><div class="r-amt"></div></div>
-      <div class="hud-top-right">
-        <div id="money">€0</div>
-        <div id="fame"></div>
-        <canvas id="minimap" width="200" height="200"></canvas>
-      </div>
-      <div id="prompt" class="hidden"></div>
-      <div id="toast" class="hidden"></div>
-      <div class="hud-bottom-left" id="keys"></div>
-      <div id="ytradio" class="hidden"><div id="yt-host"></div><div id="yt-title"></div></div>
-      <div id="keyhint" class="hidden"></div>
-      <div class="hud-bottom-right" id="speedo">
-        <!-- the learner car's dashboard: gearbox badge, gear, rev counter, clutch, handbrake light, warnings -->
-        <div id="dtrain" class="hidden">
-          <div class="dt-top"><span id="dt-badge"></span><span id="dt-pb" title="Parking brake">(P)</span></div>
-          <div class="dt-mid"><div id="dt-gear">N</div><div class="dt-bars"><div id="dt-rev"><i></i></div><div id="dt-rpm">0 rpm</div><div id="dt-clutch"><i></i><span>clutch</span></div></div></div>
-          <div id="dt-warn"></div>
+        <div class="loc glass">
+          <div id="loc-city">MONACO</div>
+          <div id="loc-place">Port Hercule</div>
         </div>
-        <div id="speed">0</div>
-        <div class="unit" id="speed-unit">km/h</div>
-        <div id="car-name"></div>
+        <button id="goals" class="chip glass" type="button" aria-label="Today's goals: open the phone"></button>
+        <div id="satnav" class="glass frost hidden"></div>
+      </div>
+
+      <!-- top centre: the rear-view mirror (learner car), time trial, the instructor, toasts -->
+      <div class="hud-top-centre">
+        <div id="mirror" class="hidden"></div>
+        <div id="trial" class="hidden"></div>
+        <div id="lesson" class="glass frost hidden"><div class="l-title"></div><div class="l-text"></div><div class="l-coach"></div></div>
+        <div id="toast" class="glass hidden" role="status" aria-live="polite"></div>
+      </div>
+
+      <!-- top right: money, the map, reward pops -->
+      <div class="hud-top-right">
+        <div id="money" class="glass">€0</div>
+        <canvas id="minimap" width="200" height="200" aria-hidden="true"></canvas>
+        <div id="reward" class="glass hidden"><div class="r-title"></div><div class="r-amt"></div></div>
+      </div>
+
+      <!-- bottom centre: at most two capsules, the contextual hint and the E prompt -->
+      <div class="hud-bottom-centre">
+        <div id="hint" class="capsule glass hidden" role="status" aria-live="polite"></div>
+        <div id="prompt" class="capsule glass hidden"></div>
+      </div>
+
+      <!-- bottom left: the YouTube radio card (its player must stay visible) and the H tip -->
+      <div class="hud-bottom-left">
+        <div id="ytradio" class="hidden"><div id="yt-host"></div><div id="yt-title"></div></div>
+        <div id="ctl-tip" class="capsule glass hidden"><kbd>H</kbd>Controls</div>
+      </div>
+
+      <!-- bottom right: the dashboard, one unit -->
+      <div class="hud-bottom-right" id="speedo">
+        <div id="indicators" class="hidden" aria-hidden="true">
+          <span class="ind l"><svg viewBox="0 0 24 24"><path d="M3 12l8-7v4.5h10v5H11V19z"/></svg></span>
+          <span class="ind r"><svg viewBox="0 0 24 24"><path d="M21 12l-8-7v4.5H3v5h10V19z"/></svg></span>
+        </div>
+        <div id="dt-warn" class="hidden" role="status" aria-live="polite"></div>
+        <div class="dash glass">
+          <div class="dash-row">
+            <div id="limit" class="hidden"></div>
+            <div id="dtrain" class="hidden"><div id="dt-gear">N</div></div>
+            <div class="dash-speed">
+              <div id="dt-rev" class="hidden"><i></i></div>
+              <div id="speed">0</div>
+              <div class="dash-cap">
+                <span id="dt-pb" class="hidden" title="Parking brake on"><svg viewBox="0 0 28 20" aria-label="Parking brake on"><circle cx="14" cy="10" r="7.2"/><path d="M4.2 3.6a10 10 0 0 0 0 12.8M23.8 3.6a10 10 0 0 1 0 12.8"/><text x="14" y="13.6">P</text></svg></span>
+                <span id="speed-unit">km/h</span>
+                <span id="dt-badge"></span>
+                <span id="car-name"></span>
+              </div>
+            </div>
+          </div>
+          <div id="dt-clutch" class="hidden"><span>Clutch</span><b><em></em><i></i></b></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- the controls card (H) -->
+    <div id="controls" class="screen hidden" role="dialog" aria-modal="true" aria-labelledby="controls-title">
+      <div class="sheet glass-strong">
+        <div class="sheet-head">
+          <h2 id="controls-title">Controls</h2>
+          <button id="controls-close" class="btn-close" type="button" aria-label="Close controls">Done</button>
+        </div>
+        <div id="controls-body"></div>
+        <p class="sheet-foot"><kbd>H</kbd> or <kbd>Esc</kbd> to close</p>
       </div>
     </div>
 

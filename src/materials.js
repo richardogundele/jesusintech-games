@@ -183,17 +183,24 @@ export function label(text, { size = 1, color = '#ffffff', sub = '' } = {}) {
     ctx.shadowColor = 'rgba(0,0,0,0.65)';
     ctx.shadowBlur = 18;
     ctx.fillStyle = color;
-    ctx.font = '800 92px Helvetica Neue, Helvetica, Arial, sans-serif';
+    ctx.font = '600 92px -apple-system, BlinkMacSystemFont, Helvetica Neue, Helvetica, Arial, sans-serif';
     ctx.fillText(text, w / 2, sub ? 120 : 160);
     if (sub) {
       ctx.fillStyle = '#e8c77a';
-      ctx.font = '600 46px Helvetica Neue, Helvetica, Arial, sans-serif';
+      ctx.font = '600 42px -apple-system, BlinkMacSystemFont, Helvetica Neue, Helvetica, Arial, sans-serif';
       ctx.fillText(sub.toUpperCase(), w / 2, 200);
     }
   }, false);
   const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, fog: false, depthWrite: false }));
   sprite.scale.set(16 * size, 4 * size, 1);
   sprite.renderOrder = 5;
+  // like a map label: there while you're finding the place, gone once you've arrived (and far away)
+  const p = new THREE.Vector3();
+  sprite.onBeforeRender = (r, scene, camera) => {
+    const d = camera.position.distanceTo(sprite.getWorldPosition(p));
+    const near = THREE.MathUtils.smoothstep(d, 45 * size, 110 * size), far = 1 - THREE.MathUtils.smoothstep(d, 700, 1100);
+    sprite.material.opacity = near * far;
+  };
   return sprite;
 }
 

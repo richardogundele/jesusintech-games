@@ -6,7 +6,7 @@ import { buildPlayer, buildJet } from './models.js';
 import { EngineAudio } from './audio.js';
 import { Hud } from './hud.js';
 import { state, save } from './state.js';
-import { JETS, CITIES, otherCities, fuelStop, flightTime, fameLevel, talkFee, LEARNER, RADIO_STATION } from './catalog.js';
+import { JETS, CITIES, otherCities, fuelStop, flightTime, talkFee, LEARNER, RADIO_STATION } from './catalog.js';
 import { buildSingapore } from './worlds/singapore.js';
 import { buildKent, setKentHooks } from './worlds/kent.js';
 import * as P from './progress.js';
@@ -45,13 +45,13 @@ window.addEventListener('resize', () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
   pipeline.setSize(window.innerWidth, window.innerHeight);
 });
-const mirrorCam = new THREE.PerspectiveCamera(42, 300 / 78, 0.3, 600);
+const mirrorCam = new THREE.PerspectiveCamera(42, 292 / 70, 0.3, 600);
 const draw = () => {
   if (!renderer.domElement.width || !renderer.domElement.height) return; // minimised / zero-size window
   updateCulling(camera.position);
   pipeline.render(world.scene);
-  // a real rear-view mirror in the learner car
-  if (car && mode === 'car' && world.units === 'mph') {
+  // a real rear-view mirror in the learner car (its 2px frame is #mirror: 296 x 74 at top 16px, style.css)
+  if (car?.drive && mode === 'car') {
     const w = 292, h = 70, x = (window.innerWidth - w) / 2, yTop = 18;
     const fx = Math.sin(car.heading), fz = Math.cos(car.heading);
     mirrorCam.position.set(car.pos.x + fx * 0.2, 1.25, car.pos.z + fz * 0.2);
@@ -114,6 +114,14 @@ let mode = 'menu'; // menu | foot | car | jets | cutscene
 let car = null;
 let camMode = 0;
 let cutscene = null;
+let controlsOpen = false; // the H card: the world waits while it's open
+
+function toggleControls() {
+  controlsOpen = hud.controls(!controlsOpen, { car: mode === 'car' ? car : null, trans: state.uk.trans });
+}
+hud.onControlsClose = () => { if (controlsOpen) toggleControls(); };
+// the "goals today" chip opens the phone on Today
+hud.onGoals = () => { if (mode === 'foot' || mode === 'car') { phone.tab = 'today'; togglePhone(); } };
 
 function enterWorld(target, spawn) {
   if (lesson) lesson.cancel('Lesson stopped');
@@ -142,6 +150,9 @@ window.addEventListener('keydown', (e) => {
   if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab'].includes(e.code)) e.preventDefault();
   keys.add(e.code);
   if (e.repeat) return;
+  // H: the controls card (the world waits while it's open); H or Esc closes it
+  if (e.code === 'KeyH' && (controlsOpen || mode === 'foot' || mode === 'car')) { toggleControls(); return; }
+  if (controlsOpen) { if (e.code === 'Escape') toggleControls(); return; }
   if (learnerCar() && !window.__game?.autoDrive) {
     // Left Shift (held) is the clutch (readInput); 1-5 gears (1 is D in an automatic), R reverse, 0 neutral, 9 park, I engine, Space handbrake
     const g = { Digit1: 1, Digit2: 2, Digit3: 3, Digit4: 4, Digit5: 5, Digit0: 'N', Digit9: 'P', KeyR: 'R', Numpad1: 1, Numpad2: 2, Numpad3: 3, Numpad4: 4, Numpad5: 5, Numpad0: 'N', Numpad9: 'P' }[e.code];
@@ -474,9 +485,7 @@ let prevMode = 'foot';
 const homeId = () => (HOMES.includes(world.id) ? world.id : HOMES.includes(state.world) ? state.world : 'kent');
 
 function refreshHudExtras() {
-  hud.goals(P.dailyGoals(), state.streak.count);
-  const f = fameLevel(state.reached);
-  hud.fame(`${f.title} · ${state.reached.toLocaleString('en-GB')} reached`);
+  hud.goals(P.dailyGoals()); // a "2/3 goals today" chip; fame lives in the phone
 }
 
 P.onNotify((r) => {
@@ -608,12 +617,9 @@ function setLearnerTrans(t) {
   state.uk.trans = t; save();
   for (const w of Object.values(worlds)) for (const c of w.cars) if (c.id === 'learner') { c.setTrans(t); if (c.autoBadge) c.autoBadge.visible = t === 'auto'; }
 }
-/** getting into the learner car: what the gearbox is, and the keys the first time */
+/** getting into the learner car: what the gearbox is (the HUD's hints teach the keys, step by step) */
 function learnerHello(c) {
-  const manual = c.trans === 'manual';
-  hud.toast(`VW Polo learner car · ${manual ? 'manual' : 'automatic'} · ${c.engineOn ? 'engine running' : 'engine off: press I to start'}`, 3200);
-  const h = state.uk.hints || (state.uk.hints = {});
-  if (!h[c.trans]) { h[c.trans] = true; save(); hud.keyHint(c.trans, 14000); }
+  hud.toast(`VW Polo learner car · ${c.trans === 'manual' ? 'manual' : 'automatic'}`, 2600);
 }
 
 function updateIndicators(dt, dHeading) {
@@ -968,7 +974,8 @@ function driveFeedback(c) {
   if (d.grinds !== fb.grinds) { fb.grinds = d.grinds; audio.sfx('grind'); }
   if (d.crank > 0 && fb.crank <= 0) audio.sfx('crank');
   fb.crank = d.crank;
-  if (d.msg && d.msg.t !== fb.msgT) { fb.msgT = d.msg.t; hud.toast(d.msg.text, 2600); }
+  // the stall itself is on the dashboard (warning) and in the hint, so no third copy as a toast
+  if (d.msg && d.msg.t !== fb.msgT) { fb.msgT = d.msg.t; if (!/^Stalled/.test(d.msg.text)) hud.toast(d.msg.text, 2600); }
   hud.drivetrain(c);
 }
 
@@ -1115,7 +1122,7 @@ function frame() {
 }
 
 function step(dt) {
-  if (mode === 'phone' || mode === 'result' || mode === 'quiz') return; // the phone (and modals) pause the world
+  if (mode === 'phone' || mode === 'result' || mode === 'quiz' || controlsOpen) return; // the phone (and modals, the controls card) pause the world
   elapsed += dt;
   world.tick(elapsed);
   P.tick(dt);
@@ -1174,7 +1181,7 @@ function step(dt) {
       // a traffic car that drives into the learner is its driver's fault, not a fault on the lesson
       if (world.traffic?.collide(car)) { car.sync(0); drive.trafficHit = world.traffic.lastHit?.blame !== 'other'; }
       audio.update(car, car.drive ? car.drive.throttle : input.up ? 1 : 0);
-      if (car.drive) driveFeedback(car);
+      if (car.drive) driveFeedback(car); else hud.drivetrain(null);
     } else {
       if (world.id === 'cabin') audio.jet(0.22); else audio.update(null, 0);
       hud.drivetrain(null);
@@ -1183,11 +1190,11 @@ function step(dt) {
     updateCamera(dt);
     const p = car ? car.pos : player.pos;
     world.env.follow(p);
-    hud.update({ world, x: p.x, z: p.z, car, balance: state.balance, prompt: mode === 'jets' ? '' : currentPrompt(), mode });
+    hud.update({ world, x: p.x, z: p.z, car, balance: state.balance, prompt: mode === 'jets' ? '' : currentPrompt(), mode, gas: input.up });
     hud.minimap(world, p.x, p.z, car ? car.heading : player.heading, world.cars.filter((c) => c !== car), world.trials?.marks() || [], lesson?.path());
-    const inUKCar = mode === 'car' && world.units === 'mph';
+    const inLearner = mode === 'car' && !!car?.drive; // the rear-view mirror is the learner car's
     hud.limit(world.units === 'mph' ? world.speedLimitAt(p.x, p.z) : null, world.units === 'mph' && world.nslAt?.(p.x, p.z));
-    hud.mirror(inUKCar, drive.mirrorFlash > 0);
+    hud.mirror(inLearner, drive.mirrorFlash > 0);
     drive.mirrorFlash -= dt;
     const place = world.place(p.x, p.z);
     if (place !== lastPlace) { lastPlace = place; P.emit('place', place); }
