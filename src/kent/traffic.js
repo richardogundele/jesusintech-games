@@ -17,14 +17,21 @@ const { nodeInfo } = _internals;
 //   - lights (SignalSystem.isStop at the stop line), roundabout entries (a gap on the ring to the
 //     right, the same arc test as LessonRun.rbConflict), give-way lines when something on the main
 //     road is within 30 m (or 5.5 s) of the junction, and zebras with someone on or waiting at them.
+//     The player's car counts at ring entries and give-way lines too (its speed and heading come
+//     from the obstacle main.js passes each frame: { x, z, r, heading, L, W }), and is a box, not a
+//     circle, when a car checks its path.
 // Two cars that still end up nose to nose sort it out like drivers do: whoever can get past goes,
-// else one backs off a couple of metres. As a last resort no car ever moves deeper into another.
-// Cars past 900 m, at the end of their route or stuck (not waiting at a line) for 120 s are
-// recycled once out of sight. Pedestrians stroll the pavements of the streets round the player and
-// sometimes cross at zebras and signal-controlled crossings (pressing the button, waiting for red).
+// else one backs off a couple of metres; a car nose to nose with the player's stopped car backs off
+// too. No car moves deeper into another, except one caught in a gridlock (a ring of cars each waiting
+// for the next) for 25 s: it squeezes past at walking pace for 5 s, which can show as two bodies
+// overlapping for a moment. Cars past 900 m, at the end of their route or stuck (not waiting at a
+// line) for 120 s are recycled once out of sight; one parked at the end of its route for 20 s goes
+// even in sight. Pedestrians stroll the pavements of the streets round the player and sometimes cross
+// at zebras and signal-controlled crossings (pressing the button, waiting for red).
 //
 // Same face as src/traffic.js's Traffic, so main.js treats them alike: update(dt, obstacle, camPos),
-// collide(car), `cars` and `peds`. A car: { pos, x, z, v, heading, r, radius, lane: { rb }, u, mesh,
+// collide(car) (boxes; lastHit.blame says whether the player drove into the car or it into them),
+// `cars` and `peds`. A car: { pos, x, z, v, heading, r, radius, lane: { rb }, u, mesh,
 // model, stunned }; lane.rb is the roundabout id once the car is past the give-way line onto the
 // ring and u is then its ring angle as a fraction of a turn in circulation order (u = s, metres
 // along its path, elsewhere). Meshes come from the bodies / buildCar / buildPedestrian the world
@@ -99,6 +106,7 @@ export class KentTraffic {
       let a = this.crossByWay.get(way.id); if (!a) this.crossByWay.set(way.id, (a = [])); a.push(rec);
     }
     this.touched = []; // crossings someone was at this frame
+    this.me = { x: null, z: null, fx: 0, fz: 1, v: 0 }; // the player's car, for the give-way rules
     this.ext = 0;      // scratch: #onPath's along-path half-extent of what it found
     this.view = netView(net); // roads.js's junction geometry (where it paints the stop lines)
     this.cache = { kx: NaN, kz: NaN, cars: [], carCum: null, peds: [], pedCum: null };
@@ -115,6 +123,15 @@ export class KentTraffic {
     const t0 = now();
     const P = obstacle || camPos;
     if (P) { this.P.x = P.x; this.P.z = P.z; }
+    // the player's car as the give-way rules see it: where it is going and how fast (from the last frame)
+    const me = this.me;
+    if (obstacle && dt > 0 && me.x != null) {
+      const vx = (obstacle.x - me.x) / dt, vz = (obstacle.z - me.z) / dt, v = len(vx, vz);
+      me.v += (v - me.v) * Math.min(1, dt * 10);
+      if (v > 0.3) { me.fx = vx / v; me.fz = vz / v; }
+    } else if (!obstacle) me.v = 0;
+    me.x = obstacle ? obstacle.x : null; me.z = obstacle ? obstacle.z : null;
+    if (obstacle?.L) { me.L = obstacle.L; me.W = obstacle.W; me.hx = Math.sin(obstacle.heading); me.hz = Math.cos(obstacle.heading); }
     if (dt > 0) {
       this.#peds(dt);
       for (let i = 0; i < this.cars.length; i++) this.cars[i].want = this.#plan(this.cars[i], obstacle);
@@ -130,23 +147,45 @@ export class KentTraffic {
   /** is anyone on, or waiting at, this crossing? (a node id or the crossing key) */
   crossingBusy(node) { const r = this.crossings.get(String(node)); return !!r && r.busy > 0; }
 
-  /** Bump the player's car out of any traffic car and stop that car briefly. Returns true on impact. */
+  /**
+   * Bump the player's car out of any traffic car and stop that car briefly. Returns true on impact.
+   * Boxes, not circles: two cars passing in neighbouring lanes 2.7 m apart are not touching.
+   */
   collide(car) {
     let hit = false;
+    this.lastHit = null; // { blame: 'player' | 'other' }: who drove into whom, for the driving lessons
+    const L = car.model.length ?? 4.4, W = car.model.width ?? 1.8, fx = Math.sin(car.heading), fz = Math.cos(car.heading);
     for (const c of this.cars) {
-      if (!c.mesh || !c.mesh.visible) continue;
+      if (!c.mesh || !c.mesh.visible || c.ghost > 0) continue; // a car squeezing out of a gridlock passes through
       const dx = car.pos.x - c.x, dz = car.pos.z - c.z;
-      const d = len(dx, dz), min = (car.model.radius + c.radius) * 0.62;
-      if (d > 0 && d < min) {
-        const nx = dx / d, nz = dz / d;
-        car.pos.x += nx * (min - d);
-        car.pos.z += nz * (min - d);
-        const into = car.vel.x * nx + car.vel.y * nz;
-        if (into < 0) { car.vel.x -= nx * into * 1.3; car.vel.y -= nz * into * 1.3; car.vel.multiplyScalar(0.7); }
-        c.v = 0;
-        c.stun = 2.5;
-        hit = true;
+      if (dx * dx + dz * dz > 49) continue;
+      // separating axes of the two boxes: the least overlap and the axis it's on
+      let depth = Infinity, ax = 0, az = 0;
+      for (let a = 0; a < 4; a++) {
+        const ux = a === 0 ? fx : a === 1 ? fz : a === 2 ? c.fx : c.fz, uz = a === 0 ? fz : a === 1 ? -fx : a === 2 ? c.fz : -c.fx;
+        const ra = (L / 2) * Math.abs(fx * ux + fz * uz) + (W / 2) * Math.abs(fz * ux - fx * uz);
+        const rb = (c.L / 2) * Math.abs(c.fx * ux + c.fz * uz) + (c.W / 2) * Math.abs(c.fz * ux - c.fx * uz);
+        const o = ra + rb - Math.abs(dx * ux + dz * uz);
+        if (o <= 0) { depth = 0; break; }
+        if (o < depth) { depth = o; const sg = dx * ux + dz * uz >= 0 ? 1 : -1; ax = ux * sg; az = uz * sg; }
       }
+      if (depth <= 0) continue;
+      if (this.#layerAt(car.pos.x, car.pos.z, fx, fz) !== this.#layerAt(c.x, c.z, c.fx, c.fz)) continue; // one of us is on a bridge over the other
+      // who drove into whom: the player, if it was moving and ran into something in front of it, or
+      // closed on it faster than it closed on the player; a faster car coming from beside or behind
+      // (an overtaker cutting in, a merge) or anything hitting a car standing still is the other driver
+      const d = Math.hypot(dx, dz) || 1, ux = -dx / d, uz = -dz / d; // from the player to the traffic car
+      const mine = car.vel.x * ux + car.vel.y * uz, theirs = -c.v * (c.fx * ux + c.fz * uz), ahead = -(dx * fx + dz * fz);
+      const vMe = Math.hypot(car.vel.x, car.vel.y);
+      const player = vMe > 0.3 && (ahead > L / 2 || c.v < vMe + 1) && mine > 0.3 && mine >= theirs - 0.5;
+      if (!this.lastHit || this.lastHit.blame !== 'player') this.lastHit = { blame: player ? 'player' : 'other', id: c.id };
+      car.pos.x += ax * depth;
+      car.pos.z += az * depth;
+      const into = car.vel.x * ax + car.vel.y * az;
+      if (into < 0) { car.vel.x -= ax * into * 1.3; car.vel.y -= az * into * 1.3; car.vel.multiplyScalar(0.7); }
+      c.v = 0;
+      c.stun = 2.5;
+      hit = true;
     }
     return hit;
   }
@@ -218,9 +257,12 @@ export class KentTraffic {
         if (d < freeD) freeD = d;
       }
     }
-    // other cars: on my path ahead (follow), or crossing it ahead and getting there first (yield)
+    // other cars: on my path ahead (follow), or crossing it ahead and getting there first (yield).
+    // A car caught in a ring of cars all waiting for each other for 25 s (a gridlock the rules
+    // above can't untie) squeezes past for a few seconds: in sight, a jam that never clears is worse.
     const cars = this.cars, reach = (look + 6) * (look + 6);
-    for (let b = 0; b < cars.length; b++) {
+    if (A.ghost <= 0 && A.stopT > 25 && !A.held && A.blockId > 0 && this.#gridlocked(A)) { A.ghost = 5; this.stats.squeezed = (this.stats.squeezed || 0) + 1; }
+    for (let b = 0; b < cars.length && !(A.ghost > 0); b++) {
       const B = cars[b]; if (B === A) continue;
       const dx = B.x - A.x, dz = B.z - A.z, d2 = dx * dx + dz * dz;
       if (d2 > reach) continue;
@@ -262,11 +304,28 @@ export class KentTraffic {
       }
     }
     // the player, and anyone walking on the carriageway
-    if (obstacle) {
+    if (obstacle && !(A.ghost > 0)) {
       const dx = obstacle.x - A.x, dz = obstacle.z - A.z, d2 = dx * dx + dz * dz;
       if (d2 < reach) {
-        const arc = this.#onPath(A, obstacle.x, obstacle.z, 1, 0, obstacle.r, obstacle.r, 0.4, Math.sqrt(d2), s + look + 3);
-        if (arc >= 0) { const g = arc - s - A.L / 2 - obstacle.r - GAP; want = follow(want, g, 0, v); if (g < freeD) freeD = g; }
+        // the player's car as its box when main.js says which way it faces (a circle is too fat side-on)
+        const box = obstacle.heading != null && obstacle.L, ofx = box ? Math.sin(obstacle.heading) : 1, ofz = box ? Math.cos(obstacle.heading) : 0;
+        // oncoming and on my right, close: ease over to pass it, as with another car (and squeeze by with less room)
+        const oncoming = box && A.fx * ofx + A.fz * ofz < -0.5;
+        if (oncoming && d2 < 196) {
+          const lat = dx * A.fz - dz * A.fx, room = (A.W + obstacle.W) / 2 + 0.9;
+          if (lat < 0 && -lat < room) nudge = Math.max(nudge, Math.min(NUDGE, room + lat));
+        }
+        const arc = this.#onPath(A, obstacle.x, obstacle.z, ofx, ofz, box ? obstacle.L / 2 : obstacle.r, box ? obstacle.W / 2 : obstacle.r, oncoming ? 0.1 : 0.4, Math.sqrt(d2), s + look + 3);
+        if (arc >= 0) {
+          const g = arc - s - A.L / 2 - (box ? this.ext : obstacle.r) - GAP; want = follow(want, g, 0, v); if (g < freeD) freeD = g;
+          // nose to nose with the player's stopped car (it's pulling out, or we've met in a narrow
+          // place): after a few seconds back off a couple of metres to give it room, as a driver would
+          const me = this.me;
+          if (v < 0.3 && A.stopT > 4 && me.v < 0.3 && obstacle.heading != null && A.fx * Math.sin(obstacle.heading) + A.fz * Math.cos(obstacle.heading) < -0.5 && g < 8 && A.backUp <= 0 && !A.noRoom) A.backUp = 2.5;
+          // and if neither of us can move for 25 s (someone behind each of us), squeeze past like a gridlock
+          // (not when following it: a queue behind the player at a red light is just a queue)
+          if (v < 0.3 && A.stopT > 25 && me.v < 0.3 && !A.held && g < 8 && obstacle.heading != null && A.fx * Math.sin(obstacle.heading) + A.fz * Math.cos(obstacle.heading) < 0.5) { A.ghost = 5; this.stats.squeezed = (this.stats.squeezed || 0) + 1; }
+        }
       }
     }
     for (let p = 0; p < this.peds.length; p++) {
@@ -277,6 +336,7 @@ export class KentTraffic {
       if (arc >= 0) { const g = arc - s - A.L / 2 - 0.4 - 1.2; want = follow(want, g, 0, v); if (g < freeD) freeD = g; }
     }
     if (A.stun > 0) want = 0;
+    if (A.ghost > 0) want = Math.min(want, 3); // squeezing past: walking pace
     A.held = held; A.freeD = freeD; A.blockId = blockId; A.nudgeT = nudge;
     return want;
   }
@@ -299,16 +359,22 @@ export class KentTraffic {
     A.nudge += dn > rate ? rate : dn < -rate ? -rate : dn;
     if (A.nudge) { A.x += A.fz * A.nudge; A.z -= A.fx * A.nudge; }
   }
-  /** does A's new box overlap some car more than its old box (at ox, oz facing ofx, ofz) did? Its id, else 0 */
-  #worse(A, ox, oz, ofx, ofz) {
+  /** does A's new box overlap some car more than its old box (at ox, oz facing ofx, ofz) did? Its id, else 0 (any: any overlap at all) */
+  #worse(A, ox, oz, ofx, ofz, any = false) {
     const cars = this.cars;
     for (let b = 0; b < cars.length; b++) {
       const B = cars[b];
       if (B === A || Math.abs(B.x - A.x) > 7 || Math.abs(B.z - A.z) > 7) continue;
       const next = boxDepth(A.x, A.z, A.fx, A.fz, A.L, A.W, B);
-      if (next > 0 && next > boxDepth(ox, oz, ofx, ofz, A.L, A.W, B) + 1e-4) return B.id;
+      if (next > 0 && (any || next > boxDepth(ox, oz, ofx, ofz, A.L, A.W, B) + 1e-4)) return B.id;
     }
     return 0;
+  }
+  /** is A's box touching the player's car? */
+  #overPlayer(A) {
+    const me = this.me;
+    if (me.x == null || !me.L || Math.abs(me.x - A.x) > 7 || Math.abs(me.z - A.z) > 7) return false;
+    return boxDepth(A.x, A.z, A.fx, A.fz, A.L, A.W, { x: me.x, z: me.z, fx: me.hx, fz: me.hz, L: me.L, W: me.W }) > 0;
   }
   /** can A drive the next 10 m of its path without its box touching B's box where B stands? */
   #clearPast(A, B) {
@@ -395,6 +461,15 @@ export class KentTraffic {
       if (B.v < 0.3 && arc > B.L / 2 + 2) continue; // queued round the ring, not coming: I can go in front
       if (arc < Math.max(12, B.v * 3.2)) return true;
     }
+    // the player's car on the ring has priority too (it isn't in this.cars)
+    const me = this.me;
+    if (me.x != null && me.v > 1) {
+      const R = len(me.x - rb.x, me.z - rb.z);
+      if (R < rb.r + 0.5 && R > (rb.island ?? 0) - 0.5) {
+        let d = (e.thE - Math.atan2(me.z - rb.z, me.x - rb.x)) * rb.sense; d = ((d % TAU) + TAU) % TAU;
+        if ((TAU - d) * R < 5 || d * R < Math.max(12, me.v * 3.2)) return true;
+      }
+    }
     return false;
   }
   /**
@@ -412,9 +487,16 @@ export class KentTraffic {
       const dx = e.nx - B.x, dz = e.nz - B.z, d2 = dx * dx + dz * dz, rr = B.v * 5.5; // or within 5.5 s
       if (d2 > r2 && d2 > rr * rr) continue;
       if ((B.v < 1.5 || B.held) && d2 > 144) continue; // stopped or held away from the mouth: not coming
+      if (B.v < 0.3 && B.stopT > 3 && d2 > 16) continue; // standing in a queue on the main road, not coming (else a queue across the mouth never lets anyone out)
 
       if (dx * B.fx + dz * B.fz < -2) continue; // past the junction, going away
       return true;
+    }
+    // the player coming along the main road (not behind me on my own road, nor waiting at this junction)
+    const me = this.me;
+    if (me.x != null && me.v > 1.5 && A.fx * me.fx + A.fz * me.fz < 0.7 && (yaw == null || me.fx * ox + me.fz * oz <= -0.5)) {
+      const dx = e.nx - me.x, dz = e.nz - me.z, d2 = dx * dx + dz * dz, rr = me.v * 5.5;
+      if ((d2 <= r2 || d2 <= rr * rr) && dx * me.fx + dz * me.fz > -2) return true;
     }
     return false;
   }
@@ -441,7 +523,9 @@ export class KentTraffic {
     while (A.idx < n - 2 && ps[A.idx + 1] <= A.s) A.idx++;
     this.#pose(A, dt);
     // last resort: never move deeper into another car's box (the rules above should keep clear anyway)
-    const bumped = dt > 0 && (A.v > 0 || back > 0) ? this.#worse(A, ox, oz, ofx, ofz) : 0;
+    // squeezing: carry on until clear of every car and the player, then back to the normal rules
+    if (A.ghost > 0) A.ghost = this.#worse(A, A.x, A.z, A.fx, A.fz, true) || this.#overPlayer(A) ? Math.max(A.ghost, 0.5) : A.ghost - dt;
+    const bumped = dt > 0 && (A.v > 0 || back > 0) && !(A.ghost > 0) ? this.#worse(A, ox, oz, ofx, ofz) : 0;
     if (bumped) {
       A.s = os; A.idx = oi; A.aim = oa; A.x = ox; A.z = oz; A.heading = oh; A.fx = ofx; A.fz = ofz; A.nudge = on; A.v = 0;
       A.freeD = 0; A.blockId = bumped; // so others know I'm going nowhere, and who for
@@ -496,7 +580,9 @@ export class KentTraffic {
       const A = cars[i], d = len(A.x - P.x, A.z - P.z);
       const end = A.s >= A.ps[A.n - 1] - 0.5;
       const jammed = A.stopT > 30 && A.noRoom && A.blockId && this.#byId(A.blockId)?.blockId === A.id; // nose to nose, no way back
-      if (d > DESPAWN || (d > UNSEEN && (end || A.stopT > STUCK || jammed))) {
+      // a car that has reached the end of its route parks in the lane: in sight of the player it gets
+      // a new destination (below); if that fails it goes after 20 s rather than block the road for good
+      if (d > DESPAWN || (d > UNSEEN && (end || A.stopT > STUCK || jammed)) || (A.s >= A.ps[A.n - 1] - 4 && A.stopT > 20)) {
         if (!end && (A.stopT > STUCK || jammed) && d <= DESPAWN) this.stats.watchdog++;
         this.#despawn(i, d);
         continue;
@@ -514,6 +600,27 @@ export class KentTraffic {
     if (this.peds.length < this.maxPeds && this.pedT <= 0) { this.pedT = 0.1; this.#refreshCache(); this.#spawnPed(); }
   }
   #byId(id) { for (const c of this.cars) if (c.id === id) return c; return null; }
+  /** the layer (0 on the ground, 1 on a bridge...) of the road under a car going (fx, fz) at (x, z) */
+  #layerAt(x, z, fx, fz) {
+    let best = null, bd = Infinity;
+    for (const { way, i } of this.net.grid.near(x, z, 12)) {
+      const a = way.pts[i], b = way.pts[i + 1], dx = b[0] - a[0], dz = b[1] - a[1], L = len(dx, dz) || 1;
+      if (Math.abs((dx * fx + dz * fz) / L) < 0.8) continue; // not the road this car is driving along
+      const t = Math.max(0, Math.min(1, ((x - a[0]) * dx + (z - a[1]) * dz) / (L * L))), d = len(x - a[0] - dx * t, z - a[1] - dz * t);
+      if (d < bd && d < way.halfW + 2) { bd = d; best = way; }
+    }
+    return best ? best.layer || (best.bridge ? 1 : 0) : 0;
+  }
+  /** am I in a ring of stopped cars each waiting for the next? (a queue ends at someone waiting at a line: not a gridlock) */
+  #gridlocked(A) {
+    let B = A;
+    for (let k = 0; k < 12; k++) {
+      B = B.blockId > 0 ? this.#byId(B.blockId) : null;
+      if (!B || B.v > 0.3 || B.held) return false;
+      if (B === A) return true;
+    }
+    return false;
+  }
   #despawn(i, d) {
     const A = this.cars[i];
     if (A.mesh) A.mesh.visible = false;
@@ -588,7 +695,7 @@ export class KentTraffic {
       // start at a speed that can still stop for the first line on the route (lights, a give-way)
       const first = A.ev.length ? A.ev[0].s - A.L / 2 : Infinity;
       A.v = Math.min(A.vcap[0] * 0.9, Math.sqrt(2 * STOP_BRAKE * Math.max(0, first - 3))); A.stun = 0; A.stopT = 0; A.extTried = false; A.lastGroup = null; A.lastGroupS = -1e9;
-      A.held = false; A.freeD = Infinity; A.minorNode = 0; A.nudge = 0; A.nudgeT = 0; A.blockId = 0; A.backUp = 0; A.noRoom = false;
+      A.held = false; A.freeD = Infinity; A.minorNode = 0; A.nudge = 0; A.nudgeT = 0; A.blockId = 0; A.backUp = 0; A.noRoom = false; A.ghost = 0;
       this.#move(A, 0);
       this.cars.push(A);
       this.stats.spawned++;
@@ -606,7 +713,7 @@ export class KentTraffic {
     return {
       id: this.nextId++, model, mesh: model ? model.root : null, L, W, r: radius, radius,
       pos: new THREE.Vector3(), x: 0, z: 0, heading: 0, fx: 0, fz: 1, v: 0, want: 0,
-      lane: { rb: null }, u: 0, stun: 0, stunned: false, under: 0,
+      lane: { rb: null }, u: 0, stun: 0, stunned: false, under: 0, ghost: 0,
       n: 0, px: null, pz: null, ps: null, vcap: null, rbArr: [], ev: [], evI: 0, s: 0, idx: 0, aim: 0,
       route: null, dest: null, held: false, freeD: Infinity, blockId: 0, nudge: 0, nudgeT: 0, backUp: 0, noRoom: false, minorNode: 0, lastGroup: null, lastGroupS: -1e9, stopT: 0, extTried: false,
     };
@@ -663,9 +770,11 @@ export class KentTraffic {
       } else if (e.kind === 'rb') {
         const rb = net.roundabouts.get(e.rb), node = net.nodes.get(e.node); if (!rb || !node) continue;
         // the give-way line is painted along the ring's outer edge: where the path first comes inside it
-        let edge = e.entryS;
-        for (let i = idxAt(e.entryS - 10); i < n && ps[i] <= e.entryS + 10; i++) if (len(px[i] - rb.x, pz[i] - rb.z) <= rb.r) { edge = ps[i]; break; }
-        ev.push({ kind: 'rb', s: edge - 0.8, ringS: edge + 1, rb, node: e.node, thE: Math.atan2(node.z - rb.z, node.x - rb.x), go: false }); // the front waits just behind the paint
+        let edge = e.entryS, wait = e.entryS;
+        for (let i = idxAt(e.entryS - 14); i < n && ps[i] <= e.entryS + 10; i++) { const R = len(px[i] - rb.x, pz[i] - rb.z); if (R <= rb.r + 2.5 && wait === e.entryS) wait = ps[i]; if (R <= rb.r) { edge = ps[i]; break; } }
+        // the front waits 2.5 m out from the ring's edge: the path comes in at a slant, and a car
+        // whose nose is at the paint has a corner in the circulating lane
+        ev.push({ kind: 'rb', s: Math.min(wait, edge - 0.8), ringS: edge + 1, rb, node: e.node, thE: Math.atan2(node.z - rb.z, node.x - rb.x), go: false });
       } else if (e.kind === 'emerge' || e.kind === 'cross' || e.kind === 'mini') {
         const node = net.nodes.get(e.node); if (!node) continue;
         ev.push({ kind: e.kind, s: e.kind === 'mini' ? e.s : (e.lineS ?? e.s - 4), node: e.node, nx: node.x, nz: node.z, signalled: lightNodes.has(e.node) || node.signals, go: false });

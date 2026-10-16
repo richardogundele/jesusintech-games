@@ -600,13 +600,16 @@ export class RoadNet {
     for (let i = legs.length - 1; i >= 0; i--) {
       const want = legs[i].wantLane; if (!want || legs[i].propagated) continue;
       let need = 120 - legs[i].len, j = i - 1;
-      while (need > 0 && j >= 0 && legs[j].way.oneway && !legs[j].way.rb && !legs[j].wantLane && this.laneCount(legs[j].way, legs[j].dir) >= want) { legs[j].wantLane = want; legs[j].propagated = true; need -= legs[j].len; j--; }
+      while (need > 0 && j >= 0 && !legs[j].way.rb && !legs[j].wantLane && this.laneCount(legs[j].way, legs[j].dir) >= want) { legs[j].wantLane = want; legs[j].propagated = true; need -= legs[j].len; j--; }
       for (let k = j + 2; k <= i; k++) legs[k].lane = want; // already in the lane after the first leg of the chain
     }
+    // never ask for a lane the way doesn't have (an OSM flare at a give-way line isn't drawn as a lane)
+    for (const l of legs) if (l.wantLane && !l.way.rb) l.wantLane = Math.min(l.wantLane, Math.max(1, this.laneCount(l.way, l.dir) || 1));
     const pieces = [];
     for (const l of legs) {
       if (l.wantLane && l.wantLane !== l.lane && l.len > 30) {
-        const sChange = l.s0 + l.dir * Math.max(l.len - 120, Math.min(l.len * 0.4, 60));
+        // change 120 m out on a long leg; on a short one as early as it can, so the change is done well before the junction
+        const sChange = l.s0 + l.dir * (l.len >= 125 ? l.len - 120 : Math.max(5, l.len - 65));
         pieces.push({ ...l, s1: sChange, lane: l.lane });
         pieces.push({ ...l, s0: sChange, lane: l.wantLane, laneChangeFrom: l.lane });
       } else pieces.push({ ...l, lane: l.wantLane || l.lane });
@@ -616,7 +619,13 @@ export class RoadNet {
     //    vertex inside a way and a clean junction all get the same kind of fillet.
     const raw = [], marks = []; // marks: { pt: raw point, ... event seed }
     const push = (x, z, meta) => { const pt = { x, z, ...meta }; raw.push(pt); return pt; };
-    const lanePt = (p, s) => { const c = this.laneCentre(p.way, p.dir > 0 ? p.lane : -p.lane, s); return c; };
+    const lanePt = (p, s) => {
+      const c = this.laneCentre(p.way, p.dir > 0 ? p.lane : -p.lane, s);
+      let x = this.splitExtra(p.way, s);
+      if (p.endShift) { const to = Math.abs(p.s1 - s), u = Math.max(0, 1 - to / p.endShift.len); x += p.endShift.d * u * u * (3 - 2 * u); } // ease into the next road's lane before the join
+      if (x) { c.x += c.dir[1] * x; c.z -= c.dir[0] * x; } // leftOf(dir) = (dz, -dx)
+      return c;
+    };
     const sampleS = (p, from, to) => { // way arc lengths from..to in travel direction, including vertices
       const out = [from], lo = Math.min(from, to), hi = Math.max(from, to);
       const idx = []; for (let i = 0; i < p.way.pts.length; i++) if (p.way.cum[i] > lo + 0.05 && p.way.cum[i] < hi - 0.05) idx.push(p.way.cum[i]);
@@ -641,20 +650,33 @@ export class RoadNet {
         const sOut = nextP ? nextP.s0 + nextP.dir * Math.min(6, Math.abs(nextP.s1 - nextP.s0)) : null;
         const B = nextP ? lanePt(nextP, sOut) : null, Qout = nextP ? lanePt(nextP, nextP.s0) : null;
         const mark = { kind: 'rb', info, entryOffset: prevPiece ? prevPiece.ringTrim || 0 : 0 };
-        if (sweep * rad < 14 && prevRaw && B) {
+        // a straight line between the entry and exit lane points must clear the island (a tiny ring
+        // like The Boulevard's turning circle is driven round, not across)
+        const chordClear = rad * Math.cos(Math.min(Math.PI, sweep) / 2) > (rb.island ?? 0) + 1.2;
+        if (sweep * rad < 14 && chordClear && prevRaw && B) {
           // entry and exit arms meet the ring within a car length: a plain corner, no arc
           const Q = [(Qin[0] + Qout.x) / 2, (Qin[1] + Qout.z) / 2];
           for (const q of bez([prevRaw.x, prevRaw.z], Q, [B.x, B.z], 9)) push(q[0], q[1], { way: p.way, lane, rb: rb.id, blend: true });
-          marks.push({ ...mark, pt: prevRaw });
+          marks.push({ ...mark, pt: prevRaw, exitPt: raw[raw.length - 1] });
           nextP.skipTo = sOut; pi = pj + 1; continue;
         }
-        const lead = Math.min(6 / rad, sweep / 3);
+        const lead = Math.min((rb.r < 8 ? 2.5 : 6) / rad, sweep / (rb.r < 8 ? 4 : 3)); // tiny rings: blend in late or the curve crosses the island
         const a0 = rb.pointAt(thE + rb.sense * lead, rad);
         if (prevRaw) for (const q of bez([prevRaw.x, prevRaw.z], Qin, a0, 5)) push(q[0], q[1], { way: p.way, lane, rb: rb.id, blend: true }); // blend from the approach lane into the ring lane
         const a0pt = push(a0[0], a0[1], { way: p.way, lane, rb: rb.id });
-        marks.push({ ...mark, pt: prevRaw || a0pt });
+        const rbMark = { ...mark, pt: prevRaw || a0pt };
+        marks.push(rbMark);
         const n = Math.max(6, Math.round((sweep - 2 * lead) * rad / 1.5));
-        for (let j = 1; j <= n; j++) { const th = thE + rb.sense * (lead + ((sweep - 2 * lead) * j) / n); const q = rb.pointAt(th, rad); push(q[0], q[1], { way: pieces[pj].way, lane, rb: rb.id }); }
+        // the exit before ours: where the driver signals left for theirs (Highway Code 186)
+        const exits = info.inArm ? this.rbArmsFrom(rb, info.inArm).filter((a) => a.exit) : [], before = exits[info.decision.exit - 2];
+        let sweepP = null;
+        if (before) { const nd = this.nodes.get(before.exitNode ?? before.node); if (nd) { sweepP = (rb.angleAt(nd.x, nd.z) - thE) * rb.sense; sweepP = ((sweepP % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI); } }
+        for (let j = 1; j <= n; j++) {
+          const sw = lead + ((sweep - 2 * lead) * j) / n, th = thE + rb.sense * sw, q = rb.pointAt(th, rad);
+          const pt = push(q[0], q[1], { way: pieces[pj].way, lane, rb: rb.id });
+          if (sweepP != null && !rbMark.prevExitPt && sw >= sweepP) rbMark.prevExitPt = pt;
+        }
+        rbMark.exitPt = raw[raw.length - 1];
         if (nextP) { // blend out through the exit lane's corner point onto the exit lane, 6 m past the exit node
           const last = raw[raw.length - 1];
           for (const q of bez([last.x, last.z], [Qout.x, Qout.z], [B.x, B.z], 5)) push(q[0], q[1], { way: nextP.way, lane: nextP.lane, rb: null, blend: true });
@@ -672,20 +694,25 @@ export class RoadNet {
         endS = p.s1 - p.dir * trim; p.cornerPt = lanePt(p, p.s1); p.ringTrim = trim;
       }
       if (next && nodeOut) { // a lane-offset change at the join (two-way to one-way, a lane jump) becomes a short diagonal
-        const offA = this.laneOffset(p.way, p.dir > 0 ? p.lane : -p.lane) * p.dir, offB = this.laneOffset(next.way, next.dir > 0 ? next.lane : -next.lane) * next.dir;
-        if (Math.abs(offA - offB) > 0.3 && !next.laneChangeFrom) next.skipTo = next.s0 + next.dir * Math.min(3 + Math.abs(offA - offB) * 3, Math.abs(next.s1 - next.s0) * 0.5);
+        const offA = (this.laneOffset(p.way, p.dir > 0 ? p.lane : -p.lane) + this.splitExtra(p.way, p.s1)) * p.dir, offB = (this.laneOffset(next.way, next.dir > 0 ? next.lane : -next.lane) + this.splitExtra(next.way, next.s0)) * next.dir;
+        // (long and gentle on fast roads and where a slip road joins: a lane's width over a few car lengths)
+        const fast = next.way.oneway && !next.way.link && (p.way.link || next.way.limit >= 50), run = fast ? 12 + Math.abs(offA - offB) * 12 : 3 + Math.abs(offA - offB) * 3;
+        // a slip road joining a main carriageway: OSM joins the two centrelines, so ease across into the
+        // main road's lane 1 along the end of the slip road (crossing to the lane and back is a wiggle)
+        if (Math.abs(offA - offB) > 0.3 && !next.laneChangeFrom && fast && p.way.link && p.way.oneway && Math.abs(p.s1 - startS) > run) p.endShift = { d: offB - offA, len: run };
+        else if (Math.abs(offA - offB) > 0.3 && !next.laneChangeFrom) next.skipTo = next.s0 + next.dir * Math.min(run, Math.abs(next.s1 - next.s0) * 0.5);
       }
       let ss = sampleS(p, startS, endS);
       let first = true;
       if (p.laneChangeFrom) { // short diagonal into the new lane: no way vertices inside it, or the path would double back
         const c0 = this.laneCentre(p.way, p.dir > 0 ? p.laneChangeFrom : -p.laneChangeFrom, startS);
-        const c0pt = push(c0.x, c0.z, { way: p.way, lane: p.laneChangeFrom, rb: null, sWay: startS, pieceStart: true }); first = false;
+        const c0pt = push(c0.x, c0.z, { way: p.way, dir: p.dir, lane: p.laneChangeFrom, rb: null, sWay: startS, pieceStart: true }); first = false;
         marks.push({ pt: c0pt, kind: 'laneChange', piece: p });
         const dEnd = startS + p.dir * Math.min(25, Math.abs(endS - startS) * 0.5);
         ss = [dEnd, ...ss.filter((s) => (p.dir > 0 ? s > dEnd + 0.05 : s < dEnd - 0.05))];
       }
       let lastPt = null;
-      for (const s of ss) { const c = lanePt(p, s); lastPt = push(c.x, c.z, { way: p.way, lane: p.lane, rb: null, sWay: s, pieceStart: first }); first = false; }
+      for (const s of ss) { const c = lanePt(p, s); lastPt = push(c.x, c.z, { way: p.way, dir: p.dir, lane: p.lane, rb: null, sWay: s, pieceStart: first }); first = false; }
       if (lastPt && next && nodeOut) { lastPt.corner = true; marks.push({ pt: lastPt, kind: 'junction', node: nodeOut, inPiece: p, outPiece: next }); }
       pi++;
     }
@@ -700,7 +727,7 @@ export class RoadNet {
     // 3. resample every 1.5 m with cumulative s
     const pts = [], ptsIndex = new Map();
     let s = 0, carry = 0;
-    const meta = (r) => ({ way: r.way.id, lane: r.lane, rb: r.rb, road: this.#roadMeta(r.way, r.rb) });
+    const meta = (r) => ({ way: r.way.id, lane: r.lane, rb: r.rb, dir: r.dir, road: this.#roadMeta(r.way, r.rb, r.dir) });
     for (let i = 0; i < smooth.length; i++) {
       const r = smooth[i];
       if (i === 0) { pts.push({ x: r.x, z: r.z, s: 0, ...meta(r) }); ptsIndex.set(r, 0); continue; }
@@ -721,8 +748,13 @@ export class RoadNet {
         const { info } = m, d = info.decision, rb = info.rb;
         const entryS = sOf(m.pt) + (m.entryOffset || 0); // the approach was trimmed short of the give-way line
         const label = info.outArm ? [info.outArm.refs[0], info.outArm.dest || info.outArm.names[0]].filter(Boolean).join(' ') : '';
-        const laneText = (info.inArm?.entryLanes || 1) >= 2 ? ` Use the ${d.approachLane === 1 ? 'left-hand' : d.approachLane >= (info.inArm.entryLanes || 2) ? 'right-hand' : 'middle'} lane.` : '';
-        events.push({ kind: 'rb', s: entryS, entryS, exit: d.exit, dir: d.dir, approachLane: d.approachLane, ringLane: d.ringLane, exitLane: d.exitLane, laneChangeS: Math.max(0, entryS - 120), node: info.entryNode.id, rb: rb.id, lanes: rb.lanes, text: `At the roundabout, take the ${ORD[d.exit - 1] || d.exit + 'th'} exit${label ? ', ' + label : ''}.${laneText}` });
+        const lastIn = pieces.filter((q) => q.legIdx === info.startLeg - 1).pop();
+        const approachLane = Math.min(d.approachLane, lastIn ? lastIn.lane : info.inLeg.wantLane || info.inLeg.lane || 1); // the lane the path is in at the line
+        const entryLanes = Math.min(info.inArm?.entryLanes || 1, Math.max(1, this.laneCount(info.inLeg.way, info.inLeg.dir) || 1));
+        const laneText = entryLanes >= 2 ? ` Use the ${approachLane === 1 ? 'left-hand' : approachLane >= entryLanes ? 'right-hand' : 'middle'} lane.` : '';
+        // exitS: where the path leaves the ring lane; signalLeftS: where it passes the exit before ours
+        const exitS = m.exitPt ? sOf(m.exitPt) : entryS, signalLeftS = d.exit <= 1 ? entryS - 30 : m.prevExitPt ? sOf(m.prevExitPt) : Math.max(entryS, exitS - 15);
+        events.push({ kind: 'rb', s: entryS, entryS, exitS, signalLeftS, exit: d.exit, dir: d.dir, approachLane, ringLane: d.ringLane, exitLane: d.exitLane, laneChangeS: Math.max(0, entryS - 120), node: info.entryNode.id, rb: rb.id, lanes: rb.lanes, text: `At the roundabout, take the ${ORD[d.exit - 1] || d.exit + 'th'} exit${label ? ', ' + label : ''}.${laneText}` });
         if (info.inLeg) for (const c of this.crossingsByWay.get(info.inLeg.way.id) || []) this.#crossingEvent(events, c, info.inLeg, pts, smooth, ptsIndex);
       } else if (m.kind === 'laneChange') {
         const p = m.piece, sC = sOf(m.pt), toRight = p.lane > p.laneChangeFrom;
@@ -793,6 +825,16 @@ export class RoadNet {
       const turn = Math.abs(norm180(bearingOf(dOut[0], dOut[1]) - bearingOf(dIn[0], dIn[1])));
       const corner = P.slice(c.i0, c.i1 + 1).some((p) => p.corner);
       let r = Math.min(corner ? 9 : 6, 1.5 + (turn / 90) * (corner ? 7 : 4.5));
+      if (corner && turn < 35) r = Math.max(r, 14 - turn / 5); // a slight kink at a node (a slip road joining, a lane jump) is eased over a long stretch, not a tight knee
+      if (corner && turn < 35 && P[c.i0].way?.link && !P[c.i1].way?.link) r = Math.max(r, 32); // a slip road tapers into the main carriageway
+      if (!corner && turn < 25 && (P[c.i0].way?.limit >= 50 || P[c.i0].way?.link)) r = Math.max(r, 12); // a kink in the OSM line of a fast road isn't a corner
+      // the fillet bulges 0.25 r sin(turn) towards the inside of the corner: keep that within the room
+      // between the lane centre and the inside edge (the kerb on a left turn, the centre line on a right
+      // turn off a two-way road), or a car on it mounts the kerb or meets oncoming traffic head on
+      const inside = (dIn[0] * dOut[1] - dIn[1] * dOut[0]) < 0 ? 1 : -1; // +1: turning left
+      const room = Math.min(this.#room(P[c.i0], inside), this.#room(P[c.i1], inside));
+      const sinT = Math.sin(Math.min(turn, 179) / DEG);
+      if (sinT > 0.05) r = Math.min(r, Math.max(0.5, (4 * room) / sinT));
       // never eat into the previous fillet, the next corner or the ends of the path
       const prevEnd = k ? cum[clusters[k - 1].i1] + clusters[k - 1].rUsed : 0, nextStart = k + 1 < clusters.length ? cum[clusters[k + 1].i0] : cum[n - 1];
       r = Math.max(0.5, Math.min(r, (sA0 - prevEnd) * 0.5, (nextStart - sB0) * 0.5));
@@ -806,16 +848,57 @@ export class RoadNet {
       if (!Q) { const m = P[(c.i0 + c.i1) >> 1]; Q = [m.x, m.z]; }
       while (cursor < n && cum[cursor] < sA - 1e-6) out.push(P[cursor++]);
       const mIn = P[c.i0], mOut = P[c.i1], nB = Math.max(4, Math.round(turn / 12));
-      const Apt = { x: A[0], z: A[1], way: mIn.way, lane: mIn.lane, rb: null, blend: true }; out.push(Apt);
-      const mid = bez(A, Q, B, nB).map((q, j) => ({ x: q[0], z: q[1], way: j < nB / 2 ? mIn.way : mOut.way, lane: j < nB / 2 ? mIn.lane : mOut.lane, rb: null, blend: true }));
-      out.push(...mid, { x: B[0], z: B[1], way: mOut.way, lane: mOut.lane, rb: null, blend: true });
+      const Apt = { x: A[0], z: A[1], way: mIn.way, dir: mIn.dir, lane: mIn.lane, rb: null, blend: true }; out.push(Apt);
+      const mid = bez(A, Q, B, nB).map((q, j) => (j < nB / 2 ? { x: q[0], z: q[1], way: mIn.way, dir: mIn.dir, lane: mIn.lane, rb: null, blend: true } : { x: q[0], z: q[1], way: mOut.way, dir: mOut.dir, lane: mOut.lane, rb: null, blend: true }));
+      out.push(...mid, { x: B[0], z: B[1], way: mOut.way, dir: mOut.dir, lane: mOut.lane, rb: null, blend: true });
       const middle = mid[mid.length >> 1] || Apt;
       while (cursor < n && cum[cursor] <= sB + 1e-6) replaced.set(P[cursor++], middle);
     });
     while (cursor < n) out.push(P[cursor++]);
     return out;
   }
-  #roadMeta(way, rb) { return { lanes: way.lanesF, limit: way.limit, nsl: !!way.nsl, dual: !!way.dual || (way.oneway && way.lanesF >= 2), rb: rb || null }; }
+  /** lateral room (m) from a raw point's lane centre to the edge it must not cross on `side` (+1 left, -1 right) */
+  #room(pt, side) {
+    const w = pt.way; if (!w || pt.rb || pt.blend) return 4;
+    const k = Math.max(1, pt.lane || 1), off = (pt.dir ?? 1) > 0 ? this.laneOffset(w, k) : -this.laneOffset(w, -k); // + = left of travel
+    if (side > 0) return Math.max(0.3, w.halfW - off + 0.5);
+    return Math.max(0.3, w.oneway ? off + w.halfW + 0.5 : off + 0.1);
+  }
+  /**
+   * Where a two-way road splits into two one-way carriageways, OSM draws both carriageways from the
+   * same node, so their centrelines (and lanes on them) touch there and only part as they go: two
+   * cars passing there would meet head on. Push each lane left until the two are 2.8 m apart
+   * (a car's width and a gap), staying on the drawn carriageway; 0 once they have parted.
+   */
+  splitExtra(way, s) {
+    if (!way.oneway || way.rb) return 0;
+    if (way.split === undefined) way.split = [this.#partnerAt(way, 0), this.#partnerAt(way, way.nodes.length - 1)];
+    let extra = 0;
+    for (const [k, sEnd] of [[0, 0], [1, way.len]]) {
+      const pt = way.split[k]; if (!pt || Math.abs(s - sEnd) > 150) continue;
+      const p = this.pointAt(way, s);
+      let sep = Infinity; for (let i = 0; i < pt.pts.length - 1; i++) { const a = pt.pts[i], b = pt.pts[i + 1], r = projSeg(a[0], a[1], b[0], b[1], p[0], p[1]); sep = Math.min(sep, hypot(p[0] - r[1], p[1] - r[2])); }
+      extra = Math.max(extra, (2.8 - sep) / 2);
+    }
+    return Math.max(0, Math.min(extra, way.halfW - 0.4));
+  }
+  /** the other carriageway of a split at a way's end vertex i: a one-way way the other way at the same node, with a two-way road there too */
+  #partnerAt(way, i) {
+    const nid = way.nodes[i]; const node = nid && this.nodes.get(nid); if (!node) return null;
+    if (!node.ways.some((r) => !r.way.oneway && !r.way.rb)) return null;
+    const j = i === 0 ? 1 : i - 1, out = i === 0; // my direction away from (or into) the node
+    const myB = out ? bearingOf(way.pts[j][0] - way.pts[i][0], way.pts[j][1] - way.pts[i][1]) : bearingOf(way.pts[i][0] - way.pts[j][0], way.pts[i][1] - way.pts[j][1]);
+    for (const r of node.ways) {
+      const w = r.way; if (w === way || !w.oneway || w.rb || w.width > way.width * 1.6) continue;
+      const end = r.idx === 0 ? 0 : r.idx === w.pts.length - 1 ? 1 : -1; if (end < 0 || (end === 0) === out) continue; // it must run the other way through the node
+      const k = r.idx === 0 ? 1 : r.idx - 1;
+      const b = end === 0 ? bearingOf(w.pts[k][0] - w.pts[r.idx][0], w.pts[k][1] - w.pts[r.idx][1]) : bearingOf(w.pts[r.idx][0] - w.pts[k][0], w.pts[r.idx][1] - w.pts[k][1]);
+      if (Math.abs(norm180(b - myB)) > 140) return w;
+    }
+    return null;
+  }
+  /** what the lessons read off a path point: lanes the way of travel (against the way's direction on a two-way road, its backward lanes) */
+  #roadMeta(way, rb, dir = 1) { return { lanes: dir < 0 && !way.oneway ? way.lanesB : way.lanesF, limit: way.limit, nsl: !!way.nsl, dual: !!way.dual || (way.oneway && way.lanesF >= 2), rb: rb || null }; }
   #idxAt(way, s) { // vertex index at arc length s (within 0.2 m), else -1
     const i = this.segAt(way, s); if (Math.abs(way.cum[i] - s) < 0.2) return i; if (Math.abs(way.cum[i + 1] - s) < 0.2) return i + 1; return -1;
   }
@@ -876,7 +959,8 @@ export class RoadNet {
     if (best == null || bestD > 40) return;
     const s = pts[Math.min(ptsIndex.get(best) ?? pts.length - 1, pts.length - 1)].s - (c.s - best.sWay) * piece.dir;
     if (events.some((e) => e.kind === kind && Math.abs(e.s - (s - 4.5)) < 5)) return;
-    events.push({ kind, s: s - 4.5, node: c.node || null, group: kind === 'lights' ? `x-${c.node || Math.round(c.x) + ':' + Math.round(c.z)}` : undefined, crossing: c.type, text: null });
+    const key = String(c.node || Math.round(c.x) + ':' + Math.round(c.z)); // traffic.crossingBusy and the signal group use this name
+    events.push({ kind, s: s - 4.5, node: c.node || null, key, x: c.x, z: c.z, group: kind === 'lights' ? `x-${key}` : undefined, crossing: c.type, text: null });
   }
   #bendEvents(events, pts) {
     const W = 20; // points = 30 m

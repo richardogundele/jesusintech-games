@@ -35,6 +35,7 @@ export class Phone {
       // these leave the phone: close it first so the game mode is restored before travelling
       if (act === 'lesson') { this.hooks.close(); this.hooks.startLesson(id); return; }
       if (act === 'gouk') { this.hooks.close(); this.hooks.goUK(); return; }
+      if (act === 'practice') { this.practiceOpen = !this.practiceOpen; this.render(); return; }
       if (act === 'gohome') { this.hooks.close(); this.hooks.goHome(); return; }
       if (act === 'look') { state.look[b.dataset.part] = id; this.hooks.setLook(state.look); }
       if (act?.startsWith('song-')) { this.song(act.slice(5), id, b); return; }
@@ -126,18 +127,29 @@ export class Phone {
   lessons() {
     const uk = state.uk;
     const inUK = this.hooks.inUK();
-    const rows = LESSONS.map((l, i) => {
+    const row = (l, n) => {
       const r = uk.lessons[l.id];
-      const status = r?.passed ? `<div class="badge">${l.mock ? 'Passed' : 'Passed'} · best ${r.best} driving fault${r.best === 1 ? '' : 's'}</div>` : r ? `<div class="s">Tried ${r.tries}× · not passed yet</div>` : '';
-      return `<div class="row"><div class="tick">${r?.passed ? '✓' : l.mock ? 'T' : i + 1}</div>
+      const status = r?.passed ? `<div class="badge">Passed · best ${r.best} driving fault${r.best === 1 ? '' : 's'}</div>` : r ? `<div class="s">Tried ${r.tries}× · not passed yet</div>` : '';
+      return `<div class="row"><div class="tick">${r?.passed ? '✓' : l.mock ? 'T' : n}</div>
         <div class="grow"><div class="t">${l.title}</div><div class="s">${l.blurb}</div>${status}</div>
         <button class="buy" data-act="lesson" data-id="${l.id}">${r?.passed ? 'Again' : 'Start'}</button></div>`;
-    }).join('');
+    };
+    // the real thing: Herne Bay and Canterbury, Kent. Whitmore stays as a practice town, folded away
+    const kent = LESSONS.filter((l) => l.world === 'kent'), practice = LESSONS.filter((l) => l.world !== 'kent');
+    const rows = kent.filter((l) => !l.mock).map((l, i) => row(l, i + 1)).join('');
+    const tests = kent.filter((l) => l.mock).map((l) => row(l, 'T')).join('');
+    const open = this.practiceOpen;
+    const wm = `<div class="row"><div class="tick">W</div><div class="grow"><div class="t">Whitmore practice town</div>
+        <div class="s">The made-up town the lessons started in: quiet roads to practise on. No pay, no licence.</div></div>
+        <button class="buy" data-act="practice">${open ? 'Hide' : 'Show'}</button></div>
+      ${open ? practice.map((l, i) => row(l, l.mock ? 'T' : i + 1)).join('') : ''}`;
     return `<div class="hero"><div class="big">${uk.licence ? 'Full' : 'Provisional'}<span>UK licence</span></div>
-        <div class="s">Real UK rules: drive on the left, mph limits, give way to the right at roundabouts. Automatic gearbox. Z and X are the indicators, Q checks your mirrors.</div></div>
-      ${inUK ? '<button class="buy wide" data-act="gohome">Fly home</button>' : '<button class="buy wide" data-act="gouk">Go to Whitmore, England</button>'}
-      <h3>Lessons</h3>${rows}
-      <p class="note">Marked like the real DVSA test: 15 or fewer driving faults and no serious or dangerous faults to pass. First pass of each lesson pays €250k; passing the mock test pays €5m.</p>`;
+        <div class="s">Real UK rules on the real Kent roads: drive on the left, mph limits, give way to the right at roundabouts. Automatic gearbox. Z and X are the indicators, Q checks your mirrors.</div></div>
+      ${inUK ? '<button class="buy wide" data-act="gohome">Fly home</button>' : ''}
+      <h3>Lessons · Herne Bay</h3>${rows}
+      <h3>Driving tests</h3>${tests}
+      <h3>Practice</h3>${wm}
+      <p class="note">Lessons start outside the Herne Bay test centre, tests at Herne Bay or Canterbury. Marked like the real DVSA test: 15 or fewer driving faults and no serious or dangerous faults to pass. First pass of each lesson pays €250k; passing a driving test pays €5m and gets you your full licence.</p>`;
   }
 
   dealer() {

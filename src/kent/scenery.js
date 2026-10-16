@@ -510,6 +510,21 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
     || (x >= af.x - 40 && x <= af.x + 40 && z >= af.z - 1320 && z < af.z - 920);
   const halfW = (w) => w.halfW ?? (w.width ?? (w.cls === 'residential' || w.cls === 'living_street' ? 6 : 7.3)) / 2;
   const nearestRoad = (x, z, d) => { try { return net?.nearest?.(x, z, d) || null; } catch { return null; } };
+  /** does a collider box (w across, d along yaw) cover any part of a carriageway? */
+  const obbOnRoad = (o) => {
+    if (!net?.grid) return false;
+    const c = Math.cos(o.yaw), s = Math.sin(o.yaw), hw = o.w / 2, hd = o.d / 2, R = Math.hypot(hw, hd) + 12;
+    const local = (x, z) => [(x - o.cx) * c - (z - o.cz) * s, (x - o.cx) * s + (z - o.cz) * c]; // across, along
+    for (const { way, i } of net.grid.near(o.cx, o.cz, R)) {
+      if (way.cls === 'service') continue;
+      const a = local(way.pts[i][0], way.pts[i][1]), b = local(way.pts[i + 1][0], way.pts[i + 1][1]), n = Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1])) + 1;
+      for (let k = 0; k <= n; k++) {
+        const u = a[0] + ((b[0] - a[0]) * k) / n, v = a[1] + ((b[1] - a[1]) * k) / n;
+        if (Math.hypot(Math.max(0, Math.abs(u) - hw), Math.max(0, Math.abs(v) - hd)) < way.halfW - 0.3) return true;
+      }
+    }
+    return false;
+  };
 
   // ---- index everything by tile once, so a tile build only touches what overlaps it ----
   const idx = { buildings: new Map(), landuse: new Map(), ways: new Map(), rails: new Map(), crossings: new Map(), landmarks: new Map(), coast: new Map() };
@@ -1056,7 +1071,8 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
         walls.walls(b.poly, 0, b.h, col);
         if (b.pitched) roofs.hip(b.poly, b.h, roofH, clamp(Math.min(b.obb.w, b.obb.d) * 0.4, 1.2, 4), col.set(b.roofCol));
         else walls.cap(b.poly, b.h, col);
-        if (near) cs.add(b.obb.cx, b.obb.cz, b.obb.w, b.obb.d, b.obb.yaw);
+        // the box round an L-shaped or rambling footprint can reach over a road: no invisible wall there
+        if (near && !obbOnRoad(b.obb)) cs.add(b.obb.cx, b.obb.cz, b.obb.w, b.obb.d, b.obb.yaw);
       }
       if (near && !b.sign && (b.kind === 'house' || b.kind === 'terrace' || b.kind === 'shop') && b.h <= 12) addFront(b, fronts, rng);
       if (near && b.sign && hasDOM) addSign(b, out, M);

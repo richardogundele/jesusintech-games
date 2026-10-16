@@ -20,6 +20,7 @@ import { buildKentHouse } from '../kent/house.js';
 import { buildAirfield } from '../kent/airfield.js';
 import { SignalSystem } from '../kent/signals.js';
 import { KentTraffic } from '../kent/traffic.js';
+import { CENTRES, centreOf, testCentreLayout } from '../kent/lesson-routes.js';
 
 // main.js hands the house its hooks (toasts, the phone, quizzes) before the world is built
 let hooks = {};
@@ -79,6 +80,15 @@ export function buildKent(renderer) {
   // lane = the outer lane's radius (its arc maths); every Kent ring circulates clockwise (sense +1)
   const rbs = [...net.roundabouts.values()].map((rb) => ({ name: rb.id, x: rb.x, z: rb.z, lane: rb.laneRadius(1), outer: rb.r, sense: rb.sense }));
 
+  // the eyesight check's parked car at each test centre (main.js builds it): Herne Bay's in the end
+  // bay of the car park, nose in; Canterbury's on the forecourt in front of the building, along the road
+  const eyesight = Object.keys(CENTRES).map((key) => {
+    const L = testCentreLayout(net, centreOf(net, key));
+    if (L.bays.length) { const b = L.bays[L.bays.length - 1]; return { centre: key, x: b.x, z: b.z, heading: b.heading }; }
+    const h = L.hit, off = h.way.halfW + 6; // L.n points from the building to the road
+    return { centre: key, x: h.px - L.n[0] * off, z: h.pz - L.n[1] * off, heading: Math.atan2(h.dir[0], h.dir[1]) };
+  });
+
   const player = { x: data.home.x, z: data.home.z + 38, r: 0 };
   let last = 0;
   return {
@@ -97,6 +107,7 @@ export function buildKent(renderer) {
     garage: house.garage,
     slots: house.slots,
     learnerAt: house.learnerAt,
+    eyesight,
     terminal: air.terminal, jetPark: air.jetPark, runway: air.runway, addJet: air.addJet,
     landmarks,
     place(x, z, y = 0) { return house.place(x, z, y) || air.place(x, z) || net.placeAt(x, z); },

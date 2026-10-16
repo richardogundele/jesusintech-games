@@ -22,6 +22,7 @@ export class Hud {
     this.unitEl = $('speed-unit');
     this.limitEl = $('limit');
     this.lessonEl = $('lesson');
+    this.satnavEl = $('satnav');
     this.indEl = $('indicators');
     this.mirrorEl = $('mirror');
     this.map = $('minimap').getContext('2d');
@@ -85,6 +86,20 @@ export class Hud {
     const html = info.mock ? 'Mock test · the examiner is marking quietly'
       : `Driving faults <b>${f.minor}</b> · <span class="${f.serious ? 'bad' : ''}">Serious <b>${f.serious}</b></span> · <span class="${f.dangerous ? 'bad' : ''}">Dangerous <b>${f.dangerous}</b></span>`;
     this.set('l-faults', this.lessonEl.querySelector('.l-faults'), html, 'innerHTML');
+  }
+
+  /**
+   * sat nav card for independent driving: { arrow: 'left'|'right'|'ahead'|'rb'|'merge', exit, yards,
+   * road, lanes, text } or null. The arrow is a character; a roundabout shows its exit number.
+   */
+  satnav(info) {
+    const el = this.satnavEl; if (!el) return;
+    el.classList.toggle('hidden', !info);
+    if (!info) { this.last.satnav = null; return; }
+    const arrow = info.arrow === 'rb' ? `<span class="rb">${info.exit}</span>` : { left: '↰', right: '↱', ahead: '↑', merge: '⤴' }[info.arrow] || '↑';
+    const dist = info.yards >= 1000 ? `${(info.yards / 1760).toFixed(1)} mi` : `${info.yards} yd`;
+    const html = `<div class="sn-arrow">${arrow}</div><div class="sn-body"><div class="sn-dist">${dist}</div><div class="sn-what">${info.text}</div>${info.road ? `<div class="sn-road">${info.road}</div>` : ''}${info.lanes ? `<div class="sn-lane">${info.lanes}</div>` : ''}</div>`;
+    this.set('satnav', el, html, 'innerHTML');
   }
 
   /** indicators: dir = 'left' | 'right' | null, lit = blink phase; show = in a UK car */

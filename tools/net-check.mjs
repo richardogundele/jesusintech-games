@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // Checks src/kent/net.js against public/assets/kent/region.json: nearest() accuracy, the Herne Bay
 // to Canterbury test-centre route, a lane path along it, roundabout exit decisions at the junctions
-// the test routes use, and speed limits at known spots. Exits 1 if anything fails.
+// the test routes use, speed limits at known spots, and the driving lessons' lane paths (no U-turns,
+// rings driven round, never more than 0.5 m off the carriageway). Exits 1 if anything fails.
 //
 //   node tools/net-check.mjs [path/to/region.json]
 
@@ -152,6 +153,34 @@ if (route) {
   }
   check((data.landuse || []).length > 0, `landuse has ${(data.landuse || []).length} polygons`);
   check((data.landmarks || []).some((l) => l.brand), `landmarks carry brand (${data.landmarks.filter((l) => l.brand).length} with brand)`);
+}
+
+// ---------- 8. the driving lesson routes (src/kent/lesson-routes.js) ----------
+{
+  const { buildKentRoute, KENT_ROUTES } = await import('../src/kent/lesson-routes.js');
+  const seg = (ax, az, bx, bz, x, z) => { const dx = bx - ax, dz = bz - az, L2 = dx * dx + dz * dz; let t = L2 ? ((x - ax) * dx + (z - az) * dz) / L2 : 0; t = Math.max(0, Math.min(1, t)); return Math.hypot(x - ax - dx * t, z - az - dz * t); };
+  // how far a point is outside every carriageway near it (ring carriageways are the annulus island..r)
+  const excess = (x, z) => {
+    let best = Infinity;
+    for (const { way, i } of net.grid.near(x, z, 25)) {
+      if (way.rb) { const rb = net.roundabouts.get(way.rb), R = Math.hypot(x - rb.x, z - rb.z); best = Math.min(best, R > rb.r ? R - rb.r : R < rb.island ? rb.island - R : 0); continue; }
+      const a = way.pts[i], b = way.pts[i + 1]; best = Math.min(best, seg(a[0], a[1], b[0], b[1], x, z) - way.halfW);
+    }
+    return best;
+  };
+  let sd = 5; const rnd = () => { sd = (sd * 1103515245 + 12345) & 0x7fffffff; return sd / 0x7fffffff; };
+  for (const [id, spec] of Object.entries(KENT_ROUTES)) {
+    let r = null; try { r = buildKentRoute(net, { ...spec, id }, { rnd }); } catch (e) { check(false, `lesson ${id}: ${e.message}`); continue; }
+    const uturns = r.route.ways.filter((w, k) => k && w.way === r.route.ways[k - 1].way && w.dir !== r.route.ways[k - 1].dir).length;
+    let island = 0, off = 0, worst = 0;
+    for (const p of r.pts) {
+      if (p.man || p.park) continue; // pull-ups and the car park leave the lane on purpose
+      if (p.rb) { const rb = net.roundabouts.get(p.rb), R = Math.hypot(p.x - rb.x, p.z - rb.z); if (R < rb.island - 0.3) island++; continue; }
+      const e = excess(p.x, p.z); if (e > 0.5) { off++; worst = Math.max(worst, e); }
+    }
+    const kinds = {}; for (const e of r.events) kinds[e.kind] = (kinds[e.kind] || 0) + 1;
+    check(uturns === 0 && island === 0 && off === 0, `lesson ${id}: ${(r.length / 1000).toFixed(2)} km, ${uturns} U-turns, ${island} points over a ring's island, ${off} points > 0.5 m off the carriageway${off ? ` (worst ${worst.toFixed(2)} m)` : ''}; ${Object.entries(kinds).map(([k, n]) => `${n} ${k}`).join(', ')}`);
+  }
 }
 
 console.log(fails.length ? `\n${fails.length} check(s) FAILED` : '\nall checks passed');

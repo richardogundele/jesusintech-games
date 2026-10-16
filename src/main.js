@@ -18,6 +18,7 @@ import { buildCabin } from './worlds/cabin.js';
 import { buildArena } from './worlds/arena.js';
 import { buildUK, lPlateTex, MPH } from './worlds/uk.js';
 import { LESSONS, LessonRun, carefulDriver, TELL_ME, randomPlate, plateOptions } from './lessons.js';
+import { KENT_ROUTES } from './kent/lesson-routes.js';
 import { buildCar } from './models.js';
 import { TRAFFIC } from './catalog.js';
 import { loadAll, updateCulling } from './assets.js';
@@ -87,7 +88,8 @@ function getWorld(id) {
     };
     w.garage.forEach((g) => w.addCar(g.id, g));
     if (w.learnerAt) addLPlates(w.addCar('learner', w.learnerAt, LEARNER));
-    if (w.parked) addEyesightCar(w);
+    if (w.parked) addEyesightCar(w, { x: w.parked.x, z: w.parked.z, heading: 0 });
+    for (const spot of w.eyesight || []) addEyesightCar(w, spot); // Kent: one at each test centre
     // cars bought from the phone fill the extra bays at this home
     P.boughtCarsIn(id).forEach((carId, i) => w.slots?.[i] && w.addCar(carId, w.slots[i]));
     w.traffic = w.trafficSystem || new Traffic(w.scene, w.life || {});
@@ -495,6 +497,7 @@ const phone = new Phone({
   setLook: (l) => { player.mesh.userData.setLook?.(l); save(); },
   startLesson: (id) => startLesson(id),
   goUK: () => goUK(),
+  inKent: () => world.id === 'kent',
   goHome: () => goHome(),
   inUK: () => world.id === 'uk',
   toast: (t, ms) => hud.toast(t, ms),
@@ -586,13 +589,15 @@ function speak(text) {
   } catch { /* no speech: the text panel is enough */ }
 }
 
-function addEyesightCar(w) {
+/** the dark blue car whose number plate the eyesight check reads; spot { x, z, heading, centre? } */
+function addEyesightCar(w, spot) {
   const spec = { ...TRAFFIC[0], color: 0x1d2b44 };
   const m = buildCar(spec);
-  m.root.position.set(w.parked.x, 0, w.parked.z);
-  m.root.rotation.y = 0; // nose into the bay, number plate facing the aisle
+  m.root.position.set(spot.x, 0, spot.z);
+  m.root.rotation.y = spot.heading; // nose into the bay, number plate facing the aisle
   w.scene.add(m.root);
-  w.colliders.box(w.parked.x, w.parked.z, 2.0, 4.8);
+  if (spot.heading) w.colliders.obb(spot.x, spot.z, 2.0, 4.8, spot.heading);
+  else w.colliders.box(spot.x, spot.z, 2.0, 4.8);
   const plateCanvas = document.createElement('canvas');
   plateCanvas.width = 512; plateCanvas.height = 112;
   const tex = new THREE.CanvasTexture(plateCanvas);
@@ -601,7 +606,7 @@ function addEyesightCar(w) {
   pl.position.set(0, 0.5, -(m.length / 2 + 0.02));
   pl.rotation.y = Math.PI;
   m.root.add(pl);
-  w.setPlate = (text) => {
+  const setPlate = (text) => {
     const ctx = plateCanvas.getContext('2d');
     ctx.fillStyle = '#f2d300'; ctx.fillRect(0, 0, 512, 112);
     ctx.fillStyle = '#111'; ctx.font = '800 84px "Arial Narrow", Arial, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
@@ -609,7 +614,11 @@ function addEyesightCar(w) {
     tex.needsUpdate = true;
     w.plate = text;
   };
-  w.setPlate(randomPlate());
+  spot.setPlate = setPlate;
+  // Whitmore has one eyesight car; in Kent, setPlate(text, centre) picks the test centre's
+  const prev = w.setPlate;
+  w.setPlate = (text, centre) => (spot.centre && centre && spot.centre !== centre && prev ? prev(text, centre) : setPlate(text));
+  setPlate(randomPlate());
 }
 
 // multiple-choice modal for the eyesight check and show me / tell me. Resolves true if right.
@@ -645,10 +654,21 @@ const lessonHooks = {
   estop(on) { $('estop').classList.toggle('hidden', !on); if (on) audio.sfx('go'); },
   say(text) { speak(text); },
   hud(info) { hud.lesson(info); },
+  satnav(info) { hud.satnav(info); },
+  // an angled start pulls up behind a parked car: a body and a box to steer round
+  parkedCar(p) {
+    const m = buildCar({ ...TRAFFIC[1 % TRAFFIC.length], color: 0x6b1f2a });
+    m.root.position.set(p.x, 0, p.z);
+    m.root.rotation.y = p.heading;
+    world.scene.add(m.root);
+    return { m, box: world.colliders.obb(p.x, p.z, 1.9, 4.5, p.heading) };
+  },
+  removeParked(h) { h.m.root.parent?.remove(h.m.root); world.colliders.remove(h.box); },
   flash(text) { hud.toast(text, 2600); audio.sfx('spend'); },
   cancelled(why) {
     lesson = null;
     hud.lesson(null);
+    hud.satnav(null);
     $('estop').classList.add('hidden');
     if (why) hud.toast(why, 2600);
   },
@@ -661,10 +681,10 @@ const lessonHooks = {
     const firstPass = r.passed && !rec.passed;
     rec.tries += 1;
     if (r.passed) { rec.passed = true; rec.best = rec.best == null ? r.counts.minor : Math.min(rec.best, r.counts.minor); }
-    if (r.mock) uk.tests += 1;
+    if (r.mock && !r.practice) uk.tests += 1;
     let reward = 0;
-    if (firstPass) reward = r.mock ? 5_000_000 : 250_000;
-    if (r.passed && r.mock && !uk.licence) { uk.licence = true; setTimeout(() => hud.reward({ kind: 'level', title: 'Full UK driving licence. Well done.' }), 1500); }
+    if (firstPass && !r.practice) reward = r.mock ? 5_000_000 : 250_000;
+    if (r.passed && r.mock && !r.practice && !uk.licence) { uk.licence = true; setTimeout(() => hud.reward({ kind: 'level', title: 'Full UK driving licence. Well done.' }), 1500); }
     save();
     if (reward) { addFundsUI(reward, r.mock ? 'Passed your UK driving test' : `Lesson passed: ${r.title}`); }
     if (r.passed) P.emit('lesson');
@@ -711,9 +731,28 @@ async function goHome() {
   hud.show(true);
   await fade(0);
 }
+/** fill the Kent tiles round a point while the screen is faded (the lesson starts somewhere the player isn't) */
+async function warmTiles(x, z, ms = 1500) {
+  if (!world.tiles) return;
+  world.player = { x, z, r: 0 };
+  const t0 = performance.now();
+  while (performance.now() - t0 < ms) { world.tiles.update(x, z, 0.016); await wait(0); }
+}
+async function goKent() {
+  mode = 'cutscene';
+  if (car) { car.park(); car = null; }
+  hud.show(false);
+  await fade(1);
+  enterWorld('kent');
+  renderer.compile(world.scene, camera);
+  hud.show(true);
+  await fade(0);
+}
 async function startLesson(id) {
-  if (world.id !== 'uk') await goUK();
   const def = LESSONS.find((l) => l.id === id);
+  // Kent lessons start at their test centre; the Whitmore ones are practice in the made-up town
+  const where = def.world === 'kent' ? 'kent' : 'uk';
+  if (world.id !== where) await (where === 'kent' ? goKent() : goUK());
   if (lesson) lesson.cancel();
   const learner = world.cars.find((c) => c.id === 'learner');
   if (car && car !== learner) car.park();
@@ -723,20 +762,27 @@ async function startLesson(id) {
   camMode = 0;
   drive.indicator = null;
   for (const k in autoState) delete autoState[k];
+  const kent = where === 'kent', centre = kent ? KENT_ROUTES[def.route].centre : null;
+  if (kent && !window.__game?.autoQuiz) { hud.show(false); await fade(1); }
   const pre = [];
   if (def.checks) {
     // the real test opens with an eyesight check (read a number plate about 20 m away) and a tell me question
-    world.setPlate?.(randomPlate());
+    const spot = kent ? world.eyesight.find((e) => e.centre === centre) : { x: world.parked.x, z: world.parked.z, heading: 0 };
+    world.setPlate?.(randomPlate(), centre);
     player.mesh.visible = true;
     car = null;
     mode = 'foot';
-    player.pos.set(world.parked.x + 1, 0, world.parked.z - 22);
-    player.heading = 0;
+    // stand 20 m behind the car (and a step to its left), looking at its number plate
+    const fx = Math.sin(spot.heading), fz = Math.cos(spot.heading), lx = Math.cos(spot.heading), lz = -Math.sin(spot.heading);
+    player.pos.set(spot.x - fx * 22 + lx, 0, spot.z - fz * 22 + lz);
+    player.heading = spot.heading;
+    if (kent) await warmTiles(player.pos.x, player.pos.z, window.__game?.autoQuiz ? 0 : 1500); // the player is there now, so the frame loop streams the same tiles
     snapCamera();
-    camera.position.set(world.parked.x + 1, 1.7, world.parked.z - 21);
-    camera.lookAt(world.parked.x, 0.6, world.parked.z);
+    camera.position.set(spot.x - fx * 21 + lx, 1.7, spot.z - fz * 21 + lz);
+    camera.lookAt(spot.x, 0.6, spot.z);
+    if (kent) { hud.show(true); await fade(0); }
     draw();
-    const eyes = await quiz({ title: 'Eyesight check', q: 'Read the number plate on the dark blue car in the bay ahead (about 20 metres away). Which is it?', a: plateOptions(world.plate), plate: true });
+    const eyes = await quiz({ title: 'Eyesight check', q: `Read the number plate on the dark blue car ${centre === 'canterbury' ? 'parked in front of the test centre' : 'in the bay ahead'} (about 20 metres away). Which is it?`, a: plateOptions(world.plate), plate: true });
     if (!eyes) {
       $('res-name').textContent = 'Driving test result';
       $('res-medal').textContent = 'NOT PASSED · EYESIGHT';
@@ -750,6 +796,7 @@ async function startLesson(id) {
     }
     const tm = TELL_ME[Math.floor(Math.random() * TELL_ME.length)];
     if (!(await quiz({ title: 'Tell me', ...tm }))) pre.push('Show me/tell me: tell me question');
+    if (kent && !window.__game?.autoQuiz) { hud.show(false); await fade(1); }
     car = learner;
     mode = 'car';
     player.mesh.visible = false;
@@ -761,6 +808,13 @@ async function startLesson(id) {
   car.heading = st.heading;
   car.park();
   snapCamera();
+  if (kent) {
+    lesson.waiting = true; // the lesson clock doesn't run while the tiles fill in behind the fade
+    await warmTiles(st.x, st.z, window.__game?.autoQuiz ? 0 : 1500);
+    lesson.waiting = false;
+    if (!window.__game?.autoQuiz) { hud.show(true); await fade(0); }
+    hud.toast(`${centre === 'canterbury' ? 'Canterbury' : 'Herne Bay'} driving test centre. Z and X are the indicators, Q checks your mirrors.`, 4000);
+  }
 }
 
 // ---------- sound ----------
@@ -914,7 +968,7 @@ function step(dt) {
   if (world.trials?.active && mode !== 'car') world.trials.cancel('Time trial cancelled');
   if (lesson && mode !== 'car') lesson.cancel('Lesson stopped: you got out of the car');
   if (mode !== 'car') { drive.indicator = null; hud.indicators(false); hud.mirror(false); hud.limit(null); }
-  const obstacle = mode === 'car' ? { x: car.pos.x, z: car.pos.z, r: car.model.radius * 0.6 }
+  const obstacle = mode === 'car' ? { x: car.pos.x, z: car.pos.z, r: car.model.radius * 0.6, heading: car.heading, L: car.model.length, W: car.model.width }
     : mode === 'foot' ? { x: player.pos.x, z: player.pos.z, r: 0.5 } : null;
   world.traffic?.update(dt, obstacle, camera.position);
   world.player = obstacle;
@@ -962,7 +1016,8 @@ function step(dt) {
       drive.trafficHit = false;
       P.emit('km', (Math.abs(car.vF) * dt) / 1000);
       P.emit('speed', car.speedKmh);
-      if (world.traffic?.collide(car)) { car.sync(0); drive.trafficHit = true; }
+      // a traffic car that drives into the learner is its driver's fault, not a fault on the lesson
+      if (world.traffic?.collide(car)) { car.sync(0); drive.trafficHit = world.traffic.lastHit?.blame !== 'other'; }
       audio.update(car, input.up ? 1 : 0);
     } else {
       if (world.id === 'cabin') audio.jet(0.22); else audio.update(null, 0);
