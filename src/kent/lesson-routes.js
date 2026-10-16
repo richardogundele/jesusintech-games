@@ -65,7 +65,7 @@ export function testCentreLayout(net, tc) {
  * road, man?, park?, off? } and the events net.lanePath gives, plus lineS on lights and zebras,
  * 'stop' / 'pullright' events, and a 'baypark' end with the bay.
  */
-export function buildKentRoute(net, spec, { rnd = Math.random } = {}) {
+export function buildKentRoute(net, spec, { rnd = Math.random, legs = null } = {}) {
   // the test's one manoeuvre: a bay park at the end, or the pull up on the right and an ordinary pull-up
   if (spec.manoeuvre === 'either') spec = rnd() < 0.5 ? { ...spec, manoeuvre: 'baypark', pullRight: false } : { ...spec, manoeuvre: 'pullright', end: 'pullup', to: spec.pullUpAt, pullRight: true };
   const tc = centreOf(net, spec.centre || 'herne');
@@ -76,7 +76,7 @@ export function buildKentRoute(net, spec, { rnd = Math.random } = {}) {
     const lane = layout.roadDist - 17.5; // road centreline n offset from the lot centre
     to = layout.at(spec.bayFrom ?? 38, lane); // bayFrom: + is up the road on the side we come from
   }
-  const route = net.route({ x: spec.start.x, z: spec.start.z, maxD: 30 }, to, { via: spec.vias || [], noUturn: !!spec.noUturn, avoid: spec.avoid || [] });
+  const route = net.route({ x: spec.start.x, z: spec.start.z, maxD: 30 }, to, { via: spec.vias || [], noUturn: !!spec.noUturn, avoid: spec.avoid || [], legs }); // legs: test-routes.js remembers legs across its tries
   if (!route) throw new Error(`no route for ${spec.id || 'lesson'}`);
   const lp = net.lanePath(route, { end: spec.end === 'baypark' ? 'pullup' : spec.end || 'pullup' });
   const pts = lp.pts;

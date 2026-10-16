@@ -354,26 +354,39 @@ export class RoadNet {
     const link = h.way.links.find((l) => h.i >= l.i0 && h.i < l.i1) || h.way.links[h.way.links.length - 1];
     return { link, s: h.s, way: h.way, hit: h };
   }
-  route(from, to, { via = [], avoid = [], noUturn = false } = {}) {
+  /**
+   * legs: an optional Map to remember legs in (the test generator tries many routes through the same
+   * vias). Only for calls with the same avoid list and maxLeg; the legs in it are never changed.
+   * maxLeg: give up on a leg that would take longer than this many seconds (no route).
+   */
+  route(from, to, { via = [], avoid = [], noUturn = false, legs = null, maxLeg = Infinity } = {}) {
     const stops = [from, ...via, to];
+    const avoidSet = new Set(avoid), at = (p) => (typeof p === 'number' ? p : `${p.x},${p.z}`);
     let total = null, ban = null;
     for (let i = 0; i < stops.length - 1; i++) {
       // noUturn (the generated driving tests): a leg may not start back along the link the last one arrived on
-      const leg = this.#routeLeg(stops[i], stops[i + 1], new Set(avoid), noUturn ? ban : null);
+      const banNow = noUturn ? ban : null;
+      let leg;
+      if (legs) {
+        const key = `${at(stops[i])}>${at(stops[i + 1])}|${banNow ? banNow.link.id * 2 + (banNow.dir > 0 ? 1 : 0) : ''}`;
+        leg = legs.get(key);
+        if (leg === undefined) legs.set(key, (leg = this.#routeLeg(stops[i], stops[i + 1], avoidSet, banNow, maxLeg)));
+      } else leg = this.#routeLeg(stops[i], stops[i + 1], avoidSet, banNow, maxLeg);
       if (leg) ban = leg.lastLink;
       if (!leg) return null;
-      if (!total) total = leg;
-      else {
-        total.nodes.push(...leg.nodes.slice(1));
-        const last = total.ways[total.ways.length - 1], first = leg.ways[0];
-        if (last.way === first.way && last.dir === first.dir && (first.dir > 0 ? first.s0 >= last.s1 - 1e-6 : first.s0 <= last.s1 + 1e-6)) { last.s1 = first.s1; total.ways.push(...leg.ways.slice(1)); }
-        else total.ways.push(...leg.ways);
-        total.length += leg.length;
-      }
+      // copies: the merge below changes the route it builds, and a remembered leg must stay as it was
+      if (!total) { total = { nodes: leg.nodes.slice(), ways: leg.ways.map((w) => ({ ...w })), length: leg.length, lastLink: leg.lastLink }; continue; }
+      total.nodes.push(...leg.nodes.slice(1));
+      const last = total.ways[total.ways.length - 1], first = leg.ways[0];
+      const ways = leg.ways.map((w) => ({ ...w }));
+      if (last && first && last.way === first.way && last.dir === first.dir && (first.dir > 0 ? first.s0 >= last.s1 - 1e-6 : first.s0 <= last.s1 + 1e-6)) { last.s1 = first.s1; total.ways.push(...ways.slice(1)); }
+      else total.ways.push(...ways);
+      total.length += leg.length;
+      total.lastLink = leg.lastLink;
     }
     return total;
   }
-  #routeLeg(from, to, avoid, ban = null) {
+  #routeLeg(from, to, avoid, ban = null, maxCost = Infinity) {
     const A = this.#locate(from), B = this.#locate(to);
     const heap = new Heap(), best = new Map(), prev = new Map(); // key = link.id * 2 + (dir > 0 ? 1 : 0)
     const key = (link, dir) => link.id * 2 + (dir > 0 ? 1 : 0);
@@ -404,9 +417,10 @@ export class RoadNet {
       push(L, 1, (w.cum[L.i1] - A.s) / this.#speed(w), null);
       if (!w.oneway) push(L, -1, (A.s - w.cum[L.i0]) / this.#speed(w), null);
     }
-    let found = null;
+    let found = null, capped = false;
     while (heap.size) {
       const [cost, { link, dir }] = heap.pop(); const k = key(link, dir);
+      if (cost > maxCost) { capped = true; break; }
       if (best.get(k) < cost) continue;
       if (bestEnd && cost > bestEnd.cost) break;
       const nid = dir > 0 ? link.b : link.a, node = nid ? this.nodes.get(nid) : null;
@@ -420,7 +434,9 @@ export class RoadNet {
         if (!B.node) tryEnd(nx.link, nx.dir, cost + this.#turnPenalty(link, dir, nx.link, nx.dir, node), k);
       }
     }
-    if (!found && bestEnd) found = { key: bestEnd.key, cost: bestEnd.cost, endLink: bestEnd.link, endDir: bestEnd.dir };
+    // (cut short by maxCost, an end that costs more than it might not be the best one: no route, so a
+    // capped search never gives a different route from an uncapped one)
+    if (!found && bestEnd && !(capped && bestEnd.cost > maxCost)) found = { key: bestEnd.key, cost: bestEnd.cost, endLink: bestEnd.link, endDir: bestEnd.dir };
     if (!found) return null;
     // unwind
     const chain = [];
@@ -956,9 +972,10 @@ export class RoadNet {
     if (c.s < lo || c.s > hi) return;
     const kind = c.type === 'zebra' ? 'zebra' : ['pelican', 'puffin', 'toucan', 'signals'].includes(c.type) ? 'lights' : null;
     if (!kind) return;
-    // s along the path: the raw point on this piece nearest the crossing's way arc length
+    // s along the path: the raw point on this piece nearest the crossing's way arc length (this piece's
+    // own points: a route back along the same road passes the crossing again, the other way)
     let best = null, bestD = Infinity;
-    for (const r of raw) { if (r.way !== piece.way || r.sWay == null) continue; const d = Math.abs(r.sWay - c.s); if (d < bestD) { bestD = d; best = r; } }
+    for (const r of raw) { if (r.way !== piece.way || r.sWay == null || (r.dir != null && r.dir !== piece.dir) || r.sWay < lo - 1 || r.sWay > hi + 1) continue; const d = Math.abs(r.sWay - c.s); if (d < bestD) { bestD = d; best = r; } }
     if (best == null || bestD > 40) return;
     const s = pts[Math.min(ptsIndex.get(best) ?? pts.length - 1, pts.length - 1)].s - (c.s - best.sWay) * piece.dir;
     if (events.some((e) => e.kind === kind && Math.abs(e.s - (s - 4.5)) < 5)) return;
