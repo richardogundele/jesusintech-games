@@ -91,17 +91,19 @@ const POOLS = {
     homes: {
       stLawrence: { name: 'Old Dover Road and St Lawrence Road', vias: [4348, 2127] },
     },
+    // area tags keep two loops that share a corridor (so share roads) out of the same route: the
+    // Wincheap loops are 'sw', the ring/London ones 'west', the A28 ones 'north'
     loops: {
-      ring: { name: 'the ring road: Rhodaus Town and Castle Street', vias: [384, 185] },
-      puckle: { name: 'South Canterbury Road, Puckle Lane, Cromwell Road and Ethelbert Road', pick: [2056, 2034, 4698] },
-      thanington: { name: 'Wincheap, Thanington Road and St Nicholas Road', pick: [1300, 4871] },
-      hollowLane: { name: 'Wincheap, Hollow Lane and Homersham', pick: [1886, 1895] },
+      ring: { name: 'the ring road: Rhodaus Town and Castle Street', vias: [384, 185], area: 'ring' },
+      puckle: { name: 'South Canterbury Road, Puckle Lane, Cromwell Road and Ethelbert Road', pick: [2056, 2034, 4698], area: 'south' },
+      thanington: { name: 'Wincheap, Thanington Road and St Nicholas Road', pick: [1300, 4871], area: 'sw' },
+      hollowLane: { name: 'Wincheap, Hollow Lane and Homersham', pick: [1886, 1895], area: 'sw' },
       london: { name: 'Rheims Way and London Road', pick: [455, 490, 518], area: 'west' },
       stDunstans: { name: "St Dunstan's, Whitstable Road and Forty Acres Road", pick: [391, 80, 234, 459, 631, 237, 458], area: 'west' },
-      hales: { name: "St Stephen's Road and Hales Place", pick: [17, 62, 79, 4768, 190] },
+      hales: { name: "St Stephen's Road and Hales Place", pick: [17, 62, 79, 4768, 190], area: 'hales' },
       sturry: { name: 'the A28 Sturry Road and Vauxhall Road', pick: [295, 277, 498, 4796], area: 'north' },
       northgate: { name: 'Military Road and the three-lane Chaucer and Northgate roundabouts', pick: [204, 2956, 483, 485, 501], area: 'north' },
-      stMartins: { name: "Longport, St Martin's Hill and Littlebourne Road", pick: [601, 3049, 2390, 217, 2400, 4191] },
+      stMartins: { name: "Longport, St Martin's Hill and Littlebourne Road", pick: [601, 3049, 2390, 217, 2400, 4191], area: 'east' },
     },
   },
 };
