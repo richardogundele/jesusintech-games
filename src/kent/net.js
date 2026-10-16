@@ -354,11 +354,13 @@ export class RoadNet {
     const link = h.way.links.find((l) => h.i >= l.i0 && h.i < l.i1) || h.way.links[h.way.links.length - 1];
     return { link, s: h.s, way: h.way, hit: h };
   }
-  route(from, to, { via = [], avoid = [] } = {}) {
+  route(from, to, { via = [], avoid = [], noUturn = false } = {}) {
     const stops = [from, ...via, to];
-    let total = null;
+    let total = null, ban = null;
     for (let i = 0; i < stops.length - 1; i++) {
-      const leg = this.#routeLeg(stops[i], stops[i + 1], new Set(avoid));
+      // noUturn (the generated driving tests): a leg may not start back along the link the last one arrived on
+      const leg = this.#routeLeg(stops[i], stops[i + 1], new Set(avoid), noUturn ? ban : null);
+      if (leg) ban = leg.lastLink;
       if (!leg) return null;
       if (!total) total = leg;
       else {
@@ -371,7 +373,7 @@ export class RoadNet {
     }
     return total;
   }
-  #routeLeg(from, to, avoid) {
+  #routeLeg(from, to, avoid, ban = null) {
     const A = this.#locate(from), B = this.#locate(to);
     const heap = new Heap(), best = new Map(), prev = new Map(); // key = link.id * 2 + (dir > 0 ? 1 : 0)
     const key = (link, dir) => link.id * 2 + (dir > 0 ? 1 : 0);
@@ -395,7 +397,7 @@ export class RoadNet {
     };
     // seeds
     if (A.node) {
-      for (const { link, dir } of this.out.get(A.node.id) || []) if (!avoid.has(link.way.id)) { push(link, dir, this.#linkCost(link), null); tryEnd(link, dir, 0, null); }
+      for (const { link, dir } of this.out.get(A.node.id) || []) if (!avoid.has(link.way.id) && !(ban && ban.link === link && ban.dir === -dir)) { push(link, dir, this.#linkCost(link), null); tryEnd(link, dir, 0, null); }
       if (B.node && A.node === B.node) return { nodes: [A.node.id], ways: [], length: 0 };
     } else {
       const w = A.link.way, L = A.link;
@@ -441,7 +443,8 @@ export class RoadNet {
       if (i === 0 && startNode && A.node) nodes.push(startNode);
       if (endNode && !(i === chain.length - 1 && !B.node)) nodes.push(endNode);
     });
-    return { nodes, ways, length };
+    const lc = chain[chain.length - 1];
+    return { nodes, ways, length, lastLink: lc ? { link: lc.link, dir: lc.dir } : null };
   }
 
   // ---------- destinations for signs ----------

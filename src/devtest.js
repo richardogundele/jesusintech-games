@@ -2,10 +2,13 @@
 // Kent lessons (moveoff ... mock, mock-canterbury) start at their test centre; the Whitmore practice
 // ones are wm-moveoff ... wm-mock. tools/lesson-check.mjs runs the same thing headless in node.
 const g = window.__game;
-window.runLesson = async (id, maxSec = 2400, { bad = null } = {}) => { // a Kent test is 20-25 minutes of driving
+// trans: 'manual' | 'auto' picks the learner car's gearbox first (the pedals: src/pedals.js);
+// id can be { test: 'herne' | 'canterbury', seed } for a generated 15-minute test
+window.runLesson = async (id, maxSec = 2400, { bad = null, trans = null } = {}) => { // a Kent test is 20-25 minutes of driving
   document.getElementById('res-ok').click();
   g.autoQuiz = true;
-  await g.startLesson(id);
+  if (trans) g.setLearnerTrans(trans);
+  await (id?.test ? g.startTest(id.test, id.seed ?? 1) : g.startLesson(id));
   g.autoDrive = true;
   g.badDriver = bad; // e.g. { noSignals: true, speed: 1.4, runReds: true, wrongLane: true }
   let res = null;

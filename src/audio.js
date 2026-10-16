@@ -103,6 +103,7 @@ export class EngineAudio {
     }
     const p = PROFILES[car.spec.engine] || PROFILES.v8;
     this.setGrit(p.grit);
+    if (car.drive) return this.gearbox(car, p, t);
     const top = car.spec.topSpeed / 3.6;
     const v = Math.abs(car.vF);
     const gearSize = top / p.gears;
@@ -124,6 +125,24 @@ export class EngineAudio {
     const wind = Math.min(1, v / top);
     this.noiseFilter.frequency.setTargetAtTime(400 + wind * 1400, t, 0.1);
     this.noiseGain.gain.setTargetAtTime(wind * 0.1 + Math.min(1, (car.slip || 0) / 6) * 0.08, t, 0.1);
+  }
+
+  /** the learner car: pitch from the real engine rpm, silent when it's off (a stalled engine has no hum) */
+  gearbox(car, p, t) {
+    const d = car.drive, v = Math.abs(car.vF), on = d.engineOn || d.crank > 0;
+    const r = Math.min(1, d.rpm / 6500), thr = d.throttle;
+    const f = p.base * 0.9 + r * p.range * 1.15;
+    this.osc1.type = p.wave;
+    this.osc1.frequency.setTargetAtTime(Math.max(18, f), t, 0.03);
+    this.osc2.frequency.setTargetAtTime(Math.max(9, f * 0.5), t, 0.03);
+    this.osc3.frequency.setTargetAtTime(Math.max(36, f * 2.01), t, 0.03);
+    this.filter.frequency.setTargetAtTime(p.cutoff * (0.4 + thr * 0.8 + r * 0.5), t, 0.05);
+    this.engineGain.gain.setTargetAtTime(on ? 0.07 + thr * 0.14 + r * 0.06 : 0, t, on ? 0.06 : 0.12);
+    // labouring: a lumpy beat; the limiter: a stutter
+    if (on && (d.flags.labouring || d.rpm > 6400) && Math.random() < 0.25) this.shiftGain.gain.setTargetAtTime(0.55, t, 0.01); else this.shiftGain.gain.setTargetAtTime(1, t, 0.03);
+    const wind = Math.min(1, v / 50);
+    this.noiseFilter.frequency.setTargetAtTime(400 + wind * 1400, t, 0.1);
+    this.noiseGain.gain.setTargetAtTime(wind * 0.1, t, 0.1);
   }
 
   shift(t) {
@@ -220,6 +239,24 @@ export class EngineAudio {
       tock: [[1400, 0, 0.025, 0.04, 'square']],
     }[kind] || [];
     for (const [f, dt, len, peak, type] of seq) this.tone(f, t + dt, len, peak ?? 0.12, type);
+    // the learner gearbox: a stall shudders, a gear crunches, the starter whirrs
+    if (kind === 'stall') { for (let i = 0; i < 5; i++) this.thump(t + i * 0.09, 0.22 - i * 0.04, 42 - i * 4); }
+    if (kind === 'grind') this.noiseBurst(t, 0.28, 2600, 4, 0.12);
+    if (kind === 'crank') { for (let i = 0; i < 6; i++) this.thump(t + i * 0.09, 0.05, 90); this.noiseBurst(t, 0.55, 700, 1.5, 0.03); }
+  }
+  /** a low knock: the engine shaking itself to a stop */
+  thump(t, peak, freq) {
+    const o = this.ctx.createOscillator(); o.type = 'triangle';
+    o.frequency.setValueAtTime(freq * 1.6, t); o.frequency.exponentialRampToValueAtTime(freq, t + 0.08);
+    const g = this.ctx.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(Math.max(0.001, peak), t + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.09);
+    o.connect(g).connect(this.master); o.start(t); o.stop(t + 0.12);
+  }
+  /** band-passed noise: grinding teeth, a starter motor */
+  noiseBurst(t, len, freq, q, peak) {
+    const src = this.ctx.createBufferSource(); src.buffer = this.noiseBuf;
+    const f = this.ctx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = freq; f.Q.value = q;
+    const g = this.ctx.createGain(); g.gain.setValueAtTime(peak, t); g.gain.setValueAtTime(peak, t + len * 0.7); g.gain.exponentialRampToValueAtTime(0.0001, t + len);
+    src.connect(f).connect(g).connect(this.master); src.start(t, Math.random()); src.stop(t + len + 0.05);
   }
 }
 

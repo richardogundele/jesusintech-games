@@ -12,6 +12,9 @@
 import * as THREE from 'three';
 import { buildRoute, MPH, LANE, LW, LOT, BAYS, inLot } from './worlds/uk.js';
 import { buildKentRoute, KENT_ROUTES, idxAtS } from './kent/lesson-routes.js';
+import { pedalsManual, pedalsAuto, gearFor } from './pedals.js';
+import { seeded } from './kent/test-routes.js';
+import { scoreSheet, debrief } from './dl25.js';
 
 const BAY_X = BAYS[8].x;
 // the last few metres of the test: left into the test centre, along the aisle, forward into a bay
@@ -22,19 +25,31 @@ const INTO_BAY = [
   { x: BAY_X, z: 21.6 },
 ];
 
-// Official-style "tell me" (asked before you drive) and "show me" (asked while you drive) questions.
-// A wrong answer is one driving fault, as on the real test.
+// The official car "show me, tell me" questions (gov.uk, "Car show me tell me vehicle safety questions",
+// https://www.gov.uk/government/publications/car-show-me-tell-me-vehicle-safety-questions). The tell me
+// question is asked before you drive, the show me question while you drive. The first answer is the
+// right one (DVSA's, shortened); the others are wrong. A wrong answer is one driving fault.
 export const TELL_ME = [
-  { q: "Tell me how you'd check that the brakes are working before starting a journey.", a: ["They shouldn't feel spongy or slack. Test them as you set off: the car shouldn't pull to one side.", 'Press the horn and listen.', 'Pump the pedal ten times with the engine off.', 'Check the brake fluid is warm.'] },
-  { q: "Tell me how you'd check the tyres have enough tread depth and are in good condition.", a: ['No cuts or bulges, and at least 1.6 mm of tread across the central three-quarters, all the way round.', 'At least 1 mm of tread anywhere on the tyre.', 'Kick them; if they feel firm they are fine.', 'Look for the TWI mark on the sidewall only.'] },
-  { q: "Tell me how you'd check that the headlights and tail lights are working.", a: ['Switch them on (ignition on if needed) and walk round the car, or use a reflection.', 'Flash the high beam at another car.', 'Check the bulbs are warm after a drive.', "Look at the dashboard warning light: if it's off, they work."] },
-  { q: "Tell me where you'd find the information for the right tyre pressures for this car.", a: ["In the manufacturer's guide (handbook). Check and adjust them when the tyres are cold.", 'On the speedometer.', 'At any petrol pump: they are the same for all cars.', 'On the number plate.'] },
+  { q: "Tell me how you'd check that the brakes are working before starting a journey.", a: ["Brakes shouldn't feel spongy or slack. Test them as you set off: the car shouldn't pull to one side.", 'Press the horn and listen.', 'Pump the pedal ten times with the engine off.', 'Check the brake fluid is warm.'] },
+  { q: "Tell me where you'd find the information for the recommended tyre pressures for this car and how tyre pressures should be checked.", a: ["The manufacturer's guide. Use a reliable gauge, check and adjust them when the tyres are cold, don't forget the spare, and refit the valve caps.", 'On the speedometer; check them after a long drive while they are hot.', 'Any petrol pump: they are the same for every car.', 'On the number plate.'] },
+  { q: 'Tell me how you make sure your head restraint is correctly adjusted so it provides the best protection in the event of a crash.', a: ['The rigid part of the head restraint should be at least as high as the eye or top of the ears, and as close to the back of the head as is comfortable.', 'As low as it will go, so you can see over it.', 'Level with your shoulders.', "Take it out: it blocks the rear view."] },
+  { q: "Tell me how you'd check the tyres to ensure that they have sufficient tread depth and that their general condition is safe to use on the road.", a: ['No cuts or bulges, and at least 1.6 mm of tread across the central three-quarters of the tyre, all the way round.', 'At least 1 mm of tread anywhere on the tyre.', 'Kick them; if they feel firm they are fine.', 'Look for the tread-wear mark on the sidewall only.'] },
+  { q: "Tell me how you'd check that the headlights and tail lights are working.", a: ["Turn on the switch (turn on the ignition if needed), then walk round the car (as this is a 'tell me' question, you don't need to physically check the lights).", 'Flash the main beam at another car.', 'Check the bulbs are warm after a drive.', "Look at the dashboard: if the warning light is off, they work."] },
+  { q: "Tell me how you'd know if there was a problem with your anti-lock braking system.", a: ['A warning light will show if there is a problem with the anti-lock braking system.', 'The brake pedal goes hard.', 'The car pulls to the left when braking.', 'The handbrake light flashes.'] },
+  { q: "Tell me how you'd check the direction indicators are working.", a: ["Turn on the hazard warning light switch and walk round the car (as this is a 'tell me' question, you don't need to physically check the lights).", 'Listen for the ticking only.', 'Ask the examiner.', 'Indicate and watch the dashboard arrow only.'] },
+  { q: "Tell me how you'd check the brake lights are working on this car.", a: ['Use the reflections in windows or garage doors, or ask someone to help.', 'Press the brake pedal and look at the dashboard.', 'They come on with the headlights, so check those.', 'Pull the handbrake and look in the mirror.'] },
+  { q: "Tell me how you'd check the power-assisted steering is working before starting a journey.", a: ['If the steering becomes heavy, the system may not be working properly. Gentle pressure on the wheel while starting the engine should give a slight movement, or turning it just after moving off should feel the assistance.', 'Turn the wheel full lock with the engine off.', 'Listen for a whistle from the engine.', 'Check the steering fluid is hot.'] },
+  { q: "Tell me how you'd switch on the rear fog light(s) and explain when you'd use it/them.", a: ['Operate the switch (turn on dipped headlights and the ignition if needed), check the warning light, and use them when visibility drops below 100 metres.', 'Use them whenever it is dark.', 'Use them in light rain to be seen.', 'They come on with the main beam.'] },
+  { q: 'Tell me how you switch your headlight from dipped to main beam and explain how you\'d know the main beam is on.', a: ['Operate the switch (with the ignition or engine on if needed) and check the main beam warning light.', 'Turn the fog lights on.', 'Flash the hazards.', 'The dashboard goes brighter.'] },
 ];
 export const SHOW_ME = [
-  { q: "Show me how you'd wash and clean the rear windscreen.", a: ['Operate the rear wiper and washer control.', 'Switch on the hazard lights.', 'Open the rear window.', 'Turn on the heated seats.'] },
-  { q: "Show me how you'd switch on your dipped headlights.", a: ['Operate the light switch to dipped beam (and turn it back off).', 'Flash the headlights twice.', 'Switch on the front fog lights.', 'Switch on the interior light.'] },
-  { q: "Show me how you'd demist the front windscreen.", a: ['Set the fan and blower to the front windscreen, with air con on if the car has it.', 'Open the sunroof.', 'Use the rear wiper.', 'Turn the heater to the footwell only.'] },
-  { q: "Show me how you'd operate the horn.", a: ['Press the horn (only if it is safe; the examiner asks you to do it while stationary or on a quiet road).', 'Flash the headlights.', 'Wind the window down and shout.', 'Switch on the hazard lights.'] },
+  { q: "When it's safe to do so, can you show me how you wash and clean the rear windscreen?", a: ['Operate the rear wiper and washer control.', 'Switch on the hazard lights.', 'Open the rear window.', 'Turn on the heated seats.'] },
+  { q: "When it's safe to do so, can you show me how you wash and clean the front windscreen?", a: ['Operate the front washer and wiper control.', 'Switch on the rear demister.', 'Flash the headlights.', 'Open the sunroof.'] },
+  { q: "When it's safe to do so, can you show me how you'd switch on your dipped headlights?", a: ['Operate the light switch to dipped beam (and turn it back off).', 'Flash the headlights twice.', 'Switch on the front fog lights.', 'Switch on the interior light.'] },
+  { q: "When it's safe to do so, can you show me how you'd set the rear demister?", a: ['Operate the rear demister switch (and turn it back off).', 'Turn the heater to full.', 'Use the rear wiper.', 'Open the rear windows.'] },
+  { q: "When it's safe to do so, can you show me how you'd operate the horn?", a: ['Press the horn (only where it is safe and appropriate).', 'Flash the headlights.', 'Wind the window down and shout.', 'Switch on the hazard lights.'] },
+  { q: "When it's safe to do so, can you show me how you'd demist the front windscreen?", a: ['Set the fan and the heater to the front windscreen, with air conditioning on if the car has it.', 'Open the sunroof.', 'Use the rear wiper.', 'Turn the heater to the footwell only.'] },
+  { q: "When it's safe to do so, can you show me how you'd open and close the side window?", a: ['Operate the window switch (or winder) to open it, then close it.', 'Open the door.', 'Switch on the air conditioning.', 'Press the central locking.'] },
 ];
 const LETTERS = 'ABCDEFGHJKLMNPRSTUVWXYZ';
 export function randomPlate() {
@@ -59,12 +74,30 @@ export function plateOptions(real) {
   return out;
 }
 
+// DT1 section 14: the examiner's words at the start of the drive
+const DT1_START = 'Throughout the drive continue ahead, unless traffic signs direct you otherwise. When I want you to turn left or right, I will tell you in plenty of time. Move off when you are ready, please.';
 // Kent: the lessons keep the save ids they had in Whitmore. A lesson starts kerbside outside its
 // test centre; `route` names its entry in KENT_ROUTES.
 const KENT = [
   {
     id: 'moveoff', world: 'kent', route: 'moveoff', title: 'Moving off and stopping', blurb: 'The Boulevard by the Herne Bay test centre: mirrors, signal, move off, pull up on the left, an angled start.',
     intro: "Hi Richard, I'm Sarah, your instructor. We're outside the Herne Bay test centre on The Boulevard. Today: moving off and stopping. Check your mirrors with Q, signal right with X, then move off and keep to the left.",
+  },
+  // the gearbox lessons: only the ones for the car you're learning in are offered (def.trans)
+  {
+    id: 'clutch', world: 'kent', route: 'clutch', trans: 'manual', engineOff: true, title: 'Clutch control', blurb: 'The Boulevard: start the engine, find the biting point, move off and stop again and again, and a stall on purpose so you know how to recover.',
+    intro: "Hi Richard, I'm Sarah. Today it's all about the clutch, here on The Boulevard. The engine's off and the handbrake's on.",
+    drills: { start: ['start', 'bite', 'biteDown'], stop2: ['stall', 'recover'] },
+  },
+  {
+    id: 'gears', world: 'kent', route: 'gears', trans: 'manual', title: 'Gears', blurb: 'Up through the gears on Reculver Road and the A299 link at the right speeds, down for the Eddington roundabouts, fifth on the Thanet Way.',
+    intro: "Gears today. Change up as the engine note rises: second about 10 mph, third about 17, fourth about 27, fifth about 38. Change down for junctions and roundabouts: you can skip gears, fourth straight to second. Clutch down for every change.",
+    tasks: ['up4', 'down', 'block'],
+  },
+  {
+    id: 'autocontrols', world: 'kent', route: 'autocontrols', trans: 'auto', engineOff: true, title: 'Automatic controls', blurb: 'P, R, N and D, creeping at walking pace with just the brake, reversing a car length, and the handbrake at every stop.',
+    intro: "Hi Richard, I'm Sarah. An automatic has no clutch: the lever does the work. P to park, R reverse, N neutral, D drive. In D it creeps forward on its own, so your right foot covers the brake.",
+    drills: { start: ['astart', 'select', 'creep'], stop1: ['reverse', 'select2'], stop2: ['secureP', 'select2'] },
   },
   {
     id: 'junctions', world: 'kent', route: 'junctions', title: 'Junctions', blurb: 'Into Herne Bay: Mickleburgh Hill, then the town streets: turning into side roads and emerging at give-way lines.',
@@ -89,12 +122,12 @@ const KENT = [
   {
     id: 'mock', world: 'kent', route: 'mock', title: 'Driving test: Herne Bay', blurb: 'The real format from the Herne Bay centre: eyesight check, show me/tell me, the A299, Eddington, Greenhill, the town, about 20 minutes on the sat nav, a manoeuvre, sometimes an emergency stop. 15 driving faults or fewer and no serious faults to pass.', mock: true,
     checks: true, estop: 1 / 7, independent: [0.22, 0.72], showMe: 0.78,
-    intro: "Good morning. I'd like you to follow the road ahead unless traffic signs direct you otherwise. When I want you to turn, I'll ask you in good time. Move off when you're ready.",
+    intro: DT1_START,
   },
   {
     id: 'mock-canterbury', world: 'kent', route: 'mock-canterbury', title: 'Driving test: Canterbury', blurb: 'From 25 New Dover Road: the ring road, its three-lane roundabouts, St George\'s, the A28 Sturry Road, the sat nav, a manoeuvre, sometimes an emergency stop.', mock: true,
     checks: true, estop: 1 / 7, independent: [0.22, 0.72], showMe: 0.78,
-    intro: "Good morning. I'd like you to follow the road ahead unless traffic signs direct you otherwise. When I want you to turn, I'll ask you in good time. Move off when you're ready.",
+    intro: DT1_START,
   },
 ];
 const WHITMORE = [
@@ -137,6 +170,34 @@ const WHITMORE = [
 ];
 
 export const LESSONS = [...KENT, ...WHITMORE];
+/** the lesson def for a generated 15-minute test (kent/test-routes.js generateTest) */
+export function testDef(gen) {
+  const m = gen.meta;
+  return {
+    id: `test-${m.centre}`, world: 'kent', title: `Driving test: ${m.centreName}`, mock: true, checks: true, centre: m.centre,
+    blurb: '15 minutes on a route made for this test.', generated: m, spec: gen.spec, seed: m.seed, indepSpec: m.indep, estop: 1 / 7, showMe: 0.55,
+    intro: DT1_START, signs: gen.signs || null,
+  };
+}
+/** lessons that make sense in this gearbox (the clutch and gears lessons are for a manual) */
+export const lessonsFor = (trans) => LESSONS.filter((l) => !l.trans || l.trans === trans);
+
+// Drills: lesson steps the instructor waits for while the car is stopped (or creeping). `pilot` tells
+// the careful driver's feet what to do (pedals.js); `done` says when to move on.
+const DRILLS = {
+  start: { pilot: 'start', text: "First, start the engine. Clutch down (hold Left Shift), check it's in neutral (0), then press I.", done: (r, c) => c.engineOn },
+  bite: { pilot: 'bite', text: "Now the biting point. Handbrake stays on. Clutch down, select first (1), a little gas (tap W), then let the clutch up slowly (let go of Shift). When the engine note drops and the car wants to pull, that's the bite.", done: (r, c) => c.engineOn && c.gear === 1 && c.parkingBrake && c.drive.engaged > 0.25 },
+  biteDown: { pilot: 'hold', text: "That's the bite: feel it pulling against the handbrake? Clutch back down now (Left Shift) before it stalls.", done: (r, c) => c.clutch >= 0.8 || !c.engineOn },
+  stall: { pilot: 'stall', text: "Before we go on, stall it on purpose so you know what to do. Handbrake on, first gear, then let the clutch up with no gas.", done: (r, c) => c.stalled },
+  recover: { pilot: 'recover', text: "That's a stall. No panic: handbrake on, clutch down, select neutral (0), then press I to restart.", done: (r, c) => c.engineOn },
+  astart: { pilot: 'start', text: "Foot on the brake (S), check the lever is in P, then press I to start the engine.", done: (r, c) => c.engineOn },
+  select: { pilot: 'select', text: 'Keep your foot on the brake and select D (press 1). The handbrake stays on for now.', done: (r, c) => c.gear === 'D' },
+  creep: { pilot: 'creep', text: 'Mirrors (Q), signal right (X), handbrake off (Space), then ease off the brake. No gas: let it creep at walking pace.', done: (r) => r.creepT > 3 },
+  reverse: { pilot: 'reverse', text: 'Now reverse a car length. Foot on the brake, select R, handbrake off, look behind (Q), and let it creep back under the brake.', done: (r) => r.s < r.drillS - 4 },
+  select2: { pilot: 'select', text: "Stop with the brake and select D again (1). Then move off when you're ready.", done: (r, c) => c.gear === 'D' && Math.abs(c.vF) < 0.2 },
+  secureP: { pilot: 'secureP', text: 'This is how you park: foot on the brake, handbrake on (Space), then P (press 9).', done: (r, c) => c.parkingBrake && c.gear === 'P' },
+};
+const ORD_GEAR = ['', 'first', 'second', 'third', 'fourth', 'fifth'];
 
 const SEV = { minor: 'Driving fault', serious: 'Serious fault', dangerous: 'Dangerous fault' };
 
@@ -148,7 +209,8 @@ export class LessonRun {
     this.hooks = hooks;
     this.kent = !!world.net; // the real Kent roads; else Whitmore
     if (this.kent) {
-      this.route = buildKentRoute(world.net, { ...KENT_ROUTES[def.route], id: def.id });
+      // a generated test (def.spec) rebuilds exactly from its seed; the lessons use their fixed routes
+      this.route = buildKentRoute(world.net, { ...(def.spec || KENT_ROUTES[def.route]), id: def.id }, def.seed != null ? { rnd: seeded(def.seed) } : undefined);
       this.spec = this.route.spec; // with the manoeuvre picked for this run
       this.viaS = viaPositions(this.route);
     } else this.route = buildRoute(def.stops, { end: def.end || 'pullup' });
@@ -156,14 +218,19 @@ export class LessonRun {
     this.dirChanges = 0;
     this.lastDir = 0;
     // emergency stop: on a clear straight stretch in town, some of the time
-    if (def.estop && Math.random() < def.estop) {
+    // a generated test's choices (emergency stop, show me question) come from its seed too, so a retry is the same test
+    const R = (this.rnd = def.seed != null ? seeded(def.seed + 99) : Math.random);
+    const firstStop = this.kent ? this.route.events.find((e) => e.kind === 'stop') : null;
+    if (def.estop && R() < def.estop) {
       const busy = (s) => this.route.events.some((e) => Math.abs((e.entryS ?? e.s) - s) < 50);
       if (this.kent) {
         // a quiet town road (20-40 mph, not a dual carriageway, ring, manoeuvre or the car park), anywhere along the route
         const town = (q) => q.road && !q.rb && !q.man && !q.park && !q.road.dual && !q.road.nsl && q.road.limit >= 20 && q.road.limit <= 40;
         const nearStop = (s) => this.route.events.some((e) => (e.kind === 'stop' || e.kind === 'pullright') && Math.abs(e.s - s) < 120);
-        const ok = this.route.pts.filter((q, i) => i % 10 === 0 && q.s > 260 && q.s < this.route.length - 200 && town(q) && !busy(q.s) && !busy(q.s + 40) && !nearStop(q.s));
-        const p = ok[Math.floor(Math.random() * ok.length)];
+        // (on a generated test, after a pull-up, where the examiner briefs it as DT1 says)
+        const after = def.spec && firstStop ? firstStop.s + 150 : 260;
+        const ok = this.route.pts.filter((q, i) => i % 10 === 0 && q.s > after && q.s < this.route.length - 200 && town(q) && !busy(q.s) && !busy(q.s + 40) && !nearStop(q.s));
+        const p = ok[Math.floor(R() * ok.length)];
         if (p) this.estop = { s: p.s, state: 'armed' };
       } else {
         const p = this.route.pts.find((q) => q.s > 260 && q.road && !q.road.rural && q.road.limit >= 30 && !busy(q.s) && !busy(q.s + 40));
@@ -171,8 +238,11 @@ export class LessonRun {
       }
     }
     if (def.independent) this.indep = def.independent.map((f) => f * this.route.length);
+    // a generated test: independent driving from the first pull-up, by sat nav or following the signs for a place
+    if (def.indepSpec) { this.indep = [def.indepSpec.s0, def.indepSpec.s1]; this.indepMode = def.indepSpec.mode; this.signsTarget = def.indepSpec.target || null; }
     if (def.showMe) this.showMeS = def.showMe * this.route.length;
     this.events = this.route.events.map((e) => ({ ...e }));
+    if (this.kent) for (const e of this.events) e.text = dt1Text(e, !!def.mock);
     this.faults = [];
     this.t = 0;
     this.s = 0;
@@ -187,7 +257,12 @@ export class LessonRun {
     this.stopT = 0;
     this.done = false;
     this.text = def.intro;
-    this.say(def.intro);
+    // the gearbox lessons' drills, the coach's line under the instructor's text, the gears lesson's tasks
+    this.drillQ = (def.drills?.start || []).map((k) => ({ k, ...DRILLS[k] }));
+    this.stopN = 0; this.creepT = 0; this.coachText = ''; this.ctl = null;
+    this.tasks = def.tasks ? Object.fromEntries(def.tasks.map((k) => [k, false])) : null;
+    this.say(this.drillQ.length ? `${def.intro} ${this.drillQ[0].text}` : def.intro);
+    if (this.drillQ.length) this.drillQ[0].shown = true;
     // emerging give-way lines: where the route crosses the mouth of the side road
     if (!def.mock) this.guide = guideLine(this.route.pts);
     if (this.guide) world.scene.add(this.guide);
@@ -211,6 +286,8 @@ export class LessonRun {
   }
 
   get independent() { return this.indep && this.s > this.indep[0] && this.s < this.indep[1]; }
+  /** the drill the instructor is waiting for, for the autopilot's feet (pedals.js), or null */
+  get drill() { return this.drillQ?.[0]?.pilot ?? null; }
 
   fault(sev, cat, coolKey = cat, cooldown = 0) {
     if (cooldown && this.cool[coolKey] > this.t) return;
@@ -266,8 +343,9 @@ export class LessonRun {
     const crossed = (line) => prevS < line && s >= line;
 
     // ---- moving off ----
-    if (!this.moved && mph > 2) {
-      this.moved = true;
+    if (car.drive) this.drills(dt, car, mph);
+    if (!this.moved && mph > 2 && car.vF > 0) { // forwards: creeping back in a drill isn't moving off
+      this.moved = true; this.movedT = this.t;
       if (!this.mirror.some((m) => this.t - m.t < 10)) this.fault('minor', 'Move off: safety (mirrors)');
       // after an emergency stop you're already in the lane: mirrors yes, signal only if needed
       if (!this.afterStop && !this.sig.some((x) => x.dir === 'right' && this.t - x.t < 10)) this.fault('minor', 'Signals: necessary (moving off)');
@@ -297,9 +375,15 @@ export class LessonRun {
       const giveWay = e.kind === 'emerge' || (this.kent && e.kind === 'cross');
       if (giveWay && !e.lineDone && s > e.lineS - 15 && s <= e.lineS) e.minMph = Math.min(e.minMph ?? Infinity, mph);
       if (this.kent && giveWay && e.seenMajor == null && s > e.lineS - 4) e.seenMajor = this.majorBusy(e, car, 2.5, 35);
+      if (this.kent && giveWay && e.stopSign == null) e.stopSign = !!this.world.net.nodes.get(e.node)?.stop;
+      // automatic: told to stop (traffic on the main road as you reach the line), creeping over it is a control fault
+      if (giveWay && car.drive?.kind === 'auto' && e.mustStop == null && s > e.lineS - 8 && this.kent) e.mustStop = this.majorBusy(e, car, 2.5, 35);
+      if (giveWay && !e.lineDone && s > e.lineS - 8 && s <= e.lineS && mph < 0.5) e.stoppedAt = true;
       if (giveWay && !e.lineDone && crossed(e.lineS)) {
         e.lineDone = true;
         e.lineMph = mph;
+        if (e.mustStop && !e.stoppedAt && mph > 2) this.fault('minor', 'Control: creep not controlled (crossed the give-way line)');
+        if (e.stopSign && (e.minMph ?? mph) > 0.6) this.fault('serious', 'Response to signs and signals: traffic signs (did not stop at the STOP line)');
         if ((e.minMph ?? mph) > 7) this.fault('serious', 'Junctions: observation (emerged without slowing to look)');
         if (this.kent && this.majorBusy(e, car, 2.5, 35) && e.seenMajor) this.fault('serious', 'Junctions: observation (pulled out in front of traffic)');
       }
@@ -376,22 +460,29 @@ export class LessonRun {
       if (mph < 0.5) {
         es.state = 'done';
         this.hooks.estop?.(false);
-        this.say("Thank you. I won't ask you to do that again. Move off when you're ready.");
+        this.say(this.def.mock ? 'Thank you. I will not ask you to do that exercise again. Drive on when you are ready.' : "Thank you. I won't ask you to do that again. Move off when you're ready.");
         this.moved = false;
         this.afterStop = true;
       } else if (this.t - es.t0 > 7) { es.state = 'done'; this.hooks.estop?.(false); this.fault('serious', 'Control: emergency stop (did not stop)'); }
     }
 
+    // ---- name a sign at a red light (lessons only, not marked; main.js shows it) ----
+    if (this.kent && !this.def.mock && this.hooks.signQuiz && this.moved && mph < 0.3 && this.t - (this.lastSignQ ?? -45) > 75
+      && this.events.some((e) => e.kind === 'lights' && e.lineS - s > 0 && e.lineS - s < 25 && this.world.signals.stateFor(e.group, car.heading) === 'red')) {
+      this.lastSignQ = this.t; this.waiting = true;
+      this.hooks.signQuiz().then(() => { this.waiting = false; });
+    }
     // ---- show me, while driving ----
     if (this.showMeS && !this.showMeDone && s > this.showMeS && mph > 8 && !nearJ) {
       this.showMeDone = true;
       this.waiting = true;
-      const item = SHOW_ME[Math.floor(Math.random() * SHOW_ME.length)];
+      const item = SHOW_ME[Math.floor(this.rnd() * SHOW_ME.length)];
       this.hooks.quiz({ title: 'Show me', ...item }).then((ok) => {
         this.waiting = false;
         if (!ok) this.fault('minor', 'Show me/tell me: show me question');
       });
     }
+    if (car.drive) this.controlFaults(dt, car, mph, nearJ);
     if (ctl.hit) this.fault('dangerous', 'Control: collision', 'hit', 5);
     for (const p of this.people()) {
       const dp = Math.hypot(p.x - car.pos.x, p.z - car.pos.z);
@@ -403,6 +494,11 @@ export class LessonRun {
       || (this.kent && (here.man || parkPhase || this.queued(car) || this.estop?.state === 'braking'));
     if (this.held('slow', this.moved && !waitingAhead && !pullingUp && !nearJ && mph < Math.min(8, limit * 0.3), dt, 12)) this.fault('minor', 'Progress: undue hesitation', 'slow', 25);
 
+    // ---- no entry: the wrong way along a one-way street (only off the route: the route itself is legal) ----
+    if (this.kent && this.dist > 4 && mph > 2) {
+      const h = this.world.net.nearest(car.pos.x, car.pos.z, 8);
+      if (h && h.way.oneway && !h.way.rb && h.dist < h.way.halfW && h.dir[0] * Math.sin(car.heading) + h.dir[1] * Math.cos(car.heading) < -0.5) this.fault('serious', 'Response to signs and signals: traffic signs (no entry: wrong way down a one-way street)', 'noentry', 30);
+    }
     // ---- off route ----
     if (this.kent && this.dist < 6) this.goodS = s;
     if (this.held('off', this.dist > 14, dt, 4) && !this.offSaid) {
@@ -417,10 +513,96 @@ export class LessonRun {
     const nearEnd = end.kind === 'baypark' ? parkPhase && s > end.s - 25 : s > end.s - 55 && this.dist < 10;
     if (nearEnd && (!this.estop || this.estop.state !== 'braking')) {
       this.stopT = mph < 0.5 ? this.stopT + dt : 0;
-      if (this.stopT > (end.kind === 'baypark' ? 1.6 : 1.2)) this.finish(end, car);
+      // the learner gearbox: secure the car (handbrake on) before the lesson ends; 6 s and it ends anyway, with a fault
+      const secured = !car.drive || car.parkingBrake || this.stopT > 6;
+      if (car.drive && this.stopT > 1 && !car.parkingBrake && !this.def.mock) this.coachText = 'Handbrake on (Space), please.';
+      if (this.stopT > (end.kind === 'baypark' ? 1.6 : 1.2) && secured) {
+        if (car.drive && !car.parkingBrake) this.fault('minor', 'Control: parking brake (not applied at the end)');
+        this.finish(end, car);
+      }
     }
     if (this.kent) this.satnavUpdate(car);
-    this.hooks.hud({ text: this.text, faults: this.counts(), mock: !!this.def.mock, title: this.independent ? 'Independent driving · follow the sat nav' : this.def.title });
+    this.hooks.hud({ text: this.text, coach: this.coachText, faults: this.counts(), mock: !!this.def.mock, title: this.independent ? 'Independent driving · follow the sat nav' : this.def.title });
+  }
+
+  // ---------- the learner gearbox: drills, control faults, coaching ----------
+  /** move the drill queue on; a drill the driver skips by driving off is dropped */
+  drills(dt, car, mph) {
+    const step = this.drillQ[0];
+    if (!step) return;
+    if (!step.shown) { step.shown = true; this.drillS = this.s; this.creepT = 0; this.say(step.text); }
+    if (step.k === 'creep' && mph > 1.5 && mph < 5.5 && car.drive.throttle < 0.05) this.creepT += dt;
+    if (!['creep', 'reverse', 'select2'].includes(step.k) && mph > 4) { this.drillQ.length = 0; this.say("OK, we'll leave that one for now."); return; }
+    if (step.done(this, car)) {
+      this.drillQ.shift();
+      if (this.tasks) this.tasks[step.k] = true;
+      if (!this.drillQ.length) this.say(this.moved ? 'Good. Carry on along the road.' : "Good. Move off when you're ready: mirrors, signal, and away.");
+    }
+  }
+  /** someone close by on the road: a stall here holds them up or puts them at risk */
+  trafficNear(car, r) { return (this.world.traffic?.cars || []).some((c) => Math.hypot(c.x - car.pos.x, c.z - car.pos.z) < r); }
+  /**
+   * DVSA control faults for the gearbox (DT1 annex 6: coasting is "running on in neutral or with the
+   * clutch depressed"; wrong gear; the parking brake), and the coach's tips in lessons (not tests).
+   */
+  controlFaults(dt, car, mph, nearJ) {
+    const d = car.drive, f = d.flags, manual = d.kind === 'manual', mock = !!this.def.mock;
+    this.trans = d.kind;
+    const C = this.ctl || (this.ctl = { stalls: d.stalls, grinds: d.grinds, n: 0, keyOff: d.keyOff, gear: d.gear, said: {} });
+    const coachSay = (key, text, every = 14) => { if (mock) return; if ((C.said[key] ?? -99) + every < this.t) { C.said[key] = this.t; this.hooks.say(text); } };
+    let tip = '';
+    // stalling: a driving fault; serious if it leaves you stuck in a junction with traffic about, or keeps happening
+    if (d.stalls !== C.stalls) {
+      C.stalls = d.stalls;
+      if (this.drillQ.length) { if (this.drillQ[0].k !== 'stall' && this.drillQ[0].k !== 'recover') this.drillQ.unshift({ k: 'recover', ...DRILLS.recover }); }
+      else {
+        C.n++;
+        const moveOff = !this.moved || this.t - (this.movedT ?? -99) < 5, blocking = nearJ && this.trafficNear(car, 40);
+        const cat = moveOff ? 'Move off: control (stalled)' : blocking ? 'Control: clutch (stalled in a junction)' : 'Control: clutch (stalled)';
+        this.fault(blocking || C.n >= 3 ? 'serious' : 'minor', cat);
+        coachSay('stall', "You've stalled. Clutch down, neutral, then I to restart. A bit more gas and a slower clutch next time.", 4);
+      }
+    }
+    if (d.grinds !== C.grinds) { C.grinds = d.grinds; this.fault('minor', 'Control: gears (changed gear without the clutch)', 'grind', 10); }
+    if (manual) {
+      // riding the clutch: held part way down while driving along
+      if (this.held('ride', d.pedal > 0.12 && d.pedal < 0.88 && mph > 3, dt, 3)) this.fault('minor', 'Control: clutch (riding the clutch)', 'ride', 20);
+      if (this.held('coastC', d.pedal > 0.6 && d.gear !== 'N' && mph > 10, dt, 3)) { this.fault('minor', 'Control: clutch (coasting with the clutch down)', 'coastC', 15); coachSay('coast', "Don't coast with the clutch down: find a gear and let the clutch up."); }
+      if (this.held('lab', f.labouring, dt, 2)) this.fault('minor', 'Control: gears (wrong gear, engine labouring)', 'lab', 15);
+      if (this.held('rev', f.overRev && d.engaged > 0.9 && d.gear !== 'N' && mph > 3, dt, 1.5)) this.fault('minor', 'Control: gears (wrong gear, over-revving)', 'rev', 15);
+      const g = typeof d.gear === 'number' ? d.gear : null, best = gearFor(car.vF, g ?? 1);
+      if (f.labouring && this.timers.lab > 0.7) { tip = `Engine labouring: change down to ${ORD_GEAR[best]}.`; coachSay('lab', `Change down to ${ORD_GEAR[best]}.`, 8); }
+      else if (this.timers.rev > 0.5) { tip = `Too many revs: change up to ${ORD_GEAR[best]}.`; coachSay('rev', `Change up to ${ORD_GEAR[best]}.`, 8); }
+      else if (this.def.tasks && g && best > g && d.rpm > 3300 && d.throttle > 0.3) tip = `Change up to ${ORD_GEAR[best]}.`;
+      // the gears lesson's tasks
+      if (this.tasks) {
+        if (g >= 4) this.tasks.up4 = true;
+        if (typeof C.gear === 'number' && g && g < C.gear) {
+          if (C.gear - g >= 2) this.tasks.block = true;
+          if (this.events.some((e) => ['rb', 'emerge', 'turn', 'mini', 'cross'].includes(e.kind) && (e.lineS ?? e.entryS ?? e.s) - this.s < 90 && (e.lineS ?? e.entryS ?? e.s) - this.s > -5)) this.tasks.down = true;
+        }
+      }
+    }
+    if (d.gear !== C.gear) C.gear = d.gear;
+    if (this.held('coastN', d.gear === 'N' && mph > 10, dt, 3)) this.fault('minor', 'Control: gears (coasting in neutral)', 'coastN', 15);
+    // the parking brake: moving with it on; secured at pull-ups and before switching off
+    if (d.parkingBrake && mph > 1) { this.fault('minor', 'Control: parking brake (moving with it on)', 'pbmove', 30); tip = 'Handbrake still on! Press Space.'; }
+    if (this.pulledUp) {
+      if (mph < 0.5 && d.parkingBrake) this.pulledUp.secured = true;
+      if (mph > 2) { if (!this.pulledUp.secured) this.fault('minor', 'Control: parking brake (not applied when you pulled up)'); this.pulledUp = null; }
+    }
+    if (d.keyOff && !C.keyOff && !d.parkingBrake) this.fault('minor', 'Control: parking brake (not applied before switching off)');
+    C.keyOff = d.keyOff;
+    if (d.kind === 'auto' && d.gear === 'D' && car.vF < -0.9) this.fault('minor', 'Control: rolled back', 'rollback', 10);
+    // the coach's line (lessons only): what to do next with the controls
+    if (!mock) {
+      if (!d.engineOn) tip = d.stalled ? 'Stalled: clutch down, neutral (0), handbrake on, then I to restart.' : manual ? 'Engine off: clutch down (Left Shift), neutral (0), then I.' : 'Engine off: foot on the brake, P (9) or N (0), then I.';
+      else if (!this.moved && mph < 0.5 && !this.drillQ.length) tip = manual ? 'Moving off: clutch down · first (1) · gentle gas (W) · find the bite · handbrake off (Space) · mirrors (Q) · signal (X) · clutch up gently'
+        : 'Moving off: foot on the brake · D (1) · handbrake off (Space) · mirrors (Q) · signal (X) · ease off the brake';
+      else if (this.pulledUp && !this.pulledUp.secured && mph < 0.5) tip = manual ? 'Pulled up: handbrake on (Space), then neutral (0).' : 'Pulled up: handbrake on (Space), then N (0).';
+      else if (f.coasting && mph > 8) tip = manual ? 'Coasting: get it in gear and the clutch up.' : 'Coasting in N: select D.';
+    }
+    this.coachText = tip;
   }
 
   people() {
@@ -534,8 +716,11 @@ export class LessonRun {
         if (!signalled('left', e.s - 120, s + 1)) this.fault('minor', 'Signals: necessary (pulling up)');
         if (!mirrors(e.s - 130, s + 1)) this.fault('minor', 'Mirrors: signalling (pulling up)');
         if (this.lat < -0.5) this.fault('minor', 'Positioning: too far from the kerb');
-        this.say(e.angled ? "Thank you. Move off when you're ready. The car in front makes this an angled start, so look round to your right before you pull out." : "Thank you. Move off again when you're ready.");
+        this.say(this.def.mock ? this.testStopText(e) : e.angled ? "Thank you. Move off when you're ready. The car in front makes this an angled start, so look round to your right before you pull out." : "Thank you. Move off again when you're ready.");
         this.moved = false; this.afterStop = false;
+        this.stopN++; this.pulledUp = { secured: false };
+        const q = this.def.drills?.[`stop${this.stopN}`];
+        if (q && car.drive) this.drillQ.push(...q.map((k) => ({ k, ...DRILLS[k] })));
       } else if (s > e.s + 25) { e.done = true; this.fault('minor', 'Control: pulling up (did not stop when asked)'); }
     }
     if (e.kind === 'pullright') {
@@ -546,7 +731,7 @@ export class LessonRun {
           e.phase = 'stopped'; e.at = s;
           if (!signalled('right', e.s - 100, s + 1)) this.fault('minor', 'Signals: necessary (pulling up on the right)');
           if (!mirrors(e.s - 110, s + 1)) this.fault('minor', 'Mirrors: change direction');
-          this.say('Now reverse back about two car lengths, keeping reasonably close to the kerb.');
+          this.say(this.def.mock ? 'I would now like you to reverse for about two car lengths, keeping reasonably close to the kerb.' : 'Now reverse back about two car lengths, keeping reasonably close to the kerb.');
         } else if (s > e.stopS + 30) { e.phase = 'done'; this.fault('serious', 'Manoeuvres: control (did not pull up on the right)'); }
       } else if (e.phase === 'stopped' && car.vF < -0.3) {
         e.phase = 'reversing'; e.minS = s; e.t = 0;
@@ -559,7 +744,7 @@ export class LessonRun {
           const back = e.at - e.minS;
           if (back < 5 || back > 14) this.fault('minor', 'Manoeuvres: control (reverse about two car lengths)');
           if (Math.abs(this.lat) > 0.9) this.fault('minor', 'Manoeuvres: accuracy (keep close to the kerb)');
-          this.say("Thank you. Drive on when you're ready.");
+          this.say(this.def.mock ? 'Thank you. Drive on when you are ready, please.' : "Thank you. Drive on when you're ready.");
           this.moved = false; this.afterStop = true; // mirrors before moving off; a signal only if it helps someone
         }
       }
@@ -671,7 +856,7 @@ export class LessonRun {
     if (this.estop?.state === 'armed') this.estop = null; // the road it was planned on may not be on the new route
     for (const e of this.events) if (e.parkedH && !e.done) { this.hooks.removeParked?.(e.parkedH); e.parkedH = null; } // a pull-up we'll never reach
     this.route = { ...r, layout: this.route.layout };
-    this.events = r.events.map((e) => ({ ...e }));
+    this.events = r.events.map((e) => ({ ...e, text: dt1Text(e, !!this.def.mock) }));
     let prevEnd = sNow;
     for (const e of this.events) { e.prevEnd = prevEnd; if (MANOEUVRES.includes(e.kind)) prevEnd = endOf(e); }
     this.viaS = viaPositions(this.route);
@@ -680,7 +865,7 @@ export class LessonRun {
     this.track(car);
     if (this.guide) { this.world.scene.remove(this.guide); this.guide.geometry.dispose(); this.guide = guideLine(this.route.pts); this.world.scene.add(this.guide); }
     this.satnav = { next: null, called: {} };
-    this.say(this.independent ? 'Sat nav: route recalculated.' : "That's fine, I'll take you back on to the route. Follow the road and I'll direct you.");
+    this.say(this.independent ? (this.indepMode === 'signs' ? `That's fine. Follow the signs for ${this.signsTarget} again when you can.` : 'Sat nav: route recalculated.') : "That's fine, I'll take you back on to the route. Follow the road and I'll direct you.");
   }
   /**
    * The sat nav card during independent driving: the next manoeuvre, its arrow (a roundabout exit
@@ -688,7 +873,9 @@ export class LessonRun {
    * yards" and "In 100 yards" spoken as it comes up.
    */
   satnavUpdate(car) {
+    if (this.indep && !this.indepEnded && this.s > this.indep[1] && this.def.indepSpec) { this.indepEnded = true; this.say("Thank you, that's the end of the independent driving. I will direct you from now on."); }
     if (!this.independent || this.done) { if (this.satnav.shown) { this.satnav.shown = false; this.hooks.satnav?.(null); } return; }
+    if (this.indepMode === 'signs') { this.satnav.shown = true; this.hooks.satnav?.({ arrow: 'signs', yards: null, text: `Follow the signs for ${this.signsTarget}`, road: '', lanes: null }); return; }
     const s = this.s, YD = 0.9144;
     const e = this.events.find((q) => SATNAV.includes(q.kind) && (q.lineS ?? q.entryS ?? q.s) > s - 2);
     if (!e) { this.hooks.satnav?.(null); return; }
@@ -730,8 +917,12 @@ export class LessonRun {
     }
     this.done = true;
     this.dispose();
-    const c = this.counts();
-    const passed = c.minor <= 15 && c.serious === 0 && c.dangerous === 0;
+    // the DL25: one marking for the pass/fail, the sheet and the debrief (dl25.js); repetition only counts on tests
+    const man = this.spec?.manoeuvre || (this.spec?.pullRight ? 'pullright' : this.spec?.end === 'baypark' ? 'baypark' : null);
+    const sheet = scoreSheet(this.faults, { test: !!this.def.mock, man });
+    const c = { minor: sheet.total, serious: sheet.serious, dangerous: sheet.dangerous };
+    const passed = sheet.passed;
+    const brief = debrief(sheet, { where: (f) => this.where(f), mock: !!this.def.mock, trans: this.trans || car.trans, lessonTitle: (id) => LESSONS.find((l) => l.id === id)?.title || id });
     const groups = {};
     for (const f of this.faults) {
       const k = `${f.sev}|${f.cat}`;
@@ -739,11 +930,36 @@ export class LessonRun {
     }
     const lines = Object.entries(groups).map(([k, n]) => { const [sev, cat] = k.split('|'); return { sev, cat, n }; })
       .sort((a, b) => ['dangerous', 'serious', 'minor'].indexOf(a.sev) - ['dangerous', 'serious', 'minor'].indexOf(b.sev));
-    const verdict = this.def.mock
-      ? (passed ? "That's the end of your test. I'm pleased to tell you you've passed." : "That's the end of your test. I'm sorry to tell you that you haven't passed today.")
-      : (passed ? 'Lovely. That was a good drive. Let me show you how it went.' : "That's the end of the lesson. We've got a few things to work on.");
-    this.say(verdict);
-    this.hooks.result({ id: this.def.id, title: this.def.title, mock: !!this.def.mock, practice: !!this.def.practice, passed, counts: c, lines, time: this.t });
+    this.say(this.def.mock ? `Please switch off the engine and give me a moment to complete my test report. ${brief.spoken}` : brief.verdict);
+    const map = this.kent || this.route.pts.length ? { pts: this.route.pts.filter((q, i) => i % 6 === 0).map((q) => [+q.x.toFixed(1), +q.z.toFixed(1)]), faults: this.faults.filter((f) => f.at).map((f) => ({ x: f.at.x, z: f.at.z, sev: f.sev })) } : null;
+    this.hooks.result({ id: this.def.id, title: this.def.title, mock: !!this.def.mock, practice: !!this.def.practice, passed, counts: c, lines, time: this.t, tasks: this.tasks, trans: this.trans || car.trans,
+      sheet, brief, map, generated: this.def.generated || null, signs: this.def.signs || null });
+  }
+
+  /** where a fault happened, for the debrief: the roundabout or junction near it, else the road */
+  where(f) {
+    const s = f.s ?? 0, net = this.world.net;
+    const e = this.events.find((q) => (q.kind === 'rb' && s > q.entryS - 60 && s < q.exitS + 30) || (['emerge', 'turn', 'cross', 'mini', 'lights', 'zebra'].includes(q.kind) && Math.abs((q.lineS ?? q.s) - s) < 35));
+    if (e && net) {
+      if (e.kind === 'rb') { const rb = net.roundabouts.get(e.rb); const nm = rb?.name && !rb.name.includes('?') ? rb.name.replace(/ Roundabout$/i, '') : null; return nm ? `${nm} roundabout` : 'the roundabout'; }
+      const node = e.node ? net.nodes.get(e.node) : null;
+      if (node) { const names = [...new Set(node.ways.map((r) => r.way.name || r.way.ref).filter(Boolean))]; if (names.length >= 2) return `the ${e.kind === 'lights' ? 'lights' : e.kind === 'zebra' ? 'zebra crossing' : 'junction'} of ${names.slice(0, 2).join(' and ')}`; }
+    }
+    const p = this.route.pts[Math.max(0, idxAtS(this.route.pts, s))], w = p && net?.ways.get(p.way);
+    return w ? [w.ref, w.name].filter(Boolean).join(' ') || 'a side road' : '';
+  }
+  /** DT1 wording after a pull-up on a test: the independent driving briefing, the emergency stop briefing */
+  testStopText(e) {
+    const firstStop = this.events.find((q) => q.kind === 'stop');
+    if (this.def.indepSpec && e === firstStop) return this.indepMode === 'signs'
+      ? `Now I would like you to drive independently following the traffic signs for ${this.signsTarget}. Continue to follow the signs until I tell you otherwise. Drive on when you are ready.`
+      : "Now I would like you to drive independently, following the directions from the sat nav until I tell you otherwise. Please don't rely on the speeds shown on the sat nav, as they may not be accurate. Drive on when you are ready.";
+    const nextStop = this.events.find((q) => q.kind === 'stop' && q.s > e.s);
+    if (this.def.spec && this.estop?.state === 'armed' && this.estop.s > e.s && (!nextStop || nextStop.s > this.estop.s)) {
+      this.estop.briefed = true;
+      return "Shortly I shall ask you to carry out an emergency stop. When I give the signal, 'Stop!', I'd like you to stop as quickly and as safely as possible. Before giving the signal I shall look round to make sure it is safe, but please wait for my signal. Drive on when you are ready.";
+    }
+    return 'Thank you. Drive on when you are ready, please.';
   }
 
   cancel(why) {
@@ -787,6 +1003,25 @@ function touching(car, p) {
 /** where a manoeuvre's own signalling is over (moving off after a stop signals for another 15-20 m) */
 const endOf = (e) => (e.kind === 'rb' ? e.exitS + 8 : e.kind === 'diverge' ? e.s + 110 : e.kind === 'stop' ? e.s + 30 : e.kind === 'pullright' ? e.stopS + 40 : (e.lineS ?? e.s) + 12);
 const FRONT = 2; // m from the middle of the car to its front bumper (a Polo is 4.07 m long)
+/**
+ * Directions in DVSA's words (DT1 section 14 test wordings): "At the end of the road turn left,
+ * please", "Take the next road on the right, please", "At the roundabout turn left please (it is the
+ * first exit)", "... follow the road ahead (it is the second exit)", "Pull up on the left at a safe
+ * place, please", the angled start and the reverse right. Lane advice stays on the end.
+ */
+function dt1Text(e, test) {
+  const lane = (e.text || '').match(/ Use the [a-z-]+ lane\./)?.[0] || '';
+  switch (e.kind) {
+    case 'turn': return e.dir === 'none' ? e.text : `Take the next road on the ${e.dir}, please.`;
+    case 'emerge': return e.dir === 'none' ? 'At the end of the road, go straight ahead, please.' : `At the end of the road turn ${e.dir}, please.`;
+    case 'rb': { const ord = ORDW[e.exit - 1] || `${e.exit}th`; return `At the roundabout ${e.dir === 'left' ? 'turn left please' : e.dir === 'right' ? 'turn right please' : 'follow the road ahead'} (it is the ${ord} exit).${lane}`; }
+    case 'stop': return test ? (e.angled ? 'Pull up on the left just before you get to the next parked car, please.' : 'Pull up on the left at a safe place, please.') : e.text;
+    case 'pullright': return test ? 'Pull up on the right when it is safe to do so, please.' : e.text;
+    case 'baypark': return test ? 'At the end of the road turn left into the test centre car park, please. I would like you to drive forward into a convenient parking bay, either to the left or the right. Finish within one of the bays.' : e.text;
+    case 'pullup': return test ? 'Pull up on the left at a safe place, please.' : e.text;
+  }
+  return e.text;
+}
 const ORDW = ['first', 'second', 'third', 'fourth', 'fifth', 'sixth', 'seventh'];
 
 /** where each via point falls along a Kent route (arc length), for rerouting from the ones not reached */
@@ -827,12 +1062,14 @@ export function carefulDriver(run, car, st, bad = null) {
   const o = run.kent ? carefulKent(run, car, st, bad || {}) : careful(run, car, st, bad || {});
   if (bad?.noSignals) o.indicator = null;
   if (bad?.noMirrors) o.mirror = false;
+  // the learner car has a real gearbox: turn "go this fast" into clutch, gears, pedals and the handbrake (pedals.js)
+  if (car.drive) o.input = (car.drive.kind === 'manual' ? pedalsManual : pedalsAuto)(run, car, st, o, bad || {});
   return o;
 }
 function careful(run, car, st, bad) {
   const pts = run.route.pts, s = run.s, v = car.vF, mph = Math.abs(v) * MPH;
   st.t = (st.t || 0) + 1 / 60;
-  const out = { input: { up: false, down: false, brake: false, steer: 0, run: false }, indicator: null, mirror: false };
+  const out = { input: { up: false, down: false, brake: false, steer: 0, run: false }, indicator: null, mirror: false, want: 0 };
   if (!st.ready) {
     // mirrors, signal right, wait a moment, go
     st.ready = st.t > 1.5;
@@ -896,6 +1133,7 @@ function careful(run, car, st, bad) {
   if (v < want - 0.4) out.input.up = true;
   else if (v > want + 0.6) out.input.down = true;
   if (want < 0.05 && v < 0.6) { out.input.up = false; out.input.down = false; out.input.brake = true; }
+  out.want = want;
   return out;
 }
 // ---------- the careful driver on the Kent roads ----------
@@ -930,7 +1168,7 @@ function carefulKent(run, car, st, bad) {
   const pts = run.route.pts, s = run.s, v = car.vF, mph = Math.abs(v) * MPH, dt = 1 / 60, w = run.world;
   const half = car.model.length / 2;
   st.t = (st.t || 0) + dt;
-  const out = { input: { up: false, down: false, brake: false, steer: 0, run: false }, indicator: null, mirror: false };
+  const out = { input: { up: false, down: false, brake: false, steer: 0, run: false }, indicator: null, mirror: false, want: 0 };
   if (st.route !== run.route) { st.route = run.route; st.plan = speedPlan(run, bad); }
   const fx = Math.sin(car.heading), fz = Math.cos(car.heading);
   const traffic = w.traffic?.cars || [];
@@ -942,6 +1180,7 @@ function carefulKent(run, car, st, bad) {
 
   // moving off (the start, after a pull-up, an emergency stop or the manoeuvre): mirrors, signal, go
   if (!run.moved) {
+    if (run.drill && run.drill !== 'creep') st.off = null; // a drill first: the mirrors and signal come after it
     if (!st.off) st.off = { t: st.t, mirrored: false, s: null };
     const since = st.t - st.off.t;
     if (since > 0.2 && !st.off.mirrored) { st.off.mirrored = true; out.mirror = true; }
@@ -974,6 +1213,8 @@ function carefulKent(run, car, st, bad) {
       case 'emerge': case 'cross': {
         // creep to the line slow enough to look properly, then wait for a gap
         const toLine = e.lineS - s - half;
+        if (e.botStop == null) e.botStop = !!w.net.nodes.get(e.node)?.stop; // a STOP line: always stop
+        if (e.botStop && !e.botStopped && toLine < 30 && toLine > -2) { want = Math.min(want, stopIn(toLine - 0.4)); if (toLine < 1.8 && Math.abs(v) < 0.2) e.botStopped = true; if (!e.botStopped) { e.botGo = false; break; } }
         if (toLine < 30 && toLine > -2 && !e.botGo) {
           want = Math.min(want, Math.max(4 / MPH, stopIn(toLine - 0.5) * 0.9), toLine < 12 ? 5 / MPH : Infinity);
           // wait for a gap, and for room on the far side: never stop with the nose out in the main road
@@ -1071,12 +1312,18 @@ function carefulKent(run, car, st, bad) {
   want = Math.min(want, pathClear(run, car, want));
   st.blockedT = want < 0.3 && Math.abs(v) < 0.3 && free > 2 ? (st.blockedT || 0) + dt : 0;
   if (st.blockedT > 6 && headOn(run, car) && clearBehind(run, car, 8)) { st.blockedT = 0; st.backOff = { to: run.s - 4, t: st.t }; out.mirror = true; }
+  // touching a car that can't move (every bump stops it again): back off a car's nose-length if there's room
+  else if (car.drive && st.blockedT > 6 && touchingCar(run, car) && clearBehind(run, car, 2.5)) { st.blockedT = 0; st.backOff = { to: run.s - 1.8, t: st.t }; out.mirror = true; }
   if (st.debug) st.dbg = { plan: plan[run.idx], events: free, traffic: want };
+  // creeping or moving off: never with a car right across or on my nose (one turning in past the front of me)
+  // (the gearbox car only, like the walker look-ahead: the arcade car's runs stay exactly as they were)
+  if (car.drive && Math.abs(v) < 1.5 && traffic.some((c) => { const dx = c.x - car.pos.x, dz = c.z - car.pos.z, al = dx * fx + dz * fz; return al > 0 && al < 5.5 && Math.abs(dx * fz - dz * fx) < 2.6; })) want = Math.min(want, 0);
   if (bad.speed && !run.estop) want = Math.max(want, 0);
   steerKent(run, car, out, bad, want);
   if (v < want - 0.4) out.input.up = true;
   else if (v > want + 0.6) out.input.down = true;
   if (want < 0.05 && v < 0.6) { out.input.up = false; out.input.down = false; out.input.brake = true; }
+  out.want = want;
   return out;
 }
 const MIRROR_BEFORE = ['turn', 'emerge', 'cross', 'mini', 'rb', 'merge', 'diverge', 'laneChange', 'stop', 'pullright', 'pullup', 'baypark'];
@@ -1125,6 +1372,7 @@ function reverseKent(run, car, out) {
   let d = wantH - car.heading; d = Math.atan2(Math.sin(d), Math.cos(d));
   out.input.steer = THREE.MathUtils.clamp(d * 2.0, -1, 1);
   if (car.vF > -1.1) out.input.down = true;
+  out.reverse = true; out.want = 1.1; // for the learner gearbox: back at about 2.5 mph in R
   return out;
 }
 /** oncoming traffic (heading towards me) within `secs` s or `r` m of the junction or point */
@@ -1173,6 +1421,11 @@ function headOn(run, car) {
     const dx = c.x - car.pos.x, dz = c.z - car.pos.z, al = dx * fx + dz * fz;
     return al > 0 && al < 10 && Math.abs(dx * fz - dz * fx) < 3 && c.v < 0.3 && c.fx * fx + c.fz * fz < -0.3;
   });
+}
+/** a traffic car right on my nose (our bodies touching or nearly) */
+function touchingCar(run, car) {
+  const fx = Math.sin(car.heading), fz = Math.cos(car.heading);
+  return (run.world.traffic?.cars || []).some((c) => { const dx = c.x - car.pos.x, dz = c.z - car.pos.z; return dx * fx + dz * fz > 0 && Math.hypot(dx, dz) < (c.L || 4.6) / 2 + car.model.length / 2 + 0.4; });
 }
 function clearBehind(run, car, d) {
   const fx = Math.sin(car.heading), fz = Math.cos(car.heading);
@@ -1225,6 +1478,9 @@ function pathClear(run, car, want) {
     if (Math.abs(p.x - car.pos.x) > 40 || Math.abs(p.z - car.pos.z) > 40) continue;
     if (p.state === 'wait' && !p.inRoad) continue;
     test(p.x, p.z, 1, 0, 0.6, 0.6, 0, 'ped');
+    // and where someone walking will be in a moment (a pavement walker turning across the mouth of a side road)
+    // (the learner gearbox only: the arcade car's runs are kept exactly as they were)
+    if (car.drive && p.speed > 0.3 && p.heading != null) for (const t of [0.7, 1.4]) test(p.x + Math.sin(p.heading) * p.speed * t, p.z + Math.cos(p.heading) * p.speed * t, 1, 0, 0.6, 0.6, 0, 'ped');
   }
   return w;
 }

@@ -14,7 +14,9 @@ const DEFAULTS = () => ({
   streak: { count: 0, last: '' },      // days in a row with all three daily goals done
   wins: { date: '', counts: {} },      // real-life wins logged today, per category
   radio: false,
-  uk: { lessons: {}, licence: false, tests: 0 }, // driving lessons in Whitmore
+  // driving lessons and tests: licence false | 'auto' (passed in an automatic) | 'full' (passed in a manual);
+  // trans: the gearbox you learn in; history: your driving tests (newest last); hints: key hints seen per gearbox
+  uk: { lessons: {}, licence: false, tests: 0, trans: 'manual', history: [], hints: {} },
   look: { outfit: 'Realistic soldier', camo: 'Woodland', top: 'Royal blue', jeans: 'Dark denim', skin: 'Brown' }, // what you're wearing
   lookV: 2, // bump to move existing saves onto a new default outfit once
   homeV: 1, // bump to move existing saves to a new home once
@@ -34,6 +36,14 @@ function load() {
   out.log = Array.isArray(out.log) ? out.log : [];
   if ((saved.lookV || 0) < 2) { out.look.outfit = 'Realistic soldier'; out.lookV = 2; } // Richard chose the realistic soldier (2026-10-14)
   if ((saved.homeV || 0) < 1) { out.world = 'kent'; out.homeV = 1; } // home moved to Kent (2026-10-15)
+  // the driving school (2026-10-16): the old boolean licence was won in the old automatic-only car, and a
+  // pass in an automatic gives an automatic-only licence (real UK rule), so true becomes 'auto'
+  const uk = out.uk;
+  if (uk.licence === true) uk.licence = 'auto';
+  if (uk.licence !== 'auto' && uk.licence !== 'full') uk.licence = false;
+  uk.trans = uk.trans === 'auto' ? 'auto' : 'manual';
+  uk.history = Array.isArray(uk.history) ? uk.history.slice(-60) : [];
+  uk.hints = uk.hints && typeof uk.hints === 'object' ? uk.hints : {};
   return out;
 }
 

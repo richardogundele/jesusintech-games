@@ -30,7 +30,7 @@
       </div>
       <div id="trial" class="hidden"></div>
       <div id="mirror" class="hidden"></div>
-      <div id="lesson" class="hidden"><div class="l-title"></div><div class="l-text"></div><div class="l-faults"></div></div>
+      <div id="lesson" class="hidden"><div class="l-title"></div><div class="l-text"></div><div class="l-coach"></div><div class="l-faults"></div></div>
       <div id="satnav" class="hidden"></div>
       <div id="indicators" class="hidden"><span class="ind l">&#9664;</span><span class="ind r">&#9654;</span></div>
       <div id="limit" class="hidden"></div>
@@ -44,7 +44,14 @@
       <div id="toast" class="hidden"></div>
       <div class="hud-bottom-left" id="keys"></div>
       <div id="ytradio" class="hidden"><div id="yt-host"></div><div id="yt-title"></div></div>
+      <div id="keyhint" class="hidden"></div>
       <div class="hud-bottom-right" id="speedo">
+        <!-- the learner car's dashboard: gearbox badge, gear, rev counter, clutch, handbrake light, warnings -->
+        <div id="dtrain" class="hidden">
+          <div class="dt-top"><span id="dt-badge"></span><span id="dt-pb" title="Parking brake">(P)</span></div>
+          <div class="dt-mid"><div id="dt-gear">N</div><div class="dt-bars"><div id="dt-rev"><i></i></div><div id="dt-rpm">0 rpm</div><div id="dt-clutch"><i></i><span>clutch</span></div></div></div>
+          <div id="dt-warn"></div>
+        </div>
         <div id="speed">0</div>
         <div class="unit" id="speed-unit">km/h</div>
         <div id="car-name"></div>

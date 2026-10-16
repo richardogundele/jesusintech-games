@@ -3,7 +3,8 @@ import { state, formatMoney } from './state.js';
 import { CARS, JETS, WINS, GIVING, fameLevel, talkFee, flightTime, fuelStop, RADIO_STATION } from './catalog.js';
 import * as P from './progress.js';
 import { fmtTime } from './trials.js';
-import { LESSONS } from './lessons.js';
+import { LESSONS, lessonsFor } from './lessons.js';
+import { DL25_ROWS } from './dl25.js';
 import { LOOKS } from './character.js';
 
 const $ = (id) => document.getElementById(id);
@@ -34,6 +35,11 @@ export class Phone {
       if (act === 'give' && P.give(id)) this.hooks.sfx('level');
       // these leave the phone: close it first so the game mode is restored before travelling
       if (act === 'lesson') { this.hooks.close(); this.hooks.startLesson(id); return; }
+      // the driving school: the gearbox you learn in, a 15-minute test, retrying a test's route
+      if (act === 'trans') { this.hooks.setTrans(id); this.render(); return; }
+      if (act === 'test15') { this.hooks.close(); this.hooks.startTest(id); return; }
+      if (act === 'signs') { this.hooks.signDrill(); return; }
+      if (act === 'retest') { const [c, sd] = id.split(':'); this.hooks.close(); this.hooks.startTest(c, +sd); return; }
       if (act === 'gouk') { this.hooks.close(); this.hooks.goUK(); return; }
       if (act === 'practice') { this.practiceOpen = !this.practiceOpen; this.render(); return; }
       if (act === 'gohome') { this.hooks.close(); this.hooks.goHome(); return; }
@@ -125,17 +131,18 @@ export class Phone {
   }
 
   lessons() {
-    const uk = state.uk;
+    const uk = state.uk, trans = uk.trans;
     const inUK = this.hooks.inUK();
     const row = (l, n) => {
       const r = uk.lessons[l.id];
       const status = r?.passed ? `<div class="badge">Passed · best ${r.best} driving fault${r.best === 1 ? '' : 's'}</div>` : r ? `<div class="s">Tried ${r.tries}× · not passed yet</div>` : '';
       return `<div class="row"><div class="tick">${r?.passed ? '✓' : l.mock ? 'T' : n}</div>
-        <div class="grow"><div class="t">${l.title}</div><div class="s">${l.blurb}</div>${status}</div>
+        <div class="grow"><div class="t">${l.title}${l.trans ? ` <span class="badge">${l.trans === 'manual' ? 'Manual' : 'Automatic'}</span>` : ''}</div><div class="s">${l.blurb}</div>${status}</div>
         <button class="buy" data-act="lesson" data-id="${l.id}">${r?.passed ? 'Again' : 'Start'}</button></div>`;
     };
-    // the real thing: Herne Bay and Canterbury, Kent. Whitmore stays as a practice town, folded away
-    const kent = LESSONS.filter((l) => l.world === 'kent'), practice = LESSONS.filter((l) => l.world !== 'kent');
+    // the real thing: Herne Bay and Canterbury, Kent. Only the lessons for your gearbox; Whitmore stays as a practice town
+    const mine = lessonsFor(trans);
+    const kent = mine.filter((l) => l.world === 'kent'), practice = mine.filter((l) => l.world !== 'kent');
     const rows = kent.filter((l) => !l.mock).map((l, i) => row(l, i + 1)).join('');
     const tests = kent.filter((l) => l.mock).map((l) => row(l, 'T')).join('');
     const open = this.practiceOpen;
@@ -143,13 +150,48 @@ export class Phone {
         <div class="s">The made-up town the lessons started in: quiet roads to practise on. No pay, no licence.</div></div>
         <button class="buy" data-act="practice">${open ? 'Hide' : 'Show'}</button></div>
       ${open ? practice.map((l, i) => row(l, l.mock ? 'T' : i + 1)).join('') : ''}`;
-    return `<div class="hero"><div class="big">${uk.licence ? 'Full' : 'Provisional'}<span>UK licence</span></div>
-        <div class="s">Real UK rules on the real Kent roads: drive on the left, mph limits, give way to the right at roundabouts. Automatic gearbox. Z and X are the indicators, Q checks your mirrors.</div></div>
+    const lic = uk.licence === 'full' ? 'Full' : uk.licence === 'auto' ? 'Automatic' : 'Provisional';
+    return `<div class="hero"><div class="big">${lic}<span>UK licence</span></div>
+        <div class="s">${uk.licence === 'auto' ? 'Automatic cars only: pass a test in a manual for a full licence. ' : uk.licence === 'full' ? 'Manual and automatic. ' : ''}Real UK rules on the real Kent roads: drive on the left, mph limits, give way to the right at roundabouts. Z and X are the indicators, Q checks your mirrors.</div></div>
+      <h3>Learning in</h3>
+      <div class="seg"><button class="${trans === 'manual' ? 'on' : ''}" data-act="trans" data-id="manual">Manual</button><button class="${trans === 'auto' ? 'on' : ''}" data-act="trans" data-id="auto">Automatic</button></div>
+      <p class="note">${trans === 'manual'
+        ? 'Manual: <b>Left Shift</b> is the clutch (hold it), <b>1</b>-<b>5</b> the gears, <b>R</b> reverse, <b>0</b> neutral, <b>I</b> the engine, <b>Space</b> the handbrake. Pass in a manual and you can drive both.'
+        : 'Automatic: <b>1</b> drive, <b>R</b> reverse, <b>0</b> neutral, <b>9</b> park, <b>I</b> the engine, <b>Space</b> the handbrake. It creeps in D: cover the brake. Pass in an automatic and your licence is for automatics only.'}</p>
       ${inUK ? '<button class="buy wide" data-act="gohome">Fly home</button>' : ''}
       <h3>Lessons · Herne Bay</h3>${rows}
-      <h3>Driving tests</h3>${tests}
+      <h3>Driving test · 15 minutes</h3>
+      <p class="note">A new route every time from the test centre you pick: roundabouts, a dual carriageway or 40 road, junctions, a crossing, independent driving (sat nav, or following signs about one test in five), one manoeuvre, pull-ups and sometimes an emergency stop. Marked on the DVSA DL25.</p>
+      <div class="seg"><button data-act="test15" data-id="herne">Herne Bay</button><button data-act="test15" data-id="canterbury">Canterbury</button><button data-act="test15" data-id="any">Surprise me</button></div>
+      ${this.testHistory()}
+      <h3>Full-length mock tests</h3>${tests}
+      <h3>Study</h3><div class="row"><div class="grow"><div class="t">Road signs</div><div class="s">Name ten Highway Code signs. Not marked: just practice.</div></div><button class="buy" data-act="signs">Start</button></div>
       <h3>Practice</h3>${wm}
-      <p class="note">Lessons start outside the Herne Bay test centre, tests at Herne Bay or Canterbury. Marked like the real DVSA test: 15 or fewer driving faults and no serious or dangerous faults to pass. First pass of each lesson pays €250k; passing a driving test pays €5m and gets you your full licence.</p>`;
+      <p class="note">Lessons start outside the Herne Bay test centre, tests at Herne Bay or Canterbury. Marked like the real DVSA test: 15 or fewer driving faults and no serious or dangerous faults to pass. First pass of each lesson pays €250k; passing a driving test pays €5m and gets you your licence.</p>`;
+  }
+
+  /** your tests: the last five, the trend in driving faults, the fault that keeps coming up, retry a route */
+  testHistory() {
+    const h = state.uk.history || [];
+    if (!h.length) return '<p class="note">No tests yet. Your results, and how you are improving, will show here.</p>';
+    const last = h.slice(-5).reverse();
+    const label = Object.fromEntries(DL25_ROWS.map(([k, l]) => [k, l]));
+    const count = {};
+    for (const t of h.slice(-10)) for (const [k, v] of Object.entries(t.rows || {})) count[k] = (count[k] || 0) + v[0] + 3 * (v[1] + v[2]);
+    const top = Object.entries(count).sort((a, b) => b[1] - a[1])[0];
+    const recent = h.slice(-10), max = Math.max(6, ...recent.map((t) => t.minor));
+    const bars = recent.map((t) => `<i class="${t.passed ? '' : 'fail'}" style="height:${Math.max(4, (t.minor / max) * 100)}%" title="${t.minor} driving faults"></i>`).join('');
+    const a = recent.slice(0, Math.ceil(recent.length / 2)), b = recent.slice(Math.ceil(recent.length / 2));
+    const avg = (x) => x.reduce((s, t) => s + t.minor, 0) / Math.max(1, x.length);
+    const trend = recent.length >= 4 ? (avg(b) < avg(a) - 0.5 ? 'Fewer driving faults lately: keep it up.' : avg(b) > avg(a) + 0.5 ? 'More driving faults lately: book a lesson on your weak spot.' : 'Steady.') : '';
+    const rows = last.map((t) => {
+      const d = new Date(t.at), when = `${d.getDate()}/${d.getMonth() + 1} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+      return `<div class="row"><div class="tick">${t.passed ? '✓' : '✕'}</div>
+        <div class="grow"><div class="t">${t.centre === 'canterbury' ? 'Canterbury' : 'Herne Bay'} · ${t.kind === 'test15' ? '15 min' : 'full mock'} · ${t.trans === 'auto' ? 'automatic' : 'manual'}</div>
+        <div class="s">${when} · ${t.minor} driving · ${t.serious} serious · ${t.dangerous} dangerous${t.main ? ` · ${esc(t.main)}` : ''}</div></div>
+        ${t.seed != null ? `<button class="buy ghost" data-act="retest" data-id="${t.centre}:${t.seed}">Retry route</button>` : ''}</div>`;
+    }).join('');
+    return `<h3>Your tests</h3><div class="trend">${bars}</div><p class="note">${trend}${top ? ` Most common: <b>${label[top[0]] || top[0]}</b>.` : ''}</p>${rows}`;
   }
 
   dealer() {
@@ -207,7 +249,7 @@ export class Phone {
       <div class="row"><div class="grow"><div class="t">Add songs</div><div class="s">MP3, M4A, WAV, FLAC or OGG files. They stay in this browser on this computer; nothing is uploaded.</div></div>
         <button class="buy" data-act="song-add">Choose files</button></div>
       <h3>Playlist (${S.list.length})</h3>${rows || '<p class="note">No songs yet.</p>'}
-      ${S.list.length ? '<p class="note"><b>N</b> skips to the next song while you play. Your songs replace the game\'s radio while they play; press <b>R</b> in a car for Dream Life FM instead.</p><button class="buy ghost wide" data-act="song-clear">Remove all songs</button>' : ''}`;
+      ${S.list.length ? '<p class="note"><b>N</b> skips to the next song while you play. Your songs replace the game\'s radio while they play; press <b>F</b> in a car for Dream Life FM instead.</p><button class="buy ghost wide" data-act="song-clear">Remove all songs</button>' : ''}`;
   }
 
   wardrobe() {
@@ -235,7 +277,9 @@ export class Phone {
       line('Distance driven', `${s.km.toFixed(1)} km`) +
       line('Top speed', `${s.topKmh} km/h`) +
       line('Flights', s.flights) +
-      line('UK driving licence', state.uk.licence ? 'Full' : 'Provisional') +
+      line('UK driving licence', state.uk.licence === 'full' ? 'Full (manual)' : state.uk.licence === 'auto' ? 'Automatic only' : 'Provisional') +
+      line('Learning in', state.uk.trans === 'auto' ? 'Automatic' : 'Manual') +
+      line('Driving tests', `${(state.uk.history || []).filter((t) => t.passed).length} passed of ${(state.uk.history || []).length}`) +
       Object.entries(TRIAL_NAMES).map(([id, n]) => line(n, state.best[id] ? fmtTime(state.best[id]) : 'Not set')).join('');
   }
 }

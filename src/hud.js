@@ -2,6 +2,12 @@ import { formatMoney, shortMoney } from './state.js';
 
 const $ = (id) => document.getElementById(id);
 
+// key help in the learner car, per gearbox (the radio is F everywhere; R is reverse here)
+const KEYS = {
+  manual: '<kbd>W</kbd> gas · <kbd>S</kbd> brake · <kbd>Shift</kbd> clutch · <kbd>1</kbd>–<kbd>5</kbd> gears · <kbd>R</kbd> reverse · <kbd>0</kbd> neutral · <kbd>I</kbd> engine · <kbd>Space</kbd> handbrake · <kbd>A</kbd><kbd>D</kbd> steer · <kbd>Z</kbd><kbd>X</kbd> indicators · <kbd>Q</kbd> mirrors · <kbd>F</kbd> radio · <kbd>E</kbd> get out · <kbd>P</kbd> phone',
+  auto: '<kbd>W</kbd> gas · <kbd>S</kbd> brake · <kbd>1</kbd> drive · <kbd>R</kbd> reverse · <kbd>0</kbd> neutral · <kbd>9</kbd> park · <kbd>I</kbd> engine · <kbd>Space</kbd> handbrake · <kbd>A</kbd><kbd>D</kbd> steer · <kbd>Z</kbd><kbd>X</kbd> indicators · <kbd>Q</kbd> mirrors · <kbd>F</kbd> radio · <kbd>E</kbd> get out · <kbd>P</kbd> phone',
+};
+
 export class Hud {
   constructor() {
     this.el = $('hud');
@@ -25,6 +31,8 @@ export class Hud {
     this.satnavEl = $('satnav');
     this.indEl = $('indicators');
     this.mirrorEl = $('mirror');
+    this.dt = { el: $('dtrain'), badge: $('dt-badge'), pb: $('dt-pb'), gear: $('dt-gear'), rev: $('dt-rev').firstElementChild, rpm: $('dt-rpm'), clutch: $('dt-clutch'), clutchBar: $('dt-clutch').firstElementChild, warn: $('dt-warn') };
+    this.keyHintEl = $('keyhint');
     this.map = $('minimap').getContext('2d');
     this.last = {};
     this.toastTimer = null;
@@ -52,10 +60,11 @@ export class Hud {
       this.set('car', this.carName, car.name);
     }
     const keys = mode === 'phone' ? '' : mode === 'talk' ? '<kbd>←</kbd><kbd>→</kbd> slides · <kbd>E</kbd> finish · <kbd>M</kbd> mute'
+      : mode === 'car' && car?.drive ? KEYS[car.trans]
       : mode === 'car' && world.units === 'mph'
       ? '<kbd>W</kbd><kbd>S</kbd> drive · <kbd>A</kbd><kbd>D</kbd> steer · <kbd>Z</kbd><kbd>X</kbd> indicators · <kbd>Q</kbd> mirrors · <kbd>Space</kbd> handbrake · <kbd>E</kbd> get out · <kbd>P</kbd> phone'
       : mode === 'car'
-      ? '<kbd>W</kbd><kbd>S</kbd> drive · <kbd>A</kbd><kbd>D</kbd> steer · <kbd>Space</kbd> handbrake · <kbd>E</kbd> get out · <kbd>C</kbd> camera · <kbd>R</kbd> radio · <kbd>N</kbd> next song · <kbd>P</kbd> phone'
+      ? '<kbd>W</kbd><kbd>S</kbd> drive · <kbd>A</kbd><kbd>D</kbd> steer · <kbd>Space</kbd> handbrake · <kbd>E</kbd> get out · <kbd>C</kbd> camera · <kbd>F</kbd> radio · <kbd>N</kbd> next song · <kbd>P</kbd> phone'
       : '<kbd>W</kbd><kbd>S</kbd> walk · <kbd>A</kbd><kbd>D</kbd> turn · <kbd>Shift</kbd> run · <kbd>E</kbd> interact · <kbd>P</kbd> phone · <kbd>N</kbd> next song · <kbd>M</kbd> mute';
     this.set('keys', this.keys, keys, 'innerHTML');
   }
@@ -82,6 +91,9 @@ export class Hud {
     if (!info) return;
     this.set('l-title', this.lessonEl.querySelector('.l-title'), info.title);
     this.set('l-text', this.lessonEl.querySelector('.l-text'), info.text);
+    const coach = this.lessonEl.querySelector('.l-coach');
+    this.set('l-coach', coach, info.coach || '');
+    coach.classList.toggle('hidden', !info.coach);
     const f = info.faults;
     const html = info.mock ? 'Mock test · the examiner is marking quietly'
       : `Driving faults <b>${f.minor}</b> · <span class="${f.serious ? 'bad' : ''}">Serious <b>${f.serious}</b></span> · <span class="${f.dangerous ? 'bad' : ''}">Dangerous <b>${f.dangerous}</b></span>`;
@@ -96,8 +108,8 @@ export class Hud {
     const el = this.satnavEl; if (!el) return;
     el.classList.toggle('hidden', !info);
     if (!info) { this.last.satnav = null; return; }
-    const arrow = info.arrow === 'rb' ? `<span class="rb">${info.exit}</span>` : { left: '↰', right: '↱', ahead: '↑', merge: '⤴' }[info.arrow] || '↑';
-    const dist = info.yards >= 1000 ? `${(info.yards / 1760).toFixed(1)} mi` : `${info.yards} yd`;
+    const arrow = info.arrow === 'rb' ? `<span class="rb">${info.exit}</span>` : info.arrow === 'signs' ? '<span class="signs">⇱</span>' : { left: '↰', right: '↱', ahead: '↑', merge: '⤴' }[info.arrow] || '↑';
+    const dist = info.yards == null ? 'Signs' : info.yards >= 1000 ? `${(info.yards / 1760).toFixed(1)} mi` : `${info.yards} yd`;
     const html = `<div class="sn-arrow">${arrow}</div><div class="sn-body"><div class="sn-dist">${dist}</div><div class="sn-what">${info.text}</div>${info.road ? `<div class="sn-road">${info.road}</div>` : ''}${info.lanes ? `<div class="sn-lane">${info.lanes}</div>` : ''}</div>`;
     this.set('satnav', el, html, 'innerHTML');
   }
@@ -110,6 +122,39 @@ export class Hud {
     this.last.ind = key;
     this.indEl.children[0].classList.toggle('on', dir === 'left' && lit);
     this.indEl.children[1].classList.toggle('on', dir === 'right' && lit);
+  }
+
+  /** the learner car's dashboard (null hides it): badge, gear, rev counter with its red zone, clutch, handbrake, warnings */
+  drivetrain(car) {
+    const D = this.dt, d = car?.drive;
+    D.el.classList.toggle('hidden', !d);
+    if (!d) return;
+    const manual = d.kind === 'manual';
+    this.set('dt-badge', D.badge, manual ? 'MANUAL' : 'AUTO');
+    this.set('dt-gear', D.gear, manual ? (d.gear === 'N' ? 'N' : String(d.gear)) : d.gear === 'D' ? `D${d.ratio}` : d.gear);
+    D.pb.classList.toggle('on', d.parkingBrake);
+    const rpm = Math.round(d.rpm / 50) * 50;
+    D.rev.style.width = `${Math.min(100, (d.rpm / 7000) * 100).toFixed(1)}%`;
+    D.rev.classList.toggle('red', d.rpm > 5800);
+    this.set('dt-rpm', D.rpm, `${rpm} rpm`);
+    D.clutch.classList.toggle('hidden', !manual);
+    if (manual) { D.clutchBar.style.width = `${(d.pedal * 100).toFixed(0)}%`; D.clutch.classList.toggle('bite', d.pedal > 0.35 && d.pedal < 0.6); }
+    const warn = d.stalled ? 'Stalled: clutch down, neutral (0), press I'
+      : !d.engineOn ? (d.crank > 0 ? 'Starting…' : manual ? 'Engine off: clutch down, press I' : 'Engine off: P or N, press I')
+      : d.flags.overRev ? 'Over-revving: change up' : d.flags.labouring ? 'Labouring: change down' : d.parkingBrake && Math.abs(car.vF) > 0.5 ? 'Handbrake on!' : '';
+    this.set('dt-warn', D.warn, warn);
+    D.warn.classList.toggle('hidden', !warn);
+  }
+
+  /** the first time in a learner car: the gearbox keys, big, for a few seconds */
+  keyHint(trans, ms = 12000) {
+    const el = this.keyHintEl;
+    el.innerHTML = trans === 'manual'
+      ? '<b>Manual</b> <kbd>Left Shift</kbd> clutch (hold) · <kbd>1</kbd>–<kbd>5</kbd> gears · <kbd>R</kbd> reverse · <kbd>0</kbd> neutral · <kbd>I</kbd> engine · <kbd>Space</kbd> handbrake · <kbd>W</kbd> gas · <kbd>S</kbd> brake'
+      : '<b>Automatic</b> <kbd>1</kbd> drive · <kbd>R</kbd> reverse · <kbd>0</kbd> neutral · <kbd>9</kbd> park · <kbd>I</kbd> engine · <kbd>Space</kbd> handbrake · <kbd>W</kbd> gas · <kbd>S</kbd> brake';
+    el.classList.remove('hidden');
+    clearTimeout(this.keyHintT);
+    this.keyHintT = setTimeout(() => el.classList.add('hidden'), ms);
   }
 
   mirror(show, flash) {

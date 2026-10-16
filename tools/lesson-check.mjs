@@ -8,6 +8,10 @@
 //   node tools/lesson-check.mjs [ids...] [--seeds 1,2,3] [--bad noSignals|noMirrors|speed|runReds|noStops|wrongLane]
 //                               [--max 3600] [--lessons path/to/lessons.js] [--colliders] [--quiet] [--json out.json]
 //                               [--trace] [--events] [--watch s0,s1] [--detour s] [--hash] [--said]
+//                               [--trans manual|auto|none]   the learner car's gearbox (default manual; none = the old arcade car)
+//   bad variants for the gearbox: stall, wrongGear, coast (manual only) and handbrake
+//   --gen herne|canterbury|both [--gseeds 1-20]   generated 15-minute tests (src/kent/test-routes.js), one per
+//                               route seed (the traffic uses the same seed); reports sim minutes against the 13-17 target
 //   --colliders builds the Kent tiles along the route (scenery, roads, signs) and adds their colliders,
 //   so the car can hit buildings, posts and barriers as in the browser (slower: tiles take a while)
 //   ids: lesson ids (moveoff, junctions, ... mock, mock-canterbury, wm-moveoff ...), 'kent', 'whitmore' or 'all'
@@ -23,7 +27,7 @@ const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
 const opt = (k, d) => { const i = args.indexOf(`--${k}`); return i >= 0 ? args[i + 1] : d; };
 const flag = (k) => args.includes(`--${k}`);
-const BOOL = ['--colliders', '--quiet', '--events', '--trace', '--hash', '--said'];
+const BOOL = ['--colliders', '--quiet', '--events', '--trace', '--hash', '--said', '--stalls', '--roads', '--talk', '--genwhy'];
 if (args.includes('--watch')) BOOL.push();
 const ids = args.filter((a, i) => !a.startsWith('--') && !(i > 0 && args[i - 1].startsWith('--') && !BOOL.includes(args[i - 1])));
 
@@ -60,6 +64,8 @@ export { makeSignBuilder } from './src/kent/signs-place.js';
 export * as uk from './src/worlds/uk.js';
 export { CENTRES, centreOf, testCentreLayout } from './src/kent/lesson-routes.js';
 export * as THREE from 'three';
+export * as testRoutes from './src/kent/test-routes.js';
+export * as dl25 from './src/dl25.js';
 `;
 const outDir = path.join(REPO, 'node_modules/.cache/lesson-check');
 fs.mkdirSync(outDir, { recursive: true });
@@ -188,14 +194,18 @@ function addWorldColliders(world, pts) {
 }
 
 // ---------- one run ----------
-const BAD = { noSignals: { noSignals: true }, noMirrors: { noMirrors: true }, speed: { speed: 1.3 }, runReds: { runReds: true }, noStops: { noStops: true }, wrongLane: { wrongLane: true } };
+const BAD = { noSignals: { noSignals: true }, noMirrors: { noMirrors: true }, speed: { speed: 1.3 }, runReds: { runReds: true }, noStops: { noStops: true }, wrongLane: { wrongLane: true },
+  stall: { stall: true }, wrongGear: { wrongGear: true }, coast: { coast: true }, handbrake: { handbrake: true } };
+const TRANS = opt('trans', 'manual');
 // the fault each bad driver must be given
-const WANT = { noSignals: /^Signals: necessary/, noMirrors: /^Mirrors|^Move off: safety/, speed: /^Speed/, runReds: /traffic lights|^Pedestrian crossings/, noStops: /emerged without slowing/, wrongLane: /lane discipline|wrong lane/ };
+const WANT = { noSignals: /^Signals: necessary/, noMirrors: /^Mirrors|^Move off: safety/, speed: /^Speed/, runReds: /traffic lights|^Pedestrian crossings/, noStops: /emerged without slowing/, wrongLane: /lane discipline|wrong lane/,
+  stall: /stalled/, wrongGear: /^Control: gears/, coast: /coasting/, handbrake: /parking brake/ };
 async function runLesson(def, s0, bad = null, maxSec = 3600) {
   seed = s0;
   const kent = def.world === 'kent' || (!def.world && !def.stops);
   const world = kent ? makeKent() : makeWhitmore();
-  const car = new Car('learner', world.learnerAt || { x: 0, z: 0, heading: 0 }, LEARNER);
+  const trans = def.trans || (TRANS === 'none' ? null : TRANS);
+  const car = new Car('learner', world.learnerAt || { x: 0, z: 0, heading: 0 }, trans ? { ...LEARNER, trans } : LEARNER);
   world.cars.push(car);
   const drive = { indicator: null, lastInd: null, turned: 0, mirrorPressed: false, trafficHit: false };
   let result = null, cancelled = null;
@@ -212,13 +222,20 @@ async function runLesson(def, s0, bad = null, maxSec = 3600) {
     const first = run.events.find((e) => e.kind === 'lights'), sig = world.signals, orig = sig.stateFor.bind(sig);
     if (first) sig.stateFor = (id, yaw) => (id === first.group && Math.abs(run.s - first.lineS) < 60 ? 'red' : orig(id, yaw));
   }
+  if (flag('roads')) { // --roads: the roads the route uses, in order, with the length on each
+    const out = []; let last = null;
+    for (const p of run.route.pts) { const w = world.net.ways.get(p.way), n = p.rb ? `(rb ${p.rb})` : w ? [w.ref, w.name].filter(Boolean).join(' ') || `way ${w.id}` : '?'; if (n !== last?.n) { last = { n, s0: p.s, lim: p.road?.limit }; out.push(last); } last.s1 = p.s; }
+    console.log('   ' + out.map((r) => `${r.n} ${Math.round(r.s1 - r.s0)}m@${r.lim}`).join(' > '));
+  }
   if (flag('events')) for (const e of run.events) console.log(`   ${e.s.toFixed(0).padStart(6)} ${e.kind.padEnd(10)} ${(e.dir || '').padEnd(5)}${e.exit != null ? ` exit ${e.exit} lanes ${e.approachLane}/${e.ringLane}/${e.exitLane} ${e.rb} exitS ${e.exitS?.toFixed(0)} sigL ${e.signalLeftS?.toFixed(0)}` : ''}${e.lineS != null ? ` line ${e.lineS.toFixed(0)}` : ''}${e.group ? ' ' + e.group : ''}${e.stopS ? ' stopS ' + e.stopS.toFixed(0) : ''}${e.angled ? ' angled' : ''} ${e.text || ''}`);
   const nFault = { n: 0 };
   const st = run.route.start;
   car.pos.set(st.x, 0, st.z); car.heading = st.heading; car.park();
+  car.prepare({ engineOn: !def.engineOff, parkingBrake: true }); // as main.js startLesson
   if (kent) { world.traffic.P.x = st.x; world.traffic.P.z = st.z; }
   const autoState = { debug: true };
   let prog = { s: -1, t: 0 }, stall = null;
+  const stall0 = {};
   const watch = opt('watch') ? opt('watch').split(',').map(Number) : null;
   let lastWatch = -1;
   const dt = 1 / 60;
@@ -254,6 +271,11 @@ async function runLesson(def, s0, bad = null, maxSec = 3600) {
     if (drive.indicator) { const dh = car.heading - prevHeading; drive.turned += Math.atan2(Math.sin(dh), Math.cos(dh)); if (Math.abs(drive.turned) > 1.05 && Math.abs(car.steer) < 0.04) drive.indicator = null; }
     run.update(dt, car, { indicator: drive.indicator, mirrorPressed: drive.mirrorPressed, hit: res.hit || drive.trafficHit });
     drive.mirrorPressed = false; drive.trafficHit = false;
+    if (car.drive && flag('stalls')) { // --stalls: say what the feet were doing when the engine died or a gear crunched
+      const k = `${car.drive.stalls}/${car.drive.grinds}`;
+      if (k !== (stall0.k ?? '0/0')) console.log(`   STALL/GRIND ${k} t ${elapsed.toFixed(1)} s ${run.s.toFixed(0)} gear ${car.gear} mph ${(car.vF * MPH).toFixed(1)} rpm ${car.rpm.toFixed(0)} pedal ${car.clutch.toFixed(2)} want ${((o.want ?? 0) * MPH).toFixed(1)} rev ${!!o.reverse} pb ${car.parkingBrake} moved ${run.moved} in ${JSON.stringify(o.input)}`);
+      stall0.k = k;
+    }
     const before = flag('trace') ? world.traffic.cars.map((c) => ({ c, x: c.x, z: c.z, v: c.v, held: c.held, ghost: c.ghost, block: c.blockId, ev: `${c.ev[c.evI]?.kind}@${((c.ev[c.evI]?.s ?? 0) - c.s).toFixed(0)}` })) : null;
     if (world.traffic.collide(car)) {
       car.sync(0); drive.trafficHit = world.traffic.lastHit?.blame !== 'other';
@@ -280,7 +302,7 @@ async function runLesson(def, s0, bad = null, maxSec = 3600) {
       lastWatch = Math.floor(elapsed * 2);
       const d = autoState.dbg || {};
       const near = world.traffic.cars.map((c) => ({ id: c.id, d: Math.hypot(c.x - car.pos.x, c.z - car.pos.z), v: c.v, h: Math.round(c.heading * 57.3), held: c.held })).filter((c) => c.d < 40).map((c) => `#${c.id} ${c.d.toFixed(0)}m v${c.v.toFixed(1)} h${c.h}${c.held ? ' held' : ''}`);
-      console.log(`   t ${elapsed.toFixed(1)} s ${run.s.toFixed(1)} mph ${(car.vF * MPH).toFixed(1)} lat ${run.lat.toFixed(2)} plan ${((d.plan ?? 0) * MPH).toFixed(1)} ev ${((d.events ?? 0) * MPH).toFixed(1)} tr ${((d.traffic ?? 0) * MPH).toFixed(1)} ind ${drive.indicator} moved ${run.moved} | ${near.join(', ')}`);
+      console.log(`   t ${elapsed.toFixed(1)} s ${run.s.toFixed(1)} mph ${(car.vF * MPH).toFixed(1)} lat ${run.lat.toFixed(2)} plan ${((d.plan ?? 0) * MPH).toFixed(1)} ev ${((d.events ?? 0) * MPH).toFixed(1)} tr ${((d.traffic ?? 0) * MPH).toFixed(1)} ind ${drive.indicator} moved ${run.moved}${car.drive ? ` gear ${car.gear} rpm ${car.rpm.toFixed(0)} clutch ${car.clutch.toFixed(2)} thr ${car.drive.throttle.toFixed(2)}` : ''} | ${near.join(', ')}`);
     }
     if (flag('trace') && run.faults.length > nFault.n) {
       for (const x of run.faults.slice(nFault.n)) if (x.extra?.ped) { const ps = (world.traffic.peds || []).map((q) => ({ d: Math.hypot(q.x - car.pos.x, q.z - car.pos.z), st: q.state, inRoad: q.inRoad, way: q.way?.id, lat: q.lat?.toFixed?.(2), x: q.x.toFixed(1), z: q.z.toFixed(1) })).sort((a, b) => a.d - b.d).slice(0, 2); console.log('   ped', JSON.stringify(ps), 'car heading', (car.heading * 57.3).toFixed(0), 'way', run.route.pts[run.idx].way); }
@@ -289,9 +311,10 @@ async function runLesson(def, s0, bad = null, maxSec = 3600) {
     }
   }
   return {
-    id: def.id, seed: s0, bad: bad ? Object.keys(bad)[0] : null, done: !!result, cancelled, passed: result?.passed ?? false,
+    id: def.id, seed: s0, trans: car.trans + (car.drive ? '' : ' (arcade)'), stalls: car.drive?.stalls ?? 0, grinds: car.drive?.grinds ?? 0, bad: bad ? Object.keys(bad)[0] : null, done: !!result, cancelled, passed: result?.passed ?? false,
     counts: result?.counts || run.counts(), faults: run.faults.map((x) => `${x.sev[0]}:${x.cat}@${Math.round(x.s)}${x.at ? ` (${x.at.x},${x.at.z})` : ''}`),
     trace, frames: f, otherHits, colliders: world.colliders.boxes?.length ?? 0, detoured, rerouted: said.filter((t) => /recalculated|take you back/.test(t)).length, satnav: said.filter((t) => t.startsWith('Sat nav')).length, simMin: +(elapsed / 60).toFixed(1), wallS: +((Date.now() - t0) / 1000).toFixed(1), length: Math.round(run.route.length), s: Math.round(run.s),
+    said, tasks: result?.tasks,
     estop: run.estop?.state || 'none', maxDist: +maxLat.toFixed(1), stuckAt: result ? null : { x: +car.pos.x.toFixed(1), z: +car.pos.z.toFixed(1), text: run.text }, stall,
   };
 }
@@ -305,23 +328,42 @@ for (const id of ids.length ? ids : ['all']) {
   else if (id === 'whitmore') list.push(...all.filter((l) => l.world !== 'kent'));
   else { const l = all.find((x) => x.id === id); if (!l) { console.error(`no lesson ${id}`); process.exit(2); } list.push(l); }
 }
-const seeds = (opt('seeds', '1')).split(',').map(Number);
+// a lesson for the other gearbox (clutch control in an automatic) is skipped
+if (TRANS !== 'none') list = list.filter((l) => !l.trans || l.trans === TRANS);
+const range = (t) => t.split(',').flatMap((x) => { const [a, b] = x.split('-').map(Number); return b ? Array.from({ length: b - a + 1 }, (_, i) => a + i) : [a]; });
+const seeds = range(opt('seeds', '1'));
+// generated tests: one def per route seed
+const genRuns = [];
+if (opt('gen')) {
+  kentNet = kentNet || new G.RoadNet(kentData());
+  for (const centre of opt('gen') === 'both' ? ['herne', 'canterbury'] : [opt('gen')]) for (const gs of range(opt('gseeds', '1-5'))) {
+    try { const win = opt('genwin') ? opt('genwin').split(',').map(Number) : null;
+    const gen = G.testRoutes.generateTest(kentNet, centre, gs, flag('genwhy') || win || opt('signs') ? { ...(win ? { minMin: win[0], maxMin: win[1] } : {}), ...(opt('signs') ? { signsRate: +opt('signs') } : {}), log: !flag('genwhy') ? null : (k, used, why, mins, rt) => console.log(`   try ${k}: ${used.join(',')} ${mins.toFixed(1)} min ${(rt.length / 1000).toFixed(1)} km: ${why.join(', ') || 'OK'} | ${rt.events.filter((e) => ['turn', 'emerge', 'cross'].includes(e.kind)).map((e) => e.kind[0] + (e.dir || '')[0]).join('')}`) } : {}); gen.signs = G.testRoutes.signsOnRoute(kentNet, gen.route); genRuns.push({ def: Lmod.testDef(gen), seed: gs, gen }); }
+    catch (err) { console.log(`FAIL generate ${centre} seed ${gs}: ${err.message}`); genRuns.push({ fail: true }); }
+  }
+  list = [];
+}
 const bad = opt('bad') ? BAD[opt('bad')] : null;
 if (opt('bad') && !bad) { console.error(`bad variants: ${Object.keys(BAD).join(', ')}`); process.exit(2); }
 const maxSec = +opt('max', 3600);
 const out = [];
 let failed = 0;
-for (const def of list) for (const s of seeds) {
+const jobs = genRuns.length ? genRuns.filter((g) => !g.fail).map((g) => [g.def, g.seed, g]) : list.flatMap((def) => seeds.map((s) => [def, s, null]));
+failed += genRuns.filter((g) => g.fail).length;
+for (const [def, s, gen] of jobs) {
   const r = await runLesson(def, s, bad, maxSec);
+  if (gen) { const m = gen.gen.meta; r.id = `${m.centre}#${m.seed}`; console.log(`   route ${m.centreName} seed ${m.seed}: ${(m.length / 1000).toFixed(2)} km, est ${m.minutes} min, ${m.manoeuvre}, ${m.stops} pull-up(s), independent ${m.indep.mode}${m.indep.target ? ` (signs for ${m.indep.target})` : ''}, ${m.attempts} tr${m.attempts === 1 ? 'y' : 'ies'}; ${m.stretches.join(' / ')}`); if (!flag('quiet')) console.log(`   signs: ${gen.gen.signs.map((x) => `${x.sign}${x.n > 1 ? ' x' + x.n : ''}`).join(', ')}`); }
   out.push(r);
   const serious = r.counts.serious + r.counts.dangerous;
   const badKey = opt('bad'), hits = bad ? r.faults.filter((x) => WANT[badKey].test(x.replace(/^[a-z]:/, ''))).length : 0;
-  const ok = bad ? hits > 0 : r.done && serious === 0;
+  let ok = bad ? hits > 0 : r.done && serious === 0;
+  if (gen && !bad && (r.simMin < 13 || r.simMin > 17)) { ok = false; r.timeFail = true; }
   if (bad) r.matching = hits;
   if (!ok) failed++;
-  console.log(`${ok ? 'ok  ' : 'FAIL'} ${r.id.padEnd(16)} seed ${s}${r.bad ? ` bad ${r.bad}` : ''}: ${r.done ? (r.passed ? 'passed' : 'not passed') : r.cancelled ? `cancelled (${r.cancelled})` : `did not finish (s ${r.s} of ${r.length} m at ${JSON.stringify(r.stuckAt)})`}, ${r.counts.minor} minor ${r.counts.serious} serious ${r.counts.dangerous} dangerous, route ${(r.length / 1000).toFixed(2)} km, ${r.simMin} sim min, ${r.wallS} s wall, estop ${r.estop}${r.otherHits ? `, hit by traffic (${r.otherHits} frames)` : ''}${flag('colliders') ? `, ${r.colliders} colliders` : ''}${bad ? `, ${r.matching} matching ${opt('bad')} fault(s)` : ''}${flag('hash') ? `, trace ${r.trace} frames ${r.frames}` : ''}`);
+  console.log(`${ok ? 'ok  ' : 'FAIL'} ${r.id.padEnd(16)} ${r.trans.padEnd(6)} seed ${s}${r.bad ? ` bad ${r.bad}` : ''}: ${r.done ? (r.passed ? 'passed' : 'not passed') : r.cancelled ? `cancelled (${r.cancelled})` : `did not finish (s ${r.s} of ${r.length} m at ${JSON.stringify(r.stuckAt)})`}, ${r.counts.minor} minor ${r.counts.serious} serious ${r.counts.dangerous} dangerous, route ${(r.length / 1000).toFixed(2)} km, ${r.simMin} sim min, ${r.wallS} s wall, estop ${r.estop}${r.stalls || r.grinds ? `, STALLS ${r.stalls} grinds ${r.grinds}` : ''}${r.otherHits ? `, hit by traffic (${r.otherHits} frames)` : ''}${flag('colliders') ? `, ${r.colliders} colliders` : ''}${bad ? `, ${r.matching} matching ${opt('bad')} fault(s)` : ''}${flag('hash') ? `, trace ${r.trace} frames ${r.frames}` : ''}${r.timeFail ? ' (OUTSIDE 13-17 min)' : ''}`);
   if (!flag('quiet') && r.faults.length) console.log('      ' + r.faults.join('\n      '));
   if (r.stall) console.log('      STALL ' + JSON.stringify(r.stall, null, 0));
+  if (flag('talk')) console.log('      SAID ' + r.said.map((t, i) => `${i}: ${t}`).join('\n      SAID ') + (r.tasks ? `\n      TASKS ${JSON.stringify(r.tasks)}` : ''));
   if (r.detoured || flag('said')) console.log(`      detour ${JSON.stringify(r.detoured)}, reroutes ${r.rerouted}, sat nav callouts ${r.satnav}`);
 }
 if (opt('json')) fs.writeFileSync(opt('json'), JSON.stringify(out, null, 1));

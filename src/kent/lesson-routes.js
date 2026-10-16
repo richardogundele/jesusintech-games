@@ -76,7 +76,7 @@ export function buildKentRoute(net, spec, { rnd = Math.random } = {}) {
     const lane = layout.roadDist - 17.5; // road centreline n offset from the lot centre
     to = layout.at(spec.bayFrom ?? 38, lane); // bayFrom: + is up the road on the side we come from
   }
-  const route = net.route({ x: spec.start.x, z: spec.start.z, maxD: 30 }, to, { via: spec.vias || [] });
+  const route = net.route({ x: spec.start.x, z: spec.start.z, maxD: 30 }, to, { via: spec.vias || [], noUturn: !!spec.noUturn, avoid: spec.avoid || [] });
   if (!route) throw new Error(`no route for ${spec.id || 'lesson'}`);
   const lp = net.lanePath(route, { end: spec.end === 'baypark' ? 'pullup' : spec.end || 'pullup' });
   const pts = lp.pts;
@@ -277,6 +277,13 @@ const CT_NW = { x: -815, z: 5060 };     // New Dover Road, north-west bound kerb
 export const KENT_ROUTES = {
   // The Boulevard to its turning circle and back, then Margate Road and Reculver Road
   moveoff: { centre: 'herne', start: HB_EAST, vias: [5105, { x: 3300, z: -4746 }, 4495], to: { x: 3420, z: -5200 }, stops: 3, angled: true },
+  // the gearbox lessons: The Boulevard (pull-ups for clutch control, the stall drill, P R N D), then
+  // Margate Road and Reculver Road
+  clutch: { centre: 'herne', start: HB_EAST, vias: [5105, { x: 3300, z: -4746 }, 4495], to: { x: 3420, z: -5200 }, stops: 3 },
+  autocontrols: { centre: 'herne', start: HB_EAST, vias: [5105, { x: 3300, z: -4746 }, 4495], to: { x: 3420, z: -5200 }, stops: 2 },
+  // gears: Reculver Road, Mickleburgh Hill, the A299 link road up to 40, the Eddington rings (change down,
+  // block change), the A299 at 70 in fifth, off at Margate Road and back to the centre
+  gears: { centre: 'herne', start: HB_EAST, vias: [{ x: 3300, z: -4746 }, 4495, 4403, 121, 466, 469, 1723], to: { x: 3420, z: -4743.5 } },
   // the Herne Bay town grid: King's Road, Beach Street, Hanover Street, Brunswick Square, Station Road
   junctions: { centre: 'herne', start: HB_EAST, vias: [{ x: 3300, z: -4746 }, 996, 997, 1000, 1274, 2612, 2613, 1179, 999], to: { x: 2048, z: -5650 } },
   // Altira, the Margate Road rings, the A299 link road, Eddington C and B, Greenhill, Sea Street

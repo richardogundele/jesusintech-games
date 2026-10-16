@@ -17,8 +17,10 @@ import { setupTrials, MEDAL_PAY } from './trials.js';
 import { buildCabin } from './worlds/cabin.js';
 import { buildArena } from './worlds/arena.js';
 import { buildUK, lPlateTex, MPH } from './worlds/uk.js';
-import { LESSONS, LessonRun, carefulDriver, TELL_ME, randomPlate, plateOptions } from './lessons.js';
+import { LESSONS, LessonRun, carefulDriver, TELL_ME, randomPlate, plateOptions, testDef } from './lessons.js';
 import { KENT_ROUTES } from './kent/lesson-routes.js';
+import { generateTest, signsOnRoute } from './kent/test-routes.js';
+import { signQuestion } from './sign-quiz.js';
 import { buildCar } from './models.js';
 import { TRAFFIC } from './catalog.js';
 import { loadAll, updateCulling } from './assets.js';
@@ -87,7 +89,7 @@ function getWorld(id) {
       return c;
     };
     w.garage.forEach((g) => w.addCar(g.id, g));
-    if (w.learnerAt) addLPlates(w.addCar('learner', w.learnerAt, LEARNER));
+    if (w.learnerAt) { const c = w.addCar('learner', w.learnerAt, { ...LEARNER, trans: state.uk.trans }); addLPlates(c); addAutoBadge(c); }
     if (w.parked) addEyesightCar(w, { x: w.parked.x, z: w.parked.z, heading: 0 });
     for (const spot of w.eyesight || []) addEyesightCar(w, spot); // Kent: one at each test centre
     // cars bought from the phone fill the extra bays at this home
@@ -133,10 +135,20 @@ function enterWorld(target, spawn) {
 // ---------- input ----------
 const keys = new Set();
 const down = (...codes) => codes.some((c) => keys.has(c));
+// the learner car's gearbox keys are one-shot presses, picked up by the next readInput()
+const press = { shift: null, ignition: false, pbrakeToggle: false };
+const learnerCar = () => mode === 'car' && car?.drive;
 window.addEventListener('keydown', (e) => {
   if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab'].includes(e.code)) e.preventDefault();
   keys.add(e.code);
   if (e.repeat) return;
+  if (learnerCar() && !window.__game?.autoDrive) {
+    // Left Shift (held) is the clutch (readInput); 1-5 gears (1 is D in an automatic), R reverse, 0 neutral, 9 park, I engine, Space handbrake
+    const g = { Digit1: 1, Digit2: 2, Digit3: 3, Digit4: 4, Digit5: 5, Digit0: 'N', Digit9: 'P', KeyR: 'R', Numpad1: 1, Numpad2: 2, Numpad3: 3, Numpad4: 4, Numpad5: 5, Numpad0: 'N', Numpad9: 'P' }[e.code];
+    if (g != null) press.shift = car.drive.kind === 'auto' && typeof g === 'number' && g > 1 ? null : g;
+    if (e.code === 'KeyI') press.ignition = true;
+    if (e.code === 'Space') press.pbrakeToggle = true;
+  }
   if ((e.code === 'KeyP' || e.code === 'Tab') && !e.repeat) { e.preventDefault(); togglePhone(); return; }
   if (mode === 'phone' || mode === 'result' || mode === 'quiz') { if (e.code === 'Escape' && mode !== 'quiz') mode === 'phone' ? togglePhone() : closeResult(); return; }
   if (e.code === 'KeyE') interact();
@@ -146,7 +158,7 @@ window.addEventListener('keydown', (e) => {
     drive.turned = 0;
   }
   if (mode === 'car' && e.code === 'KeyQ') { drive.mirrorPressed = true; drive.mirrorFlash = 0.6; }
-  if (e.code === 'KeyR' && mode === 'car') {
+  if (e.code === 'KeyF' && mode === 'car') { // the radio is F in every car (R is reverse in the learner car)
     state.radio = !state.radio;
     save();
     hud.toast(state.radio ? 'Radio on · Dream Life FM' : 'Radio off', 1400);
@@ -161,13 +173,18 @@ window.addEventListener('keyup', (e) => keys.delete(e.code));
 window.addEventListener('blur', () => keys.clear());
 
 function readInput() {
-  return {
+  const learner = learnerCar();
+  const out = {
     up: down('KeyW', 'ArrowUp'),
     down: down('KeyS', 'ArrowDown'),
     steer: (down('KeyD', 'ArrowRight') ? 1 : 0) - (down('KeyA', 'ArrowLeft') ? 1 : 0),
-    brake: down('Space'),
+    brake: learner ? false : down('Space'), // the learner car's Space is the parking brake (a press, not a hold)
     run: down('ShiftLeft', 'ShiftRight'),
+    clutch: learner ? down('ShiftLeft') : false,
+    shift: press.shift, ignition: press.ignition, pbrakeToggle: press.pbrakeToggle,
   };
+  press.shift = null; press.ignition = false; press.pbrakeToggle = false;
+  return out;
 }
 
 // ---------- interactions ----------
@@ -216,7 +233,8 @@ function interact() {
       player.mesh.visible = false;
       camMode = 0;
       snapCamera();
-      hud.toast(`${c.spec.maker} ${c.spec.model} · ${c.spec.topSpeed} km/h top speed`, 2600);
+      if (c.drive) learnerHello(c);
+      else hud.toast(`${c.spec.maker} ${c.spec.model} · ${c.spec.topSpeed} km/h top speed`, 2600);
     }
   } else if (mode === 'car') {
     if (car.speedKmh > 20) return hud.toast('Slow down to get out', 1400);
@@ -226,6 +244,7 @@ function interact() {
     player.speed = 0;
     player.mesh.visible = true;
     car.park();
+    if (car.drive) { car.drive.parkingBrake = true; car.drive.engineOn = false; car.drive.rpm = 0; car.drive.gear = car.drive.neutral; } // handbrake on, engine off, out of gear
     car = null;
     mode = 'foot';
     snapCamera();
@@ -496,6 +515,9 @@ const phone = new Phone({
   onJetBought(jetId) { worlds.kent?.addJet(jetId); worlds.dubai?.addJet(jetId); },
   setLook: (l) => { player.mesh.userData.setLook?.(l); save(); },
   startLesson: (id) => startLesson(id),
+  startTest: (centre, seed) => startTest(centre, seed),
+  signDrill: () => signDrill(10),
+  setTrans: (t) => setLearnerTrans(t),
   goUK: () => goUK(),
   inKent: () => world.id === 'kent',
   goHome: () => goHome(),
@@ -561,6 +583,39 @@ function addLPlates(c) {
   }
 }
 
+// the automatic learner car wears a blue AUTO badge under its L plates
+function addAutoBadge(c) {
+  const cv = document.createElement('canvas'); cv.width = 128; cv.height = 48;
+  const ctx = cv.getContext('2d');
+  ctx.fillStyle = '#1d4fb8'; ctx.fillRect(0, 0, 128, 48);
+  ctx.fillStyle = '#fff'; ctx.font = '800 34px Arial, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('AUTO', 64, 26);
+  const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace;
+  const mat = new THREE.MeshBasicMaterial({ map: tex });
+  const g = new THREE.Group();
+  for (const z of [1, -1]) {
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(0.3, 0.11), mat);
+    m.position.set(0.32 * z, 0.62, z * (c.model.length / 2 + 0.02));
+    m.rotation.y = z > 0 ? 0 : Math.PI;
+    g.add(m);
+  }
+  c.model.root.add(g);
+  c.autoBadge = g;
+  g.visible = c.trans === 'auto';
+}
+/** the phone's "Learning in" choice: every learner car already built changes gearbox (and badge) */
+function setLearnerTrans(t) {
+  if (lesson && !window.__game?.autoQuiz) { hud.toast('Finish (or stop) this lesson before you change car', 2600); return; }
+  state.uk.trans = t; save();
+  for (const w of Object.values(worlds)) for (const c of w.cars) if (c.id === 'learner') { c.setTrans(t); if (c.autoBadge) c.autoBadge.visible = t === 'auto'; }
+}
+/** getting into the learner car: what the gearbox is, and the keys the first time */
+function learnerHello(c) {
+  const manual = c.trans === 'manual';
+  hud.toast(`VW Polo learner car · ${manual ? 'manual' : 'automatic'} · ${c.engineOn ? 'engine running' : 'engine off: press I to start'}`, 3200);
+  const h = state.uk.hints || (state.uk.hints = {});
+  if (!h[c.trans]) { h[c.trans] = true; save(); hud.keyHint(c.trans, 14000); }
+}
+
 function updateIndicators(dt, dHeading) {
   if (drive.indicator !== drive.lastInd) { drive.lastInd = drive.indicator; drive.turned = 0; }
   if (drive.indicator) {
@@ -622,11 +677,13 @@ function addEyesightCar(w, spot) {
 }
 
 // multiple-choice modal for the eyesight check and show me / tell me. Resolves true if right.
-function quiz({ title, q, a, plate = false }) {
+function quiz({ title, q, a, plate = false, img = null }) {
   return new Promise((resolve) => {
     const order = a.map((_, i) => i).sort(() => Math.random() - 0.5);
     $('quiz-title').textContent = title;
     $('quiz-q').textContent = q;
+    $('quiz-plate').innerHTML = img ? `<img src="${img}" alt="road sign">` : ''; // a road sign to name
+    $('quiz-plate').classList.toggle('hidden', !img);
     const box = $('quiz-a');
     box.innerHTML = '';
     for (const i of order) {
@@ -649,8 +706,16 @@ function quiz({ title, q, a, plate = false }) {
   });
 }
 
+/** ten road signs to name, from the phone (study at home; not marked) */
+async function signDrill(n = 10) {
+  let right = 0;
+  for (let i = 0; i < n; i++) if (await quiz({ ...signQuestion(), title: `Road signs · ${i + 1} of ${n}` })) right++;
+  hud.toast(`Road signs: ${right} of ${n} right`, 3000);
+}
 const lessonHooks = {
   quiz: (item) => quiz(item),
+  // at a red light in a lesson the instructor sometimes asks you to name a sign (not marked)
+  signQuiz: () => quiz({ ...signQuestion(), title: 'While we wait at the lights · not marked' }).then((ok) => { hud.toast(ok ? 'Right!' : 'Not quite: look it up in the Highway Code.', 1800); return ok; }),
   estop(on) { $('estop').classList.toggle('hidden', !on); if (on) audio.sfx('go'); },
   say(text) { speak(text); },
   hud(info) { hud.lesson(info); },
@@ -684,17 +749,31 @@ const lessonHooks = {
     if (r.mock && !r.practice) uk.tests += 1;
     let reward = 0;
     if (firstPass && !r.practice) reward = r.mock ? 5_000_000 : 250_000;
-    if (r.passed && r.mock && !r.practice && !uk.licence) { uk.licence = true; setTimeout(() => hud.reward({ kind: 'level', title: 'Full UK driving licence. Well done.' }), 1500); }
+    // the real UK rule: pass in an automatic, drive automatics only; pass in a manual, drive both
+    let licenceNews = null;
+    if (r.passed && r.mock && !r.practice) {
+      if (r.trans === 'manual' && uk.licence !== 'full') { uk.licence = 'full'; licenceNews = 'Full UK driving licence (manual and automatic). Well done.'; }
+      else if (r.trans === 'auto' && !uk.licence) { uk.licence = 'auto'; licenceNews = 'UK driving licence: automatic cars only. Pass in a manual to upgrade it.'; }
+    }
+    if (licenceNews) setTimeout(() => hud.reward({ kind: 'level', title: licenceNews }), 1500);
+    // the test history (Kent tests only): what you need to see yourself improve
+    if (r.mock && !r.practice && r.sheet) {
+      const rows = {};
+      for (const R of r.sheet.rows) if (R.d || R.s || R.x) rows[R.key] = [R.d, R.s, R.x];
+      uk.history.push({ at: new Date().toISOString(), id: r.id, title: r.title, kind: r.generated ? 'test15' : 'mock', centre: r.generated?.centre || (r.id === 'mock-canterbury' ? 'canterbury' : 'herne'),
+        trans: r.trans, seed: r.generated?.seed ?? null, passed: r.passed, minor: r.counts.minor, serious: r.counts.serious, dangerous: r.counts.dangerous, rows, main: r.brief?.main || '', minutes: +(r.time / 60).toFixed(1) });
+      if (uk.history.length > 60) uk.history.splice(0, uk.history.length - 60);
+    }
     save();
     if (reward) { addFundsUI(reward, r.mock ? 'Passed your UK driving test' : `Lesson passed: ${r.title}`); }
     if (r.passed) P.emit('lesson');
-    $('res-name').textContent = r.mock ? 'Driving test result' : `Lesson · ${r.title}`;
-    $('res-medal').textContent = r.passed ? (r.mock ? 'PASSED · FULL UK LICENCE' : 'PASSED') : 'NOT PASSED';
+    $('res-name').textContent = r.mock ? `${r.title} · ${r.trans === 'manual' ? 'manual' : 'automatic'}` : `Lesson · ${r.title}`;
+    $('res-medal').textContent = r.passed ? (r.mock ? (uk.licence === 'full' ? 'PASSED · FULL UK LICENCE' : 'PASSED · AUTOMATIC LICENCE') : 'PASSED') : 'NOT PASSED';
     $('res-medal').style.color = r.passed ? '#7dffb0' : '#ff8a7a';
     $('res-time').textContent = `${r.counts.minor}`;
-    const lines = r.lines.length ? r.lines.map((l) => `<div class="${l.sev}">${l.sev === 'minor' ? 'Driving fault' : l.sev === 'serious' ? 'Serious' : 'Dangerous'} · ${l.cat}${l.n > 1 ? ` ×${l.n}` : ''}</div>`).join('') : '<div>No faults at all. Textbook.</div>';
-    $('res-sub').innerHTML = `driving fault${r.counts.minor === 1 ? '' : 's'} · ${r.counts.serious} serious · ${r.counts.dangerous} dangerous${reward ? ` · +€${reward.toLocaleString('en-GB')}` : ''}
-      <div class="faults">${lines}</div>`;
+    $('res-sub').innerHTML = `driving fault${r.counts.minor === 1 ? '' : 's'} · ${r.counts.serious} serious · ${r.counts.dangerous} dangerous${reward ? ` · +€${reward.toLocaleString('en-GB')}` : ''}${sheetHtml(r)}`;
+    $('result').querySelector('.modal').classList.toggle('sheet', !!(r.sheet && r.mock));
+    drawResultMap(r.map);
     prevMode = mode;
     mode = 'result';
     if (car) car.park();
@@ -703,6 +782,52 @@ const lessonHooks = {
     return run;
   },
 };
+// ---------- the examiner's marking sheet (DL25) on the result screen ----------
+const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+/** tally strokes, the way an examiner marks driving faults: |||| then a fifth across them */
+const tally = (n) => (n ? '<span class="tally">' + '<s>||||</s> '.repeat(Math.floor(n / 5)) + '|'.repeat(n % 5) + '</span>' : '');
+function sheetHtml(r) {
+  if (!r.sheet || !r.mock) { // lessons: the faults and the lesson's tasks; tests get the whole DL25
+    const lines = r.lines.length ? r.lines.map((l) => `<div class="${l.sev}">${l.sev === 'minor' ? 'Driving fault' : l.sev === 'serious' ? 'Serious' : 'Dangerous'} · ${esc(l.cat)}${l.n > 1 ? ` ×${l.n}` : ''}</div>`).join('') : '<div>No faults at all. Textbook.</div>';
+    const tasks = r.tasks ? `<div class="tasks">${Object.entries(r.tasks).map(([k, v]) => `<span class="${v ? 'done' : ''}">${v ? '✓' : '·'} ${{ up4: 'Up to fourth', down: 'Changed down for a junction', block: 'Block change', start: 'Started the engine', bite: 'Found the bite', biteDown: 'Clutch down at the bite', stall: 'Stalled on purpose', recover: 'Recovered the stall', astart: 'Started the engine', select: 'Selected D', creep: 'Creep control', reverse: 'Reversed in R', select2: 'Back into D', secureP: 'Parked: handbrake and P' }[k] || k}</span>`).join('')}</div>` : '';
+    return `<div class="faults">${lines}</div>${tasks}`;
+  }
+  const S = r.sheet, B = r.brief || { improve: [] };
+  const rows = S.rows.map((R) => `<tr class="${R.d || R.s || R.x ? 'hit' : ''}"><td>${esc(R.label)}${Object.keys(R.subs).length ? `<small>${Object.entries(R.subs).map(([k, n]) => `${k}${n > 1 ? ' ×' + n : ''}`).join(' · ')}</small>` : ''}</td><td>${tally(R.d)}</td><td class="s">${R.s ? (R.habitual ? 'S*' : 'S'.repeat(R.s)) : ''}</td><td class="x">${R.x ? 'D'.repeat(R.x) : ''}</td></tr>`).join('');
+  const improve = B.improve.map((i) => `<div class="imp"><b>${esc(i.row)}</b>${i.s || i.x ? ` <em>${i.x ? 'dangerous' : 'serious'}</em>` : ''} <span>${i.d ? `${i.d} driving fault${i.d === 1 ? '' : 's'}` : ''}</span>
+      ${i.where.map((w) => `<div class="where">${esc(w)}</div>`).join('')}<div class="why">${esc(i.why)}</div><div class="tip">Practise: ${esc(i.tip)}</div>${i.lesson ? `<button class="mini" data-lesson="${i.lesson}">Book: ${esc(i.lessonTitle)}</button>` : ''}</div>`).join('');
+  const g = r.generated;
+  return `<div class="dl25">
+      <div class="verdict">${esc(B.spoken || B.verdict || '')}</div>
+      ${g ? `<div class="route">${esc(g.centreName)} · seed ${g.seed} · ${g.manoeuvre === 'baypark' ? 'forward bay park' : 'pull up on the right and reverse'} · independent driving by ${g.indep.mode === 'signs' ? `signs for ${esc(g.indep.target)}` : 'sat nav'} · ${(r.time / 60).toFixed(1)} min · ${esc(g.stretches.join(', '))}</div>` : ''}
+      <canvas id="res-map" width="360" height="200"></canvas>
+      <table><thead><tr><th>DL25</th><th>Driving faults</th><th>S</th><th>D</th></tr></thead><tbody>${rows}</tbody></table>
+      <div class="total">Total driving faults <b>${S.total}</b> · serious <b>${S.serious}</b> · dangerous <b>${S.dangerous}</b> · ${S.passed ? 'PASS' : 'FAIL'} (15 or fewer driving faults, no serious or dangerous)</div>
+      ${S.habitual.length ? `<div class="note">S* ${esc(S.habitual.join(', '))}: four or more driving faults of the same kind. Examiners can mark a fault repeated like that as serious (DT1: a fault can "by constant repetition, be regarded as serious").</div>` : ''}
+      ${improve ? `<h4>What to improve</h4>${improve}` : '<h4>Nothing to improve today</h4>'}
+      ${r.signs?.length ? `<h4>Signs on your route</h4><div class="signs">${r.signs.map((x) => `<span>${esc(x.sign)}${x.n > 1 ? ` ×${x.n}` : ''}</span>`).join('')}</div>` : ''}
+      ${g ? `<button class="mini" data-retest="${g.centre}:${g.seed}">Retry this route</button>` : ''}
+    </div>`;
+}
+/** the route with a dot where each fault happened (amber driving, red serious, purple dangerous) */
+function drawResultMap(map) {
+  const cv = document.getElementById('res-map'); if (!cv || !map?.pts?.length) return;
+  const ctx = cv.getContext('2d'), W = cv.width, H = cv.height;
+  let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+  for (const [x, z] of map.pts) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); z0 = Math.min(z0, z); z1 = Math.max(z1, z); }
+  const k = Math.min((W - 24) / Math.max(1, x1 - x0), (H - 24) / Math.max(1, z1 - z0)), ox = (W - (x1 - x0) * k) / 2, oz = (H - (z1 - z0) * k) / 2;
+  const P = (x, z) => [ox + (x - x0) * k, oz + (z - z0) * k];
+  ctx.clearRect(0, 0, W, H); ctx.fillStyle = 'rgba(255,255,255,0.04)'; ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = 'rgba(53,174,226,0.9)'; ctx.lineWidth = 2.5; ctx.lineJoin = 'round'; ctx.beginPath();
+  map.pts.forEach(([x, z], i) => { const [a, b] = P(x, z); if (i) ctx.lineTo(a, b); else ctx.moveTo(a, b); }); ctx.stroke();
+  const [sx, sz] = P(...map.pts[0]); ctx.fillStyle = '#e8c77a'; ctx.beginPath(); ctx.arc(sx, sz, 5, 0, Math.PI * 2); ctx.fill();
+  for (const f of map.faults) { const [a, b] = P(f.x, f.z); ctx.fillStyle = f.sev === 'minor' ? '#ffc04d' : f.sev === 'serious' ? '#ff5a4d' : '#c25cff'; ctx.beginPath(); ctx.arc(a, b, f.sev === 'minor' ? 4 : 6, 0, Math.PI * 2); ctx.fill(); }
+}
+$('result').addEventListener('click', (e) => {
+  const b = e.target.closest('button'); if (!b) return;
+  if (b.dataset.retest) { const [c, sd] = b.dataset.retest.split(':'); closeResult(); startTest(c, +sd); }
+  if (b.dataset.lesson) { closeResult(); startLesson(b.dataset.lesson); }
+});
 function addFundsUI(amount, title) {
   state.balance += amount;
   state.log.push({ amount, reason: title, at: new Date().toISOString() });
@@ -748,8 +873,21 @@ async function goKent() {
   hud.show(true);
   await fade(0);
 }
+/**
+ * A 15-minute driving test from a test centre ('herne' | 'canterbury' | 'any') on a route made from a
+ * seed (a new one each time, or the seed of a test you want to retry).
+ */
+function startTest(centre = 'any', seed = null) {
+  if (centre === 'any') centre = Math.random() < 0.5 ? 'herne' : 'canterbury';
+  const w = getWorld('kent');
+  seed = seed ?? (Math.floor(Math.random() * 1e9) >>> 0);
+  let gen;
+  try { gen = generateTest(w.net, centre, seed); } catch (err) { hud.toast(`Couldn't plan a test route there (${err.message}). Try again.`, 4000); return; }
+  gen.signs = signsOnRoute(w.net, gen.route);
+  return startLesson(testDef(gen));
+}
 async function startLesson(id) {
-  const def = LESSONS.find((l) => l.id === id);
+  const def = typeof id === 'object' ? id : LESSONS.find((l) => l.id === id);
   // Kent lessons start at their test centre; the Whitmore ones are practice in the made-up town
   const where = def.world === 'kent' ? 'kent' : 'uk';
   if (world.id !== where) await (where === 'kent' ? goKent() : goUK());
@@ -762,7 +900,10 @@ async function startLesson(id) {
   camMode = 0;
   drive.indicator = null;
   for (const k in autoState) delete autoState[k];
-  const kent = where === 'kent', centre = kent ? KENT_ROUTES[def.route].centre : null;
+  const kent = where === 'kent', centre = kent ? def.centre || KENT_ROUTES[def.route].centre : null;
+  // the gearbox you're learning in (the clutch and gears lessons are always in the manual)
+  learner.setTrans(def.trans || state.uk.trans);
+  if (learner.autoBadge) learner.autoBadge.visible = learner.trans === 'auto';
   if (kent && !window.__game?.autoQuiz) { hud.show(false); await fade(1); }
   const pre = [];
   if (def.checks) {
@@ -807,14 +948,28 @@ async function startLesson(id) {
   car.pos.set(st.x, 0, st.z);
   car.heading = st.heading;
   car.park();
+  car.prepare({ engineOn: !def.engineOff, parkingBrake: true }); // handbrake on, out of gear (the clutch lessons start with the engine off)
   snapCamera();
   if (kent) {
     lesson.waiting = true; // the lesson clock doesn't run while the tiles fill in behind the fade
     await warmTiles(st.x, st.z, window.__game?.autoQuiz ? 0 : 1500);
     lesson.waiting = false;
     if (!window.__game?.autoQuiz) { hud.show(true); await fade(0); }
-    hud.toast(`${centre === 'canterbury' ? 'Canterbury' : 'Herne Bay'} driving test centre. Z and X are the indicators, Q checks your mirrors.`, 4000);
+    hud.toast(`${centre === 'canterbury' ? 'Canterbury' : 'Herne Bay'} driving test centre · ${car.trans === 'manual' ? 'manual' : 'automatic'}. Z and X are the indicators, Q checks your mirrors.`, 4000);
   }
+}
+
+// ---------- the learner gearbox: dashboard, sounds, messages ----------
+const fb = { stalls: 0, grinds: 0, crank: 0, msgT: -1, car: null };
+function driveFeedback(c) {
+  const d = c.drive;
+  if (fb.car !== c) { fb.car = c; fb.stalls = d.stalls; fb.grinds = d.grinds; fb.msgT = d.msg?.t ?? -1; }
+  if (d.stalls !== fb.stalls) { fb.stalls = d.stalls; audio.sfx('stall'); }
+  if (d.grinds !== fb.grinds) { fb.grinds = d.grinds; audio.sfx('grind'); }
+  if (d.crank > 0 && fb.crank <= 0) audio.sfx('crank');
+  fb.crank = d.crank;
+  if (d.msg && d.msg.t !== fb.msgT) { fb.msgT = d.msg.t; hud.toast(d.msg.text, 2600); }
+  hud.drivetrain(c);
 }
 
 // ---------- sound ----------
@@ -1018,9 +1173,11 @@ function step(dt) {
       P.emit('speed', car.speedKmh);
       // a traffic car that drives into the learner is its driver's fault, not a fault on the lesson
       if (world.traffic?.collide(car)) { car.sync(0); drive.trafficHit = world.traffic.lastHit?.blame !== 'other'; }
-      audio.update(car, input.up ? 1 : 0);
+      audio.update(car, car.drive ? car.drive.throttle : input.up ? 1 : 0);
+      if (car.drive) driveFeedback(car);
     } else {
       if (world.id === 'cabin') audio.jet(0.22); else audio.update(null, 0);
+      hud.drivetrain(null);
       if (mode === 'foot') updateFoot(dt, input);
     }
     updateCamera(dt);
@@ -1062,7 +1219,7 @@ frame();
 // debug handle for testing in the console
 window.__game = {
   get world() { return world; }, get car() { return car; }, get mode() { return mode; }, player, keys, camera, pipeline, renderer,
-  state, P, phone, audio, songs, ytradio, worlds, togglePhone, interact, enterWorld, hud, startLesson, goUK, goHome,
+  state, P, phone, audio, songs, ytradio, worlds, togglePhone, interact, enterWorld, hud, startLesson, startTest, setLearnerTrans, goUK, goHome,
   get lesson() { return lesson; }, drive, autoDrive: false,
   // dev: render the current frame and save it to shots/<name>.jpg via the Vite dev server
   async shot(name = 'live', w = 1280, h = 800) {
