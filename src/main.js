@@ -775,7 +775,11 @@ const lessonHooks = {
     if (r.passed) P.emit('lesson');
     $('res-name').textContent = r.mock ? `${r.title} · ${r.trans === 'manual' ? 'manual' : 'automatic'}` : `Lesson · ${r.title}`;
     $('res-medal').textContent = r.passed ? (r.mock ? (uk.licence === 'full' ? 'PASSED · FULL UK LICENCE' : 'PASSED · AUTOMATIC LICENCE') : 'PASSED') : 'NOT PASSED';
-    $('res-medal').style.color = r.passed ? '#7dffb0' : '#ff8a7a';
+    $('res-medal').style.color = r.passed ? 'var(--green-soft)' : 'var(--red-soft)';
+    // a generated test can be driven again on the same seed: offer it in the action row, not buried in the sheet
+    const retry = $('res-retry');
+    if (r.generated) { retry.dataset.retest = `${r.generated.centre}:${r.generated.seed}`; retry.classList.remove('hidden'); }
+    else retry.classList.add('hidden');
     $('res-time').textContent = `${r.counts.minor}`;
     $('res-sub').innerHTML = `driving fault${r.counts.minor === 1 ? '' : 's'} · ${r.counts.serious} serious · ${r.counts.dangerous} dangerous${reward ? ` · +€${reward.toLocaleString('en-GB')}` : ''}${sheetHtml(r)}`;
     $('result').querySelector('.modal').classList.toggle('sheet', !!(r.sheet && r.mock));
@@ -806,13 +810,12 @@ function sheetHtml(r) {
   return `<div class="dl25">
       <div class="verdict">${esc(B.spoken || B.verdict || '')}</div>
       ${g ? `<div class="route">${esc(g.centreName)} · seed ${g.seed} · ${g.manoeuvre === 'baypark' ? 'forward bay park' : 'pull up on the right and reverse'} · independent driving by ${g.indep.mode === 'signs' ? `signs for ${esc(g.indep.target)}` : 'sat nav'} · ${(r.time / 60).toFixed(1)} min · ${esc(g.stretches.join(', '))}</div>` : ''}
-      <canvas id="res-map" width="360" height="200"></canvas>
+      ${g ? '<div class="map-panel"><canvas id="res-map" width="360" height="200"></canvas><div class="map-legend"><span class="start">Start</span><span class="d">Driving</span><span class="s">Serious / dangerous</span></div></div>' : '<canvas id="res-map" width="360" height="200"></canvas>'}
       <table><thead><tr><th>DL25</th><th>Driving faults</th><th>S</th><th>D</th></tr></thead><tbody>${rows}</tbody></table>
       <div class="total">Total driving faults <b>${S.total}</b> · serious <b>${S.serious}</b> · dangerous <b>${S.dangerous}</b> · ${S.passed ? 'PASS' : 'FAIL'} (15 or fewer driving faults, no serious or dangerous)</div>
       ${S.habitual.length ? `<div class="note">S* ${esc(S.habitual.join(', '))}: four or more driving faults of the same kind. Examiners can mark a fault repeated like that as serious (DT1: a fault can "by constant repetition, be regarded as serious").</div>` : ''}
       ${improve ? `<h4>What to improve</h4>${improve}` : '<h4>Nothing to improve today</h4>'}
       ${r.signs?.length ? `<h4>Signs on your route</h4><div class="signs">${r.signs.map((x) => `<span>${esc(x.sign)}${x.n > 1 ? ` ×${x.n}` : ''}</span>`).join('')}</div>` : ''}
-      ${g ? `<button class="mini" data-retest="${g.centre}:${g.seed}">Retry this route</button>` : ''}
     </div>`;
 }
 /** the route with a dot where each fault happened (amber driving, red serious, purple dangerous) */
@@ -827,7 +830,8 @@ function drawResultMap(map) {
   ctx.strokeStyle = 'rgba(53,174,226,0.9)'; ctx.lineWidth = 2.5; ctx.lineJoin = 'round'; ctx.beginPath();
   map.pts.forEach(([x, z], i) => { const [a, b] = P(x, z); if (i) ctx.lineTo(a, b); else ctx.moveTo(a, b); }); ctx.stroke();
   const [sx, sz] = P(...map.pts[0]); ctx.fillStyle = '#e8c77a'; ctx.beginPath(); ctx.arc(sx, sz, 5, 0, Math.PI * 2); ctx.fill();
-  for (const f of map.faults) { const [a, b] = P(f.x, f.z); ctx.fillStyle = f.sev === 'minor' ? '#ffc04d' : f.sev === 'serious' ? '#ff5a4d' : '#c25cff'; ctx.beginPath(); ctx.arc(a, b, f.sev === 'minor' ? 4 : 6, 0, Math.PI * 2); ctx.fill(); }
+  // dots match the table: amber driving fault, red serious or dangerous (--amber / --red)
+  for (const f of map.faults) { const [a, b] = P(f.x, f.z); ctx.fillStyle = f.sev === 'minor' ? '#ffb340' : '#ff453a'; ctx.beginPath(); ctx.arc(a, b, f.sev === 'minor' ? 4 : 6, 0, Math.PI * 2); ctx.fill(); }
 }
 $('result').addEventListener('click', (e) => {
   const b = e.target.closest('button'); if (!b) return;

@@ -84,9 +84,15 @@ kbd {
 }
 .title-inner { text-align: center; padding: var(--sp-6); }
 .eyebrow { font-size: var(--fs-xs); letter-spacing: 0.28em; text-transform: uppercase; color: var(--gold); font-weight: 600; }
-h1 { font-family: var(--font-display); font-size: clamp(44px, 9vw, 112px); letter-spacing: 0.04em; margin: 14px 0 6px; font-weight: 800; line-height: 0.95; }
-.sub { font-size: var(--fs-lg); letter-spacing: 0.36em; text-transform: uppercase; color: var(--muted); margin: 0 0 36px; }
-.hint { color: var(--muted); font-size: var(--fs-sm); margin-top: 18px; }
+h1 { font-family: var(--font-display); font-size: clamp(40px, 9vw, 112px); letter-spacing: 0.04em; margin: var(--sp-4) 0 var(--sp-1); font-weight: 800; line-height: 0.95; }
+.sub { font-size: clamp(var(--fs-sm), 2.4vw, var(--fs-lg)); letter-spacing: 0.3em; text-transform: uppercase; color: var(--text-2); margin: 0 0 var(--sp-8); }
+.hint { color: var(--text-3); font-size: var(--fs-sm); margin-top: var(--sp-5); }
+/* keep the title whole on short / small viewports */
+@media (max-height: 560px) {
+  .sub { margin-bottom: var(--sp-5); }
+  .btn-primary { padding: 13px 40px; }
+  .hint { margin-top: var(--sp-3); }
+}
 
 .btn-primary {
   background: var(--gold); color: var(--ink); border: 0; font: 700 var(--fs-md) var(--font);
@@ -94,10 +100,13 @@ h1 { font-family: var(--font-display); font-size: clamp(44px, 9vw, 112px); lette
   transition: transform var(--dur-1) ease, box-shadow var(--dur-1) ease;
 }
 .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 10px 30px rgba(232, 199, 122, 0.35); }
+.btn-primary:active { transform: translateY(0); box-shadow: none; }
 .btn-ghost {
-  background: transparent; color: var(--muted); border: 1px solid var(--line); padding: 10px 22px;
+  background: transparent; color: var(--text-2); border: 1px solid var(--line); padding: 10px 22px;
   border-radius: var(--r-pill); cursor: pointer; margin-top: 18px; font: inherit; font-size: var(--fs-sm); letter-spacing: 0.08em;
+  transition: color var(--dur-1) ease, border-color var(--dur-1) ease, background-color var(--dur-1) ease;
 }
+.btn-ghost:hover { color: var(--text); border-color: rgba(255, 255, 255, 0.28); background: rgba(255, 255, 255, 0.05); }
 
 /* ---------- HUD ---------- */
 #hud { position: fixed; inset: 0; pointer-events: none; z-index: 10; font-family: var(--font); }
@@ -270,20 +279,28 @@ h1 { font-family: var(--font-display); font-size: clamp(44px, 9vw, 112px); lette
   *, *::before, *::after { animation-duration: 1ms !important; transition-duration: 1ms !important; }
 }
 
-/* Jets modal */
-#jets { background: rgba(0,0,0,0.55); backdrop-filter: blur(6px); }
-.modal { background: rgba(14,16,22,0.92); border: 1px solid var(--line); border-radius: var(--r-lg); padding: 28px; max-width: 980px; width: calc(100% - 32px); text-align: center; max-height: 88vh; overflow-y: auto; }
-.modal h2 { margin: 10px 0 22px; font-size: var(--fs-2xl); font-family: var(--font-display); }
-.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
-.card {
-  text-align: left; background: rgba(255,255,255,0.04); border: 1px solid var(--line); border-radius: var(--r-md);
-  padding: 18px; cursor: pointer; color: var(--text); font: inherit; transition: border-color var(--dur-1), transform var(--dur-1);
+/* Jets modal — one glass material and radius family shared by #jets / #quiz / #result */
+#jets { background: rgba(0, 0, 0, 0.55); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); animation: hud-in var(--dur-2) var(--ease) both; }
+.modal {
+  background: var(--glass-strong); border: 1px solid var(--hairline); border-radius: var(--r-xl);
+  -webkit-backdrop-filter: var(--frost); backdrop-filter: var(--frost);
+  padding: var(--sp-6); max-width: 980px; width: calc(100% - 2 * var(--sp-4)); text-align: center;
+  max-height: 88vh; overflow-y: auto; box-shadow: 0 30px 80px rgba(0, 0, 0, 0.5);
+  animation: hud-pop var(--dur-2) var(--ease) both;
 }
-.card:hover { border-color: var(--gold); transform: translateY(-2px); }
-.card .maker { font-size: 11px; letter-spacing: 0.24em; text-transform: uppercase; color: var(--gold); }
-.card .model { font-size: 22px; font-weight: 700; margin: 6px 0 10px; }
-.card .spec { font-size: 13px; color: var(--muted); line-height: 1.7; }
-.card .dest { margin-top: 12px; font-size: 13px; color: var(--text); }
+.modal h2 { margin: var(--sp-2) 0 var(--sp-5); font-size: var(--fs-2xl); font-family: var(--font-display); letter-spacing: -0.01em; }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: var(--sp-3); }
+.card {
+  text-align: left; background: rgba(255, 255, 255, 0.04); border: 1px solid var(--hairline); border-radius: var(--r-md);
+  padding: var(--sp-5); cursor: pointer; color: var(--text); font: inherit;
+  transition: border-color var(--dur-1) ease, transform var(--dur-1) ease, background-color var(--dur-1) ease;
+}
+.card:hover { border-color: var(--gold); background: rgba(255, 255, 255, 0.06); transform: translateY(-2px); }
+.card:active { transform: translateY(0); }
+.card .maker { font-size: var(--fs-xs); letter-spacing: 0.24em; text-transform: uppercase; color: var(--gold); font-weight: 600; }
+.card .model { font-size: var(--fs-xl); font-weight: 700; margin: var(--sp-1) 0 var(--sp-3); letter-spacing: -0.01em; }
+.card .spec { font-size: var(--fs-sm); color: var(--text-2); line-height: 1.7; }
+.card .dest { margin-top: var(--sp-3); padding-top: var(--sp-3); border-top: 1px solid var(--hairline); font-size: var(--fs-sm); color: var(--text); font-variant-numeric: tabular-nums; }
 
 /* Fade + flight card */
 #fade { position: fixed; inset: 0; background: #000; opacity: 0; pointer-events: none; z-index: 30; transition: opacity 0.8s ease; }
@@ -330,30 +347,47 @@ h1 { font-family: var(--font-display); font-size: clamp(44px, 9vw, 112px); lette
 #phone-body .bar { height: 5px; border-radius: 3px; background: rgba(255,255,255,0.1); margin-top: 8px; overflow: hidden; }
 #phone-body .bar i { display: block; height: 100%; background: var(--gold); }
 
-/* Trial result */
-#result { background: rgba(0,0,0,0.5); backdrop-filter: blur(4px); }
+/* Result hero (trial medal or test verdict): a clear badge, a big tabular number, the reward */
+#result { background: rgba(0,0,0,0.5); -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); }
 .modal.result { max-width: 460px; }
-#res-medal { font-size: 15px; letter-spacing: 0.3em; text-transform: uppercase; margin-top: 18px; font-weight: 700; }
-#res-time { font-family: var(--font-display); font-size: 72px; font-weight: 800; margin: 6px 0; font-variant-numeric: tabular-nums; }
-#res-sub { color: var(--muted); font-size: 14px; line-height: 1.7; margin-bottom: 22px; }
-#res-sub .faults { text-align: left; margin: 10px auto 0; max-width: 360px; font-size: 13px; line-height: 1.8; }
-#res-sub .faults .serious, #res-sub .faults .dangerous { color: #ff8a7a; }
+/* the verdict badge is tinted from its own text colour (set inline: green / red / medal), so one rule serves every state */
+#res-medal { display: inline-block; font-size: var(--fs-sm); letter-spacing: 0.22em; text-transform: uppercase; margin-top: var(--sp-4); font-weight: 700;
+  padding: 6px 16px; border-radius: var(--r-pill); background: color-mix(in srgb, currentColor 14%, transparent); border: 1px solid color-mix(in srgb, currentColor 32%, transparent); }
+#res-medal:empty { display: none; }
+#res-time { font-family: var(--font-display); font-size: var(--fs-display); font-weight: 800; margin: var(--sp-3) 0 var(--sp-1); font-variant-numeric: tabular-nums; letter-spacing: -0.02em; line-height: 1; }
+#res-sub { color: var(--text-2); font-size: var(--fs-sm); line-height: 1.7; margin-bottom: var(--sp-5); }
+#res-sub .faults { text-align: left; margin: var(--sp-3) auto 0; max-width: 360px; font-size: var(--fs-sm); line-height: 1.8; }
+#res-sub .faults .serious, #res-sub .faults .dangerous { color: var(--red-soft); }
+/* Continue pinned to the foot of the (scrolling) sheet. Plain on the short trial card; a solid toolbar on the sheet */
+.res-actions { position: sticky; bottom: 0; margin: var(--sp-5) calc(-1 * var(--sp-6)) calc(-1 * var(--sp-6)); padding: var(--sp-4) var(--sp-6); }
+.modal.result.sheet .res-actions { background: var(--glass-strong); -webkit-backdrop-filter: var(--frost); backdrop-filter: var(--frost);
+  border-top: 1px solid var(--hairline); display: flex; gap: var(--sp-2); justify-content: center; }
+.res-actions #res-retry { margin: 0; } /* Retry sits beside Continue as a ghost pill */
 #phone-body .badge { display: inline-block; font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; padding: 3px 8px; border-radius: 999px; background: rgba(61,255,138,0.14); color: #7dffb0; margin-top: 4px; }
 #phone-body .wide { width: 100%; margin-top: 4px; padding: 12px; }
 
-.dest-tabs { display: flex; gap: 8px; justify-content: center; margin: -8px 0 18px; flex-wrap: wrap; }
-.dest-tabs button { background: rgba(255,255,255,0.05); border: 1px solid var(--line); color: var(--text); border-radius: 999px; padding: 9px 18px; font: inherit; font-size: 14px; cursor: pointer; }
-.dest-tabs button.on { background: var(--gold); color: var(--ink); border-color: var(--gold); font-weight: 700; }
-.card .stop { color: #ffcf8a; }
+/* destination picker: one segmented control, not loose pills */
+.dest-tabs { display: inline-flex; gap: var(--sp-1); justify-content: center; margin: 0 auto var(--sp-5); padding: var(--sp-1);
+  background: rgba(255, 255, 255, 0.05); border: 1px solid var(--hairline); border-radius: var(--r-pill); max-width: 100%; flex-wrap: wrap; }
+.dest-tabs button { background: transparent; border: 0; color: var(--text-2); border-radius: var(--r-pill); padding: 8px 18px;
+  font: inherit; font-size: var(--fs-sm); font-weight: 500; cursor: pointer; transition: color var(--dur-1) ease, background-color var(--dur-1) ease; }
+.dest-tabs button:hover { color: var(--text); }
+.dest-tabs button.on { background: var(--gold); color: var(--ink); font-weight: 600; }
+.card .stop { color: var(--amber); }
 
-/* Test questions */
-#quiz { background: rgba(0,0,0,0.5); backdrop-filter: blur(4px); z-index: 25; }
+/* Test questions: a calm glass card, the answers a full-width stack */
+#quiz { background: rgba(0, 0, 0, 0.5); -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); z-index: 25; }
 .modal.quiz { max-width: 620px; text-align: left; }
-.modal.quiz h2 { font-size: 22px; line-height: 1.35; }
-.quiz-a { display: grid; gap: 10px; }
-.quiz-a button { text-align: left; background: rgba(255,255,255,0.05); border: 1px solid var(--line); color: var(--text); border-radius: 12px; padding: 14px 16px; font: inherit; font-size: 15px; line-height: 1.4; cursor: pointer; }
-.quiz-a button:hover { border-color: var(--gold); }
+.modal.quiz .eyebrow { display: block; margin-bottom: var(--sp-3); }
+.modal.quiz h2 { font-size: var(--fs-xl); line-height: 1.35; margin: 0 0 var(--sp-5); letter-spacing: -0.01em; }
+.quiz-a { display: grid; gap: var(--sp-2); }
+.quiz-a button { text-align: left; background: rgba(255, 255, 255, 0.04); border: 1px solid var(--hairline); color: var(--text); border-radius: var(--r-md);
+  padding: 15px 18px; font: inherit; font-size: var(--fs-md); line-height: 1.4; cursor: pointer;
+  transition: border-color var(--dur-1) ease, background-color var(--dur-1) ease, transform var(--dur-1) ease; }
+.quiz-a button:hover { border-color: var(--gold); background: rgba(255, 255, 255, 0.07); }
+.quiz-a button:active { transform: scale(0.99); }
 .quiz-a button.plate { font: 800 26px/1 "Arial Narrow", Arial, sans-serif; letter-spacing: 0.08em; background: #f2d300; color: #111; text-align: center; border-color: #111; }
+.quiz-a button.plate:hover { background: #fbe033; border-color: #111; }
 #estop { position: fixed; left: 50%; top: 38%; transform: translate(-50%, -50%); font: 900 120px/1 Arial, sans-serif; color: #ff3b30; text-shadow: 0 6px 30px rgba(0,0,0,0.6); z-index: 15; pointer-events: none; letter-spacing: 0.04em; }
 
 #phone-body .swatches { display: flex; flex-wrap: wrap; gap: 10px; margin: 4px 4px 0; }
@@ -384,32 +418,71 @@ h1 { font-family: var(--font-display); font-size: clamp(44px, 9vw, 112px); lette
 #yt-title { font-size: var(--fs-xs); padding: 6px 10px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #yt-title::before { content: '♪ '; color: var(--gold); }
 
-/* the DL25 marking sheet on a test result */
+/* the DL25 marking sheet on a test result — read it like a premium report */
 .modal.result.sheet { max-width: 780px; text-align: left; }
-.modal.result.sheet #res-medal, .modal.result.sheet #res-time, .modal.result.sheet .eyebrow { text-align: center; }
-.dl25 { text-align: left; margin-top: 12px; color: var(--text); font-size: 13px; }
-.dl25 .verdict { font-size: 15px; line-height: 1.5; padding: 10px 12px; border-radius: 10px; background: rgba(255,255,255,0.05); margin-bottom: 8px; }
-.dl25 .route { font-size: 12px; color: var(--muted); margin-bottom: 8px; }
-.dl25 canvas { display: block; width: 100%; max-width: 360px; height: auto; margin: 4px auto 10px; border-radius: 10px; }
-.dl25 table { width: 100%; border-collapse: collapse; font-size: 12px; }
-.dl25 th { text-align: left; font-weight: 600; color: var(--gold); border-bottom: 1px solid var(--line); padding: 4px 6px; }
-.dl25 td { padding: 3px 6px; border-bottom: 1px solid rgba(255,255,255,0.05); color: var(--muted); vertical-align: top; }
+.modal.result.sheet #res-medal, .modal.result.sheet #res-time, .modal.result.sheet .eyebrow,
+.modal.result.sheet #res-sub { text-align: center; }
+.dl25 { text-align: left; margin-top: var(--sp-5); color: var(--text); font-size: var(--fs-sm); }
+.dl25 > * + * { margin-top: var(--sp-4); }
+/* the examiner's debrief, a quiet quote */
+.dl25 .verdict { font-size: var(--fs-md); line-height: 1.5; padding: var(--sp-3) var(--sp-4); border-radius: var(--r-md);
+  background: rgba(255, 255, 255, 0.05); border-left: 3px solid var(--gold); color: var(--text); }
+.dl25 .route { font-size: var(--fs-xs); color: var(--text-3); margin-top: var(--sp-2); line-height: 1.6; }
+/* the route map in a framed panel — the radius clips the bitmap corners (no inner padding/bg, the route already has margin drawn in) */
+.dl25 canvas { display: block; width: 100%; max-width: 360px; height: auto; margin: var(--sp-2) auto 0;
+  border-radius: var(--r-md); border: 1px solid var(--hairline); }
+.dl25 .map-panel { text-align: center; }
+.dl25 .map-legend { display: inline-flex; gap: var(--sp-4); margin-top: var(--sp-2); font-size: var(--fs-2xs); color: var(--text-3); letter-spacing: 0.02em; }
+.dl25 .map-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.dl25 .map-legend span::before { content: ''; width: 8px; height: 8px; border-radius: 50%; }
+.dl25 .map-legend .start::before { background: var(--gold); }
+.dl25 .map-legend .d::before { background: var(--amber); }
+.dl25 .map-legend .s::before { background: var(--red); }
+/* the sheet proper: hairline rows, right-aligned tallies */
+.dl25 table { width: 100%; border-collapse: collapse; font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
+.dl25 th { font-weight: 600; color: var(--text-3); letter-spacing: 0.06em; text-transform: uppercase; white-space: nowrap; border-bottom: 1px solid var(--line); padding: var(--sp-1) var(--sp-2); }
+.dl25 th:first-child { text-align: left; }
+.dl25 th:not(:first-child) { text-align: right; width: 68px; }
+.dl25 td { padding: 6px var(--sp-2); border-bottom: 1px solid var(--hairline); color: var(--text-3); vertical-align: top; }
+.dl25 td:not(:first-child) { text-align: right; white-space: nowrap; }
+.dl25 tr:last-child td { border-bottom: 0; }
 .dl25 tr.hit td { color: var(--text); }
-.dl25 td small { display: block; font-size: 10px; color: var(--muted); }
-.dl25 td.s, .dl25 td.x { color: #ff8a7a; font-weight: 800; }
-.dl25 .tally { font-family: monospace; letter-spacing: 0.05em; color: #ffc04d; }
+/* faulted rows tinted: amber when only driving faults, red when a serious or dangerous fault sits in the row */
+.dl25 tr.hit:has(td.s:not(:empty), td.x:not(:empty)) td { background: rgba(255, 69, 58, 0.09); }
+.dl25 tr.hit:not(:has(td.s:not(:empty), td.x:not(:empty))) td { background: rgba(255, 179, 64, 0.08); }
+.dl25 td small { display: block; font-size: var(--fs-2xs); color: var(--text-3); font-variant-numeric: normal; margin-top: 1px; letter-spacing: 0.01em; }
+.dl25 td.s, .dl25 td.x { color: var(--red-soft); font-weight: 800; }
+.dl25 .tally { font-family: ui-monospace, "SF Mono", Menlo, monospace; letter-spacing: 0.05em; color: var(--amber); }
 .dl25 .tally s { text-decoration-thickness: 2px; }
-.dl25 .total { margin: 8px 0; font-size: 13px; }
-.dl25 .note { font-size: 12px; color: var(--muted); }
-.dl25 h4 { font-size: 11px; letter-spacing: 0.22em; text-transform: uppercase; color: var(--gold); margin: 14px 0 6px; }
-.dl25 .imp { padding: 8px 10px; border-radius: 10px; background: rgba(255,255,255,0.035); margin-bottom: 6px; }
-.dl25 .imp em { color: #ff8a7a; font-style: normal; font-weight: 700; }
-.dl25 .imp span { color: var(--muted); font-size: 12px; }
-.dl25 .where { font-size: 12px; color: #9fe0ff; }
-.dl25 .why, .dl25 .tip { font-size: 12px; color: var(--muted); margin-top: 2px; }
-.dl25 .signs span, #res-sub .tasks span { display: inline-block; font-size: 11px; padding: 3px 8px; margin: 2px; border-radius: 999px; background: rgba(255,255,255,0.07); }
-#res-sub .tasks span.done { background: rgba(61,255,138,0.14); color: #7dffb0; }
-.modal button.mini { background: transparent; color: var(--gold); border: 1px solid rgba(232,199,122,0.5); border-radius: 999px; padding: 6px 12px; font: inherit; font-size: 12px; cursor: pointer; margin-top: 6px; }
+/* the running total as a clear bar */
+.dl25 .total { font-size: var(--fs-sm); color: var(--text-2); padding: var(--sp-3) var(--sp-4); border-radius: var(--r-md); background: rgba(255, 255, 255, 0.04); line-height: 1.6; }
+.dl25 .total b { color: var(--text); font-weight: 700; }
+.dl25 .note { font-size: var(--fs-xs); color: var(--text-3); line-height: 1.6; }
+/* section headers match the phone's h3 */
+.dl25 h4 { font-size: var(--fs-xs); letter-spacing: 0.24em; text-transform: uppercase; color: var(--gold); margin: var(--sp-5) 0 var(--sp-2); font-weight: 600; }
+.dl25 h4 + * { margin-top: 0; } /* keep each header close to its own cards, not the owl-rule's 16px */
+/* "what to improve" as clean cards */
+.dl25 .imp { padding: var(--sp-3) var(--sp-4); border-radius: var(--r-md); background: rgba(255, 255, 255, 0.04); margin-bottom: var(--sp-2); }
+.dl25 .imp b { font-size: var(--fs-md); font-weight: 600; }
+/* the severity chip: red for serious / dangerous, amber for driving-fault counts */
+.dl25 .imp em, .dl25 .imp > span { display: inline-block; font-size: var(--fs-2xs); font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase;
+  padding: 2px 8px; border-radius: var(--r-pill); vertical-align: middle; margin-left: var(--sp-1); font-style: normal; }
+.dl25 .imp em { color: var(--red-soft); background: rgba(255, 69, 58, 0.14); }
+.dl25 .imp > span { color: var(--amber); background: rgba(255, 179, 64, 0.14); }
+.dl25 .imp > span:empty { display: none; }
+.dl25 .where { font-size: var(--fs-xs); color: var(--route); margin-top: var(--sp-2); }
+.dl25 .why { font-size: var(--fs-xs); color: var(--text-2); margin-top: var(--sp-2); line-height: 1.5; }
+.dl25 .tip { font-size: var(--fs-xs); color: var(--text-3); margin-top: 2px; line-height: 1.5; }
+/* signs on the route as small chips */
+.dl25 .signs { display: flex; flex-wrap: wrap; gap: var(--sp-1); }
+.dl25 .signs span, #res-sub .tasks span { display: inline-block; font-size: var(--fs-xs); padding: 4px 10px; border-radius: var(--r-pill); background: rgba(255, 255, 255, 0.07); color: var(--text-2); }
+#res-sub .tasks { display: flex; flex-wrap: wrap; gap: var(--sp-1); justify-content: center; margin-top: var(--sp-3); }
+#res-sub .tasks span.done { background: rgba(48, 209, 88, 0.16); color: var(--green-soft); }
+/* the small secondary pill (Book a lesson / Retry this route): ghost, gold */
+.modal button.mini { background: transparent; color: var(--gold); border: 1px solid color-mix(in srgb, var(--gold) 45%, transparent); border-radius: var(--r-pill);
+  padding: 8px 16px; font: inherit; font-size: var(--fs-xs); font-weight: 600; cursor: pointer; margin-top: var(--sp-3);
+  transition: background-color var(--dur-1) ease; }
+.modal button.mini:hover { background: color-mix(in srgb, var(--gold) 14%, transparent); }
 /* the phone: gearbox choice and test history */
 #phone-body .seg { display: flex; gap: 6px; margin: 8px 0; }
 #phone-body .seg button { flex: 1; background: rgba(255,255,255,0.05); border: 1px solid var(--line); color: var(--muted); border-radius: 999px; padding: 9px; font: inherit; font-size: 13px; cursor: pointer; }
@@ -417,5 +490,6 @@ h1 { font-family: var(--font-display); font-size: clamp(44px, 9vw, 112px); lette
 #phone-body .trend { display: flex; gap: 4px; align-items: flex-end; height: 40px; margin: 6px 4px; }
 #phone-body .trend i { flex: 1; background: var(--gold); border-radius: 3px 3px 0 0; min-height: 2px; }
 #phone-body .trend i.fail { background: #ff8a7a; }
-#quiz-plate { text-align: center; margin: -8px 0 14px; }
-#quiz-plate img { width: 150px; height: 150px; object-fit: contain; }
+#quiz-plate { text-align: center; margin: 0 0 var(--sp-5); }
+#quiz-plate img { width: 150px; height: 150px; object-fit: contain; padding: var(--sp-3);
+  background: rgba(255, 255, 255, 0.04); border: 1px solid var(--hairline); border-radius: var(--r-md); }
