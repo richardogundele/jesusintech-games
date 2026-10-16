@@ -90,7 +90,11 @@ export class Phone {
   }
 
   render() {
-    for (const b of $('phone-tabs').children) b.classList.toggle('on', b.dataset.tab === this.tab);
+    for (const b of $('phone-tabs').children) {
+      const on = b.dataset.tab === this.tab;
+      b.classList.toggle('on', on);
+      if (on) b.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' }); // keep the current tab in view in the scrolling row
+    }
     $('phone-balance').textContent = formatMoney(state.balance);
     this.body.innerHTML = this[this.tab]();
     this.body.scrollTop = 0;

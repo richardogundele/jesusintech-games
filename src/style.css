@@ -299,10 +299,14 @@ h1 { font-family: var(--font-display); font-size: clamp(44px, 9vw, 112px); lette
 .phone-head { display: flex; justify-content: space-between; align-items: flex-start; padding: 0 6px 12px; }
 #phone-balance { font-size: 26px; font-weight: 800; color: #9ef0a6; margin-top: 6px; font-variant-numeric: tabular-nums; }
 .phone .x { margin-top: 0; padding: 7px 14px; font-size: 11px; }
-#phone-tabs { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 2px 12px; }
+/* one calm scrolling row, not a wrapped tag cloud; the edges fade so it reads as scrollable */
+#phone-tabs { display: flex; gap: 6px; padding: 2px 14px 12px; overflow-x: auto; scrollbar-width: none; scroll-behavior: smooth;
+  -webkit-mask: linear-gradient(90deg, transparent, #000 14px, #000 calc(100% - 14px), transparent); mask: linear-gradient(90deg, transparent, #000 14px, #000 calc(100% - 14px), transparent); }
+#phone-tabs::-webkit-scrollbar { display: none; }
 #phone-tabs button { flex: none; background: rgba(255,255,255,0.05); border: 1px solid var(--line); color: var(--muted); border-radius: 999px;
-  padding: 7px 12px; font: inherit; font-size: 12px; cursor: pointer; }
-#phone-tabs button.on { background: var(--gold); color: var(--ink); border-color: var(--gold); font-weight: 700; }
+  padding: 7px 13px; font: inherit; font-size: 12px; letter-spacing: 0.01em; cursor: pointer; white-space: nowrap; transition: background var(--dur-1) var(--ease), color var(--dur-1) var(--ease); }
+#phone-tabs button:hover { background: rgba(255,255,255,0.1); color: var(--text, #fff); }
+#phone-tabs button.on { background: var(--gold); color: var(--ink); border-color: var(--gold); font-weight: 600; }
 #phone-body { overflow-y: auto; flex: 1; padding: 0 4px; }
 #phone-body h3 { font-size: 11px; letter-spacing: 0.24em; text-transform: uppercase; color: var(--gold); margin: 18px 4px 8px; font-weight: 600; }
 #phone-body .row { display: flex; gap: 12px; align-items: center; padding: 12px; border-radius: 14px; background: rgba(255,255,255,0.035); margin-bottom: 8px; }
