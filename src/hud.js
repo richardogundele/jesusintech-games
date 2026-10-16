@@ -334,6 +334,9 @@ export class Hud {
       : ['P', 'R', 'N', 'D'].map((g) => `<i class="${d.gear === g ? 'on' : ''}">${g}</i>`).join('');
     this.set('dt-gear', D.gear, gear, 'innerHTML');
     this.flag(D.gear, 'auto', !manual);
+    // a quick flash when the gear changes, so a shift feels tactile
+    if (this.last.gear !== undefined && this.last.gear !== d.gear) { D.gear.classList.remove('shift'); void D.gear.offsetWidth; D.gear.classList.add('shift'); }
+    this.last.gear = d.gear;
     // engine state lives in the caption under the speed
     const off = !d.engineOn;
     this.flag(this.speedo, 'eng-off', off);
