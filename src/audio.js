@@ -242,6 +242,8 @@ export class EngineAudio {
     // the learner gearbox: a stall shudders, a gear crunches, the starter whirrs
     if (kind === 'stall') { for (let i = 0; i < 5; i++) this.thump(t + i * 0.09, 0.22 - i * 0.04, 42 - i * 4); }
     if (kind === 'grind') this.noiseBurst(t, 0.28, 2600, 4, 0.12);
+    // a crash: a heavy low thud with a metallic crunch over it
+    if (kind === 'crash') { this.thump(t, 0.55, 64); this.thump(t + 0.02, 0.4, 44); this.noiseBurst(t, 0.26, 1500, 2, 0.2); this.noiseBurst(t + 0.03, 0.18, 3200, 3, 0.1); }
     if (kind === 'crank') { for (let i = 0; i < 6; i++) this.thump(t + i * 0.09, 0.05, 90); this.noiseBurst(t, 0.55, 700, 1.5, 0.03); }
   }
   /** a low knock: the engine shaking itself to a stop */

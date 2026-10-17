@@ -244,10 +244,12 @@ export class Car {
     if (input.brake) vF -= Math.sign(vF) * Math.min(Math.abs(vF), 6 * dt);
     }
 
-    // steering: less lock at speed so it stays controllable at 300 km/h
+    // steering: less lock at speed so it stays controllable at 300 km/h.
+    // Turn the wheel in gently (so keyboard steering isn't twitchy) and let it unwind a little quicker.
     const speedFactor = 1 - 0.6 * Math.min(1, Math.abs(vF) / 70);
     const target = input.steer * s.steer * speedFactor;
-    this.steer += (target - this.steer) * Math.min(1, dt * 8);
+    const rate = Math.abs(target) > Math.abs(this.steer) ? 4 : 6.5;
+    this.steer += (target - this.steer) * Math.min(1, dt * rate);
 
     // lateral grip
     const grip = drift ? s.grip * 0.12 : s.grip;
@@ -268,7 +270,7 @@ export class Car {
 
     // collisions: two circles (front + rear) against the world boxes
     const r = this.model.width * 0.55;
-    let hit = false;
+    let hit = false, impact = 0;
     for (const off of [this.model.length * 0.28, -this.model.length * 0.28]) {
       probe.set(this.pos.x + fwd.x * off, 0, this.pos.z + fwd.y * off);
       const before = probe.clone();
@@ -279,9 +281,13 @@ export class Car {
         n.normalize();
         const into = this.vel.dot(n);
         if (into < 0) {
-          this.vel.addScaledVector(n, -into * 1.35);
-          this.vel.multiplyScalar(0.82);
-          hit = Math.abs(into) > 4;
+          const speed = Math.abs(into);
+          // a real impact: cancel the speed going into the wall (no bounce) and bleed the rest —
+          // a solid hit brings you to a near stop, a graze just scrubs some speed off
+          this.vel.addScaledVector(n, -into);
+          this.vel.multiplyScalar(speed > 3 ? 0.18 : 0.6);
+          hit = speed > 4;
+          impact = Math.max(impact, speed);
         }
       }
     }
@@ -294,7 +300,7 @@ export class Car {
     this.accelSmoothed += (accel - this.accelSmoothed) * Math.min(1, dt * 6);
     this.slip = Math.abs(vR);
     this.sync(dt);
-    return { hit };
+    return { hit, impact };
   }
 
   park() {

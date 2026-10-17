@@ -117,6 +117,7 @@ let world = null;
 let mode = 'menu'; // menu | foot | car | jets | cutscene
 let car = null;
 let camMode = 0;
+let camShake = 0, crashCooldown = 0; // a jolt + a short mute so one bump doesn't spam the crash sound
 let cutscene = null;
 let controlsOpen = false; // the H card: the world waits while it's open
 
@@ -1096,6 +1097,13 @@ function updateCamera(dt) {
   const r = camRig();
   if (r.snap) camera.position.copy(desired);
   else camera.position.lerp(desired, 1 - Math.exp(-dt * 9));
+  if (camShake > 0.002) {
+    const a = camShake * 0.28;
+    camera.position.x += (Math.random() - 0.5) * a;
+    camera.position.y += (Math.random() - 0.5) * a;
+    camera.position.z += (Math.random() - 0.5) * a;
+    camShake *= Math.exp(-dt * 7);
+  }
   camera.fov += (r.fov - camera.fov) * Math.min(1, dt * 3);
   camera.updateProjectionMatrix();
   camera.lookAt(look);
@@ -1210,6 +1218,9 @@ function step(dt) {
       const prevHeading = car.heading;
       const res = car.update(dt, input, world);
       updateIndicators(dt, car.heading - prevHeading);
+      // a real hit: a crunch and a camera jolt, scaled by how hard you hit (with a short cooldown)
+      crashCooldown = Math.max(0, crashCooldown - dt);
+      if (res.impact > 3.5 && crashCooldown <= 0) { audio.sfx('crash'); camShake = Math.min(1.1, res.impact * 0.11); crashCooldown = 0.4; }
       if (lesson) {
         lesson.update(dt, car, { indicator: drive.indicator, mirrorPressed: drive.mirrorPressed, hit: res.hit || drive.trafficHit });
       }
