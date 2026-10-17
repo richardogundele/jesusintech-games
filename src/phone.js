@@ -37,6 +37,7 @@ export class Phone {
       if (act === 'lesson') { this.hooks.close(); this.hooks.startLesson(id); return; }
       // the driving school: the gearbox you learn in, a 15-minute test, retrying a test's route
       if (act === 'trans') { this.hooks.setTrans(id); this.render(); return; }
+      if (act === 'lessoncar') { this.hooks.setLessonCar(id); this.render(); return; }
       if (act === 'test15') { this.hooks.close(); this.hooks.startTest(id); return; }
       if (act === 'signs') { this.hooks.signDrill(); return; }
       if (act === 'retest') { const [c, sd] = id.split(':'); this.hooks.close(); this.hooks.startTest(c, +sd); return; }
@@ -162,6 +163,9 @@ export class Phone {
       <p class="note">${trans === 'manual'
         ? 'Manual: <b>Left Shift</b> is the clutch (hold it), <b>1</b>-<b>5</b> the gears, <b>R</b> reverse, <b>0</b> neutral, <b>I</b> the engine, <b>Space</b> the handbrake. Pass in a manual and you can drive both.'
         : 'Automatic: <b>1</b> drive, <b>R</b> reverse, <b>0</b> neutral, <b>9</b> park, <b>I</b> the engine, <b>Space</b> the handbrake. It creeps in D: cover the brake. Pass in an automatic and your licence is for automatics only.'}</p>
+      <h3>Lesson car</h3>
+      <div class="seg" style="flex-wrap:wrap">${this.hooks.lessonCars().map((c) => `<button class="${c.sel ? 'on' : ''}" data-act="lessoncar" data-id="${c.id}">${c.name}</button>`).join('')}</div>
+      <p class="note">Take your lessons and tests in any car you own — it wears L plates and drives like a learner car. No more taxi.</p>
       ${inUK ? '<button class="buy wide" data-act="gohome">Fly home</button>' : ''}
       <h3>Lessons · Herne Bay</h3>${rows}
       <h3>Driving test · 15 minutes</h3>

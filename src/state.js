@@ -16,7 +16,7 @@ const DEFAULTS = () => ({
   radio: false,
   // driving lessons and tests: licence false | 'auto' (passed in an automatic) | 'full' (passed in a manual);
   // trans: the gearbox you learn in; history: your driving tests (newest last); hints: key hints seen per gearbox
-  uk: { lessons: {}, licence: false, tests: 0, trans: 'manual', history: [], hints: {} },
+  uk: { lessons: {}, licence: false, tests: 0, trans: 'manual', lessonCar: null, history: [], hints: {} },
   look: { outfit: 'Realistic soldier', camo: 'Woodland', top: 'Royal blue', jeans: 'Dark denim', skin: 'Brown' }, // what you're wearing
   lookV: 2, // bump to move existing saves onto a new default outfit once
   homeV: 1, // bump to move existing saves to a new home once

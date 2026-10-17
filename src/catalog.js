@@ -36,6 +36,19 @@ export const CARS = {
     color: 0x15161a, topSpeed: 220, accel: 7, grip: 5.5, steer: 0.56, engine: 'v8',
     dims: { L: 4.87, W: 1.98 },
   },
+  // ---- everyday cars you own: good for driving lessons (an L-plated learner, not a taxi) ----
+  tesla: {
+    loft: 'sedan',
+    maker: 'Tesla', model: 'Model S', type: 'sedan',
+    color: 0xeef1f4, topSpeed: 250, accel: 9, grip: 6.6, steer: 0.58, engine: 'i4',
+    dims: { L: 4.97, W: 1.96 },
+  },
+  lexus: {
+    loft: 'sedan',
+    maker: 'Lexus', model: 'ES 300h', type: 'sedan',
+    color: 0x1f232a, topSpeed: 200, accel: 6, grip: 6, steer: 0.56, engine: 'i4',
+    dims: { L: 4.98, W: 1.87 },
+  },
   // ---- for sale at the dealer (bought cars are delivered to whichever home you're at) ----
   urus: {
     loft: 'cullinan', price: 260_000,
@@ -82,7 +95,7 @@ export const LEARNER = {
   dims: { L: 4.07, W: 1.75 },
 };
 // the fleet you started with: always yours
-export const STARTER_CARS = ['revuelto', 'f458', 'cullinan', 'chiron', 'g63'];
+export const STARTER_CARS = ['revuelto', 'f458', 'cullinan', 'chiron', 'g63', 'tesla', 'lexus'];
 
 // unbranded traffic: body shape + paint picked at random
 export const TRAFFIC = [

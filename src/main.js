@@ -6,7 +6,7 @@ import { buildPlayer, buildJet } from './models.js';
 import { EngineAudio } from './audio.js';
 import { Hud } from './hud.js';
 import { state, save } from './state.js';
-import { JETS, CITIES, otherCities, fuelStop, flightTime, talkFee, LEARNER, RADIO_STATION } from './catalog.js';
+import { JETS, CITIES, otherCities, fuelStop, flightTime, talkFee, LEARNER, CARS, RADIO_STATION } from './catalog.js';
 import { buildSingapore } from './worlds/singapore.js';
 import { buildKent, setKentHooks } from './worlds/kent.js';
 import * as P from './progress.js';
@@ -93,7 +93,7 @@ function getWorld(id) {
       return c;
     };
     w.garage.forEach((g) => w.addCar(g.id, g));
-    if (w.learnerAt) { const c = w.addCar('learner', w.learnerAt, { ...LEARNER, trans: state.uk.trans }); addLPlates(c); addAutoBadge(c); }
+    if (w.learnerAt) rebuildLearner(w);
     if (w.parked) addEyesightCar(w, { x: w.parked.x, z: w.parked.z, heading: 0 });
     for (const spot of w.eyesight || []) addEyesightCar(w, spot); // Kent: one at each test centre
     // cars bought from the phone fill the extra bays at this home
@@ -531,6 +531,8 @@ const phone = new Phone({
   startTest: (centre, seed) => startTest(centre, seed),
   signDrill: () => signDrill(10),
   setTrans: (t) => setLearnerTrans(t),
+  setLessonCar: (id) => setLessonCar(id),
+  lessonCars: () => lessonCarList(),
   goUK: () => goUK(),
   inKent: () => world.id === 'kent',
   goHome: () => goHome(),
@@ -615,15 +617,44 @@ function addAutoBadge(c) {
   c.autoBadge = g;
   g.visible = c.trans === 'auto';
 }
+/** the car you learn in: your chosen car's looks, with calm learner handling so a test is still a test */
+function lessonSpecFor(id) {
+  if (!id || id === 'learner' || !CARS[id]) return LEARNER;
+  const base = CARS[id];
+  return { ...base, topSpeed: LEARNER.topSpeed, accel: LEARNER.accel, grip: LEARNER.grip, steer: LEARNER.steer };
+}
+/** (re)build a world's learner car from the chosen lesson car + gearbox, with L plates */
+function rebuildLearner(w) {
+  if (!w.learnerAt) return null;
+  const i = w.cars.findIndex((c) => c.id === 'learner');
+  if (i >= 0) { w.scene.remove(w.cars[i].model.root); w.cars.splice(i, 1); }
+  const c = w.addCar('learner', w.learnerAt, { ...lessonSpecFor(state.uk.lessonCar), trans: state.uk.trans });
+  addLPlates(c); addAutoBadge(c);
+  return c;
+}
 /** the phone's "Learning in" choice: every learner car already built changes gearbox (and badge) */
 function setLearnerTrans(t) {
   if (lesson && !window.__game?.autoQuiz) { hud.toast('Finish (or stop) this lesson before you change car', 2600); return; }
   state.uk.trans = t; save();
   for (const w of Object.values(worlds)) for (const c of w.cars) if (c.id === 'learner') { c.setTrans(t); if (c.autoBadge) c.autoBadge.visible = t === 'auto'; }
 }
-/** getting into the learner car: what the gearbox is (the HUD's hints teach the keys, step by step) */
+/** the phone's "Lesson car" choice: take lessons in any car you own (it wears L plates) */
+function setLessonCar(id) {
+  if (lesson && !window.__game?.autoQuiz) { hud.toast('Finish (or stop) this lesson before you change car', 2600); return; }
+  state.uk.lessonCar = !id || id === 'learner' ? null : id; save();
+  for (const w of Object.values(worlds)) rebuildLearner(w);
+  const base = CARS[state.uk.lessonCar];
+  hud.toast(`Lessons now in your ${base ? `${base.maker} ${base.model}` : 'VW Polo'}`, 2600);
+}
+/** every car you can take a lesson in: the free learner Polo plus the cars you own */
+function lessonCarList() {
+  const sel = state.uk.lessonCar || 'learner';
+  return [{ id: 'learner', name: 'VW Polo', sel: sel === 'learner' },
+    ...Object.keys(CARS).filter((id) => P.ownsCar(id)).map((id) => ({ id, name: `${CARS[id].maker} ${CARS[id].model}`, sel: sel === id }))];
+}
+/** getting into the learner car: which car and gearbox (the HUD's hints teach the keys, step by step) */
 function learnerHello(c) {
-  hud.toast(`VW Polo learner car · ${c.trans === 'manual' ? 'manual' : 'automatic'}`, 2600);
+  hud.toast(`${c.name} learner car · ${c.trans === 'manual' ? 'manual' : 'automatic'}`, 2600);
 }
 
 function updateIndicators(dt, dHeading) {
@@ -906,7 +937,7 @@ async function startLesson(id) {
   const where = def.world === 'kent' ? 'kent' : 'uk';
   if (world.id !== where) await (where === 'kent' ? goKent() : goUK());
   if (lesson) lesson.cancel();
-  const learner = world.cars.find((c) => c.id === 'learner');
+  const learner = world.cars.find((c) => c.id === 'learner') || rebuildLearner(world);
   if (car && car !== learner) car.park();
   car = learner;
   mode = 'car';
@@ -1234,7 +1265,7 @@ frame();
 // debug handle for testing in the console
 window.__game = {
   get world() { return world; }, get car() { return car; }, get mode() { return mode; }, player, keys, camera, pipeline, renderer,
-  state, P, phone, audio, songs, ytradio, worlds, togglePhone, interact, enterWorld, hud, startLesson, startTest, setLearnerTrans, goUK, goHome,
+  state, P, phone, audio, songs, ytradio, worlds, togglePhone, interact, enterWorld, hud, startLesson, startTest, setLearnerTrans, setLessonCar, goUK, goHome,
   get lesson() { return lesson; }, drive, autoDrive: false,
   // dev: render the current frame and save it to shots/<name>.jpg via the Vite dev server
   async shot(name = 'live', w = 1280, h = 800) {
