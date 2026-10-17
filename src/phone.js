@@ -264,7 +264,7 @@ export class Phone {
     const extra = o === 'Realistic soldier'
       ? '<p class="note">A realistic soldier in army digital camouflage (Microsoft Rocketbox avatar, MIT licence). Pick the beret uniform to choose your own camouflage and skin tone.</p>'
       : (o === 'Military uniform' ? row('camo', 'Camouflage') : row('top', 'Sweatshirt') + row('jeans', 'Jeans')) + row('skin', 'Skin tone');
-    return `<p class="note">What you're wearing around Monaco, Dubai, Singapore and Whitmore.</p>` + row('outfit', 'Outfit') + extra;
+    return `<p class="note">What you're wearing around Kent, Monaco, Dubai and Singapore.</p>` + row('outfit', 'Outfit') + extra;
   }
 
   me() {

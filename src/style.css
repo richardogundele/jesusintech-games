@@ -209,7 +209,8 @@ h1 { font-family: var(--font-display); font-size: clamp(40px, 9vw, 112px); lette
 /* the slim rev line above the speed (manual only): red above 5800 rpm */
 #dt-rev { width: 100%; height: 3px; border-radius: 2px; overflow: hidden; margin-bottom: 7px;
   background: linear-gradient(90deg, rgba(255, 255, 255, 0.16) 0 82.8%, rgba(255, 69, 58, 0.5) 82.8% 100%); }
-#dt-rev i { display: block; height: 100%; width: 0; background: rgba(245, 245, 247, 0.9); border-radius: 2px; }
+#dt-rev i { display: block; height: 100%; width: 0; background: rgba(245, 245, 247, 0.9); border-radius: 2px; transition: background var(--dur-1) ease; }
+#dt-rev i.ready { background: var(--green); } /* the change-up band */
 #dt-rev i.red { background: var(--red); }
 /* the gear: one pill (manual) or P R N D (automatic) */
 #dtrain { display: flex; }

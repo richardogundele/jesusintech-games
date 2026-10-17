@@ -347,7 +347,10 @@ export class Hud {
     if (manual) {
       const w = `${Math.min(100, (d.rpm / 7000) * 100).toFixed(1)}%`;
       if (this.last.rev !== w) { this.last.rev = w; D.rev.style.width = w; }
+      // the rev fill greens in the change-up band and reds at over-rev: a quiet shift cue for learners
+      const ready = d.gear !== 'N' && d.gear !== 5 && d.rpm > 4300 && d.rpm <= 5800;
       this.flag(D.rev, 'red', d.rpm > 5800);
+      this.flag(D.rev, 'ready', ready);
     }
     // the clutch, only while it isn't fully up
     const showClutch = manual && d.pedal > 0.02;
