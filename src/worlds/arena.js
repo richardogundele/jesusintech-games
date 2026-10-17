@@ -4,20 +4,21 @@ import { Colliders } from './common.js';
 import { hdri } from '../assets.js';
 import { mesh } from '../models.js';
 import { buildCrowdAtlas, crowdImpostors, crowd3D } from '../crowd.js';
+import { drawPoster } from '../brandart.js';
 
 // JesusInTech Live: a 10,000-seat arena. Stage faces +z; the crowd fills a seating bowl and a standing pit.
-// Brand: black #050607, white, cyan #35AEE2.
+// Brand: black #050607, white, cyan #35AEE2. The big LED runs the same poster system as the city billboards.
 
 const CYAN = 0x35aee2;
 
 export const SLIDES = [
-  { kicker: 'JesusInTech Live · Dubai', title: 'The Dream Life', sub: 'Richard Ogundele' },
-  { kicker: 'Why we are here', title: 'Use AI to create opportunity.', sub: 'Build with purpose.' },
-  { kicker: 'Three pillars', title: 'Opportunity. Protection. Faith.', sub: 'Practical AI, guarding what makes us human, character first.' },
-  { kicker: 'Remember this', title: 'Faith does not remove the work.', sub: '' },
-  { kicker: 'AIOS', title: 'Build the system behind your next move.', sub: 'aios.jesusintech.com' },
-  { kicker: 'Proof', title: '1,000+ people taught.', sub: '3 offers from 30+ interviews. Your turn.' },
-  { kicker: 'Start today', title: 'Start with the right pathway.', sub: 'jesusintech.com' },
+  { kicker: 'JesusInTech Live · Dubai', title: 'The Dream Life.', sub: 'Richard Ogundele', theme: 'ink' },
+  { kicker: 'Why we are here', title: 'Use AI to create opportunity.', sub: 'Build with purpose.', theme: 'cyan' },
+  { kicker: 'Three pillars', title: 'Opportunity. Protection. Faith.', sub: 'Practical AI, guarding what makes us human, character first.', theme: 'ink' },
+  { kicker: 'Remember this', title: 'Faith doesn’t remove the work.', sub: '', theme: 'light' },
+  { kicker: 'AIOS', title: 'The system behind your next move.', sub: 'Your AI life operating system.', url: 'aios.jesusintech.com', theme: 'cyan' },
+  { kicker: 'Proof', title: '1,000+ people taught.', sub: '3 offers from 30+ interviews. Your turn.', theme: 'ink' },
+  { kicker: 'Start today', title: 'Start with the right pathway.', sub: 'Build with purpose.', url: 'jesusintech.com', theme: 'light' },
 ];
 
 function slideCanvas() {
@@ -25,31 +26,18 @@ function slideCanvas() {
   c.width = 2048; c.height = 820;
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 8;
   const draw = (i) => {
     const s = SLIDES[i];
     const ctx = c.getContext('2d');
-    const g = ctx.createLinearGradient(0, 0, 2048, 820);
-    g.addColorStop(0, '#050607'); g.addColorStop(1, '#0b1820');
-    ctx.fillStyle = g; ctx.fillRect(0, 0, 2048, 820);
-    ctx.fillStyle = '#35aee2'; ctx.fillRect(140, 150, 120, 10);
-    ctx.font = '600 44px Helvetica Neue, Arial'; ctx.fillStyle = '#35aee2';
-    ctx.fillText(s.kicker.toUpperCase(), 140, 120);
-    ctx.fillStyle = '#ffffff';
-    let size = 150;
-    ctx.font = `800 ${size}px Helvetica Neue, Arial`;
-    while (ctx.measureText(s.title).width > 1780 && size > 70) { size -= 6; ctx.font = `800 ${size}px Helvetica Neue, Arial`; }
-    // wrap to two lines if needed
-    const words = s.title.split(' ');
-    let lines = [s.title];
-    if (ctx.measureText(s.title).width > 1780) {
-      lines = ['', ''];
-      for (const w of words) { const l = lines[0] ? 1 : 0; if (ctx.measureText(lines[0] + ' ' + w).width < 1700 && !lines[1]) lines[0] = (lines[0] + ' ' + w).trim(); else lines[1] = (lines[1] + ' ' + w).trim(); }
-    }
-    lines.forEach((l, k) => ctx.fillText(l, 140, 360 + k * (size * 1.05)));
-    if (s.sub) { ctx.font = '500 56px Helvetica Neue, Arial'; ctx.fillStyle = 'rgba(255,255,255,0.75)'; ctx.fillText(s.sub, 140, 360 + lines.length * size * 1.05 + 40); }
-    ctx.font = '700 34px Helvetica Neue, Arial'; ctx.fillStyle = 'rgba(255,255,255,0.45)';
-    ctx.fillText('JESUSINTECH', 1720, 760);
-    ctx.fillText(`${i + 1} / ${SLIDES.length}`, 140, 760);
+    drawPoster(ctx, 2048, 820, { kicker: s.kicker, title: s.title, sub: s.sub, url: s.url || '', theme: s.theme || 'ink' });
+    // slide counter in the corner, so the show reads as a deck
+    ctx.save();
+    ctx.font = '700 30px "Helvetica Neue", Arial';
+    ctx.fillStyle = s.theme === 'cyan' || s.theme === 'light' ? 'rgba(8,16,26,0.5)' : 'rgba(255,255,255,0.5)';
+    ctx.textAlign = 'right';
+    ctx.fillText(`${i + 1} / ${SLIDES.length}`, 2048 - 70, 60);
+    ctx.restore();
     tex.needsUpdate = true;
   };
   return { tex, draw };

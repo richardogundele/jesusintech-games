@@ -4,6 +4,7 @@ import { M, waterMaterial, groundTexture, label, facadeMaterial } from '../mater
 import { buildYacht, buildJet, palms, planExtrude, mesh, rocks, stonePines } from '../models.js';
 import { JETS } from '../catalog.js';
 import { hdri, pbr, texSet, instanced, model as modelOf, modelMaterial } from '../assets.js';
+import { buildBillboard, BILLBOARDS } from '../brandart.js';
 
 const rand = (a, b) => a + Math.random() * (b - a);
 const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
@@ -332,6 +333,21 @@ export function buildMonaco(renderer) {
   const harbourLabel = label('Port Hercule', { size: 2 });
   harbourLabel.position.set(0, 22, 120);
   scene.add(harbourLabel);
+
+  // ---- brand billboards: roadside along the promenade straight + one on the skyline ----
+  const boards = [
+    { x: -120, z: 60, rot: Math.PI, i: 0, w: 16 },
+    { x: 20, z: 60, rot: Math.PI, i: 1, w: 16 },
+    { x: 150, z: 58, rot: Math.PI, i: 4, w: 16 },
+    { x: 205, z: -288, rot: Math.PI, i: 3, w: 20, y: 150, legs: false }, // mounted on the tall tower
+  ];
+  for (const b of boards) {
+    const bb = buildBillboard({ width: b.w, spec: BILLBOARDS[b.i], legs: b.legs !== false, height: b.y });
+    bb.position.set(b.x, 0, b.z);
+    bb.rotation.y = b.rot;
+    scene.add(bb);
+    if (b.legs !== false) colliders.box(b.x, b.z, b.w * 0.7, 2);
+  }
 
   return {
     id: 'monaco',

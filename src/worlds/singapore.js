@@ -4,6 +4,7 @@ import { setupSky, buildRoad, buildingBlocks, streetLamps, Colliders, broadleafT
 import { M, waterMaterial, label, facadeMaterial } from '../materials.js';
 import { palms, mesh } from '../models.js';
 import { hdri, pbr } from '../assets.js';
+import { buildBillboard, BILLBOARDS } from '../brandart.js';
 
 // Singapore: Marina Bay. Marina Bay Sands and its SkyPark across the water from the CBD skyline,
 // the Supertrees and domes of Gardens by the Bay, the Singapore Flyer, the Esplanade "durians",
@@ -311,6 +312,20 @@ export function buildSingapore(renderer) {
     low++;
   }
   scene.add(buildingBlocks(blocks, { winSize: [1.8, 3.4], winColor: 0x22404f, amount: 0.92, roughness: 0.3, metalness: 0.45 }));
+
+  // ---- brand billboards along the East Coast Parkway (z≈0) ----
+  const sgBoards = [
+    { x: 440, z: 22, rot: Math.PI, i: 0, w: 18 },
+    { x: 720, z: -22, rot: 0, i: 1, w: 18 },
+    { x: 1000, z: 22, rot: Math.PI, i: 5, w: 18 },
+  ];
+  for (const b of sgBoards) {
+    const bb = buildBillboard({ width: b.w, spec: BILLBOARDS[b.i] });
+    bb.position.set(b.x, 0, b.z);
+    bb.rotation.y = b.rot;
+    scene.add(bb);
+    colliders.box(b.x, b.z, b.w * 0.7, 3);
+  }
 
   scene.add(palms(palmSpots));
   // a few round towers with crowns among the boxes, so the skyline isn't all slabs

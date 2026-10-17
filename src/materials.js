@@ -175,20 +175,28 @@ export function curbTexture() {
   });
 }
 
-/** Floating landmark label. */
-export function label(text, { size = 1, color = '#ffffff', sub = '' } = {}) {
+/** Floating landmark label — a premium brand plate: cyan accent tick, white title, gold caption. */
+export function label(text, { size = 1, color = '#ffffff', sub = '', accent = '#35aee2' } = {}) {
+  const FONT = '-apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif';
   const tex = canvasTex(1024, 256, (ctx, w, h) => {
     ctx.clearRect(0, 0, w, h);
     ctx.textAlign = 'center';
-    ctx.shadowColor = 'rgba(0,0,0,0.65)';
-    ctx.shadowBlur = 18;
+    const ty = sub ? 118 : 150;
+    // short cyan accent rule above the title — the brand mark that ties every sign together
+    ctx.fillStyle = accent;
+    ctx.fillRect(w / 2 - 44, ty - 92, 88, 8);
+    try { ctx.letterSpacing = '-1px'; } catch { /* older canvas */ }
+    ctx.shadowColor = 'rgba(0,0,0,0.6)';
+    ctx.shadowBlur = 20; ctx.shadowOffsetY = 2;
     ctx.fillStyle = color;
-    ctx.font = '600 92px -apple-system, BlinkMacSystemFont, Helvetica Neue, Helvetica, Arial, sans-serif';
-    ctx.fillText(text, w / 2, sub ? 120 : 160);
+    ctx.font = `700 90px ${FONT}`;
+    ctx.fillText(text, w / 2, ty);
     if (sub) {
+      try { ctx.letterSpacing = '3px'; } catch { /* noop */ }
+      ctx.shadowBlur = 10;
       ctx.fillStyle = '#e8c77a';
-      ctx.font = '600 42px -apple-system, BlinkMacSystemFont, Helvetica Neue, Helvetica, Arial, sans-serif';
-      ctx.fillText(sub.toUpperCase(), w / 2, 200);
+      ctx.font = `600 40px ${FONT}`;
+      ctx.fillText(sub.toUpperCase(), w / 2, 196);
     }
   }, false);
   const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, fog: false, depthWrite: false }));

@@ -6,6 +6,7 @@ import { JETS, STARTER_JETS } from '../catalog.js';
 import { state } from '../state.js';
 import { buildMansion } from './mansion.js';
 import { hdri, pbr } from '../assets.js';
+import { buildBillboard, BILLBOARDS } from '../brandart.js';
 
 const rand = (a, b) => a + Math.random() * (b - a);
 const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
@@ -224,6 +225,21 @@ export function buildDubai(renderer) {
   ring.position.set(198, 0.2, 600);
   scene.add(ring);
   tickers.push((t) => { ring.scale.setScalar(1 + Math.sin(t * 3) * 0.06); });
+
+  // ---- brand billboards down Sheikh Zayed Road (the main boulevard, x≈0) ----
+  const dubaiBoards = [
+    { x: 34, z: -240, rot: -Math.PI / 2, i: 0, w: 18 },
+    { x: -34, z: 40, rot: Math.PI / 2, i: 1, w: 18 },
+    { x: 34, z: 300, rot: -Math.PI / 2, i: 4, w: 18 },
+    { x: -34, z: -40, rot: Math.PI / 2, i: 2, w: 18 },
+  ];
+  for (const b of dubaiBoards) {
+    const bb = buildBillboard({ width: b.w, spec: BILLBOARDS[b.i] });
+    bb.position.set(b.x, 0, b.z);
+    bb.rotation.y = b.rot;
+    scene.add(bb);
+    colliders.box(b.x, b.z, 3, b.w * 0.7);
+  }
 
   scene.add(palms(palmSpots));
 
