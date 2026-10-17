@@ -38,15 +38,15 @@ export const CARS = {
   },
   // ---- everyday cars you own: good for driving lessons (an L-plated learner, not a taxi) ----
   tesla: {
-    loft: 'sedan',
+    loft: 'tesla',
     maker: 'Tesla', model: 'Model S', type: 'sedan',
-    color: 0xeef1f4, topSpeed: 250, accel: 9, grip: 6.6, steer: 0.58, engine: 'i4',
+    color: 0xeceff3, topSpeed: 250, accel: 9, grip: 6.6, steer: 0.58, engine: 'i4',
     dims: { L: 4.97, W: 1.96 },
   },
   lexus: {
-    loft: 'sedan',
+    loft: 'lexus',
     maker: 'Lexus', model: 'ES 300h', type: 'sedan',
-    color: 0x1f232a, topSpeed: 200, accel: 6, grip: 6, steer: 0.56, engine: 'i4',
+    color: 0xb9bec6, topSpeed: 200, accel: 6, grip: 6, steer: 0.56, engine: 'i4',
     dims: { L: 4.98, W: 1.87 },
   },
   // ---- for sale at the dealer (bought cars are delivered to whichever home you're at) ----

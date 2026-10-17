@@ -111,6 +111,28 @@ const LOFTS = {
       [0.5, 0.86, 0.38, 0.82, 0.96, null, null],
     ],
   },
+  // Tesla Model S: low cab-forward liftback, one smooth roof arc into a short deck, closed EV nose
+  tesla: {
+    n: 2.6, nb: 5, wheelR: 0.345, axles: [0.345, -0.345], hl: [0.46, 0.8], tl: 0.9, grille: 'ev',
+    st: [
+      [-0.5, 0.8, 0.33, 0.86, 0.95, null, null], [-0.45, 0.96, 0.27, 1.0, 0.9, null, null],
+      [-0.36, 1.0, 0.26, 1.18, 0.86, 1.0, 1.15], [-0.2, 1.0, 0.26, 1.33, 0.8, 0.98, 1.29],
+      [-0.02, 1.0, 0.26, 1.36, 0.78, 0.97, 1.32], [0.14, 1.0, 0.27, 1.28, 0.8, 0.96, null],
+      [0.26, 0.99, 0.28, 1.0, 0.88, 0.93, null], [0.36, 0.97, 0.29, 0.9, 0.93, null, null],
+      [0.46, 0.92, 0.31, 0.8, 0.95, null, null], [0.5, 0.8, 0.35, 0.72, 0.96, null, null],
+    ],
+  },
+  // Lexus ES: formal three-box saloon, long hood, upright notchback, spindle grille
+  lexus: {
+    n: 3.2, nb: 6, wheelR: 0.355, axles: [0.33, -0.31], hl: [0.47, 0.82], tl: 0.95, grille: 'lexus',
+    st: [
+      [-0.5, 0.84, 0.36, 0.9, 0.95, null, null], [-0.42, 0.98, 0.31, 1.06, 0.92, null, null],
+      [-0.34, 1.0, 0.3, 1.1, 0.9, 1.04, null], [-0.26, 1.0, 0.3, 1.4, 0.82, 1.02, 1.36],
+      [-0.1, 1.0, 0.3, 1.47, 0.78, 1.0, 1.42], [0.08, 1.0, 0.3, 1.47, 0.78, 0.99, 1.42],
+      [0.22, 0.99, 0.3, 1.14, 0.84, 0.97, null], [0.3, 0.98, 0.3, 1.0, 0.9, null, null],
+      [0.42, 0.95, 0.33, 0.92, 0.94, null, null], [0.5, 0.85, 0.38, 0.84, 0.96, null, null],
+    ],
+  },
 };
 
 function catmull(p0, p1, p2, p3, t) {
@@ -297,6 +319,25 @@ export function buildCar(spec) {
     gr.scale.set(1, 1.2, 0.4);
     gr.position.set(0, 0.42, L / 2 - 0.06);
     body.add(gr);
+  } else if (def.grille === 'ev') {
+    // Tesla: no grille — a body-colour nose with a slim black lower intake and a connected light bar
+    const intake = mesh(new THREE.BoxGeometry(W * 0.5, 0.1, 0.05), M.trim, { cast: false });
+    intake.position.set(0, front.y0 + 0.14, L / 2 + 0.01);
+    const bar = mesh(new THREE.BoxGeometry(W * 0.86, 0.03, 0.04), M.headlight, { cast: false });
+    bar.position.set(0, front.y1 - 0.02, L / 2 - 0.02);
+    body.add(intake, bar);
+  } else if (def.grille === 'lexus') {
+    // Lexus spindle grille: a dark pinched panel with a chrome surround and fine slats
+    const surround = mesh(new THREE.BoxGeometry(W * 0.44, 0.56, 0.05), M.chrome, { cast: false });
+    surround.position.set(0, 0.74, L / 2 + 0.005);
+    const mouth = mesh(new THREE.BoxGeometry(W * 0.34, 0.46, 0.05), M.trim, { cast: false });
+    mouth.position.set(0, 0.74, L / 2 + 0.03);
+    body.add(surround, mouth);
+    for (let i = -3; i <= 3; i++) {
+      const slat = mesh(new THREE.BoxGeometry(W * (0.3 - Math.abs(i) * 0.012), 0.012, 0.06), M.chrome, { cast: false });
+      slat.position.set(0, 0.74 + i * 0.065, L / 2 + 0.04);
+      body.add(slat);
+    }
   }
   if (def.spare) {
     const sp = wheel(def.wheelR * 0.95);
