@@ -9,7 +9,7 @@ const probe = new THREE.Vector3();
 // ---------- the learner car's gearbox ----------
 // Only a car whose spec has `trans` ('manual' | 'auto') gets one: every other car keeps the arcade
 // longitudinal code below untouched. Units: rpm, m/s, Nm, kg. A small petrol hatch (a Polo).
-const IDLE = 800, STALL_RPM = 500, REDLINE = 6500;
+const IDLE = 800, STALL_RPM = 380, REDLINE = 6500;
 const MASS = 1150, IE = 0.15;            // car mass; engine + flywheel inertia (kg m2)
 const RPM2W = Math.PI / 30;               // rpm -> rad/s
 // engine rpm per m/s of road speed in each gear (final drive included): redline in 1st is 20 mph,
@@ -21,8 +21,9 @@ const lerpTable = (t, x) => { if (x <= t[0][0]) return t[0][1]; for (let i = 1; 
 const TORQUE = [[0, 40], [800, 70], [1500, 95], [2500, 112], [4500, 112], [6000, 96], [7000, 78]];
 const tFull = (rpm) => lerpTable(TORQUE, rpm);
 const tFric = (rpm) => (rpm > 1 ? 8 + 0.0045 * rpm : 0); // pumping and friction: engine braking
-/** clutch engagement from the pedal (1 = floored): free above 0.6, the bite between 0.6 and 0.35, home below */
-export const engagement = (p) => (p >= 0.6 ? 0 : p <= 0.35 ? 1 : ((t) => t * t * (3 - 2 * t))((0.6 - p) / 0.25));
+/** clutch engagement from the pedal (1 = floored): free above 0.72, the bite between 0.72 and 0.2, home below.
+ *  A wide, forgiving bite band so the biting point is easy to find and hold while learning. */
+export const engagement = (p) => (p >= 0.72 ? 0 : p <= 0.2 ? 1 : ((t) => t * t * (3 - 2 * t))((0.72 - p) / 0.52));
 /** rolling resistance and air drag as an acceleration (m/s2), against v */
 const resist = (v) => (Math.abs(v) > 0.05 ? -Math.sign(v) * 0.15 : 0) - 0.00035 * v * Math.abs(v);
 /** the throttle eases in and out, so a held W key is a squeeze, not a stamp */
@@ -60,7 +61,7 @@ class Manual extends Drivetrain {
     if (g === 'D') g = 1; // the auto's Drive key in a manual is first
     if (g === 'P') g = 'N';
     if (g === this.gear) return;
-    if (this.pedal < 0.75) { this.flags.grind = true; this.grinds++; return this.say('Crunch! Clutch down (Left Shift) before you change gear'); }
+    if (this.pedal < 0.75) { this.flags.grind = true; this.grinds++; return this.say('Crunch! Clutch down (Shift) before you change gear'); }
     if (g === 'R' && v > 0.8) { this.flags.grind = true; this.grinds++; return this.say('Stop before you select reverse'); }
     if (typeof g === 'number' && v < -0.8) return this.say('Stop before you select a forward gear');
     this.gear = g; this.locked = false;
@@ -71,9 +72,9 @@ class Manual extends Drivetrain {
     if (input.pbrakeToggle) this.parkingBrake = !this.parkingBrake;
     if (input.ignition) this.ignition(v);
     if (input.shift != null) this.select(input.shift, v);
-    // the pedal goes down fast; comes up at a steady rate, slower through the bite so you can find it
+    // the pedal goes down fast; comes up at a steady rate, much slower through the wide bite so it's easy to hold
     if (input.clutch) this.pedal = Math.min(1, this.pedal + 7 * dt);
-    else this.pedal = Math.max(0, this.pedal - (this.pedal > 0.35 && this.pedal < 0.6 ? 0.625 : 1.875) * dt);
+    else this.pedal = Math.max(0, this.pedal - (this.pedal > 0.2 && this.pedal < 0.72 ? 0.5 : 1.875) * dt);
     this.throttle = easeThrottle(this.throttle, input, dt);
     // engine torque: the idle control keeps it ticking over at about 800, but it can't pull the car on its own
     let Te;

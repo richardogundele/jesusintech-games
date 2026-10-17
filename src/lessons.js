@@ -185,9 +185,9 @@ export const lessonsFor = (trans) => LESSONS.filter((l) => !l.trans || l.trans =
 // Drills: lesson steps the instructor waits for while the car is stopped (or creeping). `pilot` tells
 // the careful driver's feet what to do (pedals.js); `done` says when to move on.
 const DRILLS = {
-  start: { pilot: 'start', text: "First, start the engine. Clutch down (hold Left Shift), check it's in neutral (0), then press I.", done: (r, c) => c.engineOn },
+  start: { pilot: 'start', text: "First, start the engine. Clutch down (hold Shift), check it's in neutral (0), then press I.", done: (r, c) => c.engineOn },
   bite: { pilot: 'bite', text: "Now the biting point. Handbrake stays on. Clutch down, select first (1), a little gas (tap W), then let the clutch up slowly (let go of Shift). When the engine note drops and the car wants to pull, that's the bite.", done: (r, c) => c.engineOn && c.gear === 1 && c.parkingBrake && c.drive.engaged > 0.25 },
-  biteDown: { pilot: 'hold', text: "That's the bite: feel it pulling against the handbrake? Clutch back down now (Left Shift) before it stalls.", done: (r, c) => c.clutch >= 0.8 || !c.engineOn },
+  biteDown: { pilot: 'hold', text: "That's the bite: feel it pulling against the handbrake? Clutch back down now (Shift) before it stalls.", done: (r, c) => c.clutch >= 0.8 || !c.engineOn },
   stall: { pilot: 'stall', text: "Before we go on, stall it on purpose so you know what to do. Handbrake on, first gear, then let the clutch up with no gas.", done: (r, c) => c.stalled },
   recover: { pilot: 'recover', text: "That's a stall. No panic: handbrake on, clutch down, select neutral (0), then press I to restart.", done: (r, c) => c.engineOn },
   astart: { pilot: 'start', text: "Foot on the brake (S), check the lever is in P, then press I to start the engine.", done: (r, c) => c.engineOn },
@@ -596,7 +596,7 @@ export class LessonRun {
     if (d.kind === 'auto' && d.gear === 'D' && car.vF < -0.9) this.fault('minor', 'Control: rolled back', 'rollback', 10);
     // the coach's line (lessons only): what to do next with the controls
     if (!mock) {
-      if (!d.engineOn) tip = d.stalled ? 'Stalled: clutch down, neutral (0), handbrake on, then I to restart.' : manual ? 'Engine off: clutch down (Left Shift), neutral (0), then I.' : 'Engine off: foot on the brake, P (9) or N (0), then I.';
+      if (!d.engineOn) tip = d.stalled ? 'Stalled: clutch down, neutral (0), handbrake on, then I to restart.' : manual ? 'Engine off: clutch down (Shift), neutral (0), then I.' : 'Engine off: foot on the brake, P (9) or N (0), then I.';
       else if (!this.moved && mph < 0.5 && !this.drillQ.length) tip = manual ? 'Moving off: clutch down · first (1) · gentle gas (W) · find the bite · handbrake off (Space) · mirrors (Q) · signal (X) · clutch up gently'
         : 'Moving off: foot on the brake · D (1) · handbrake off (Space) · mirrors (Q) · signal (X) · ease off the brake';
       else if (this.pulledUp && !this.pulledUp.secured && mph < 0.5) tip = manual ? 'Pulled up: handbrake on (Space), then neutral (0).' : 'Pulled up: handbrake on (Space), then N (0).';

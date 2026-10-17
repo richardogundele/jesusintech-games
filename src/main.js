@@ -195,7 +195,7 @@ function readInput() {
     steer: (down('KeyD', 'ArrowRight') ? 1 : 0) - (down('KeyA', 'ArrowLeft') ? 1 : 0),
     brake: learner ? false : down('Space'), // the learner car's Space is the parking brake (a press, not a hold)
     run: down('ShiftLeft', 'ShiftRight'),
-    clutch: learner ? down('ShiftLeft') : false,
+    clutch: learner ? down('ShiftLeft', 'ShiftRight') : false,
     shift: press.shift, ignition: press.ignition, pbrakeToggle: press.pbrakeToggle,
   };
   press.shift = null; press.ignition = false; press.pbrakeToggle = false;

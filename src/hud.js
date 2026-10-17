@@ -51,7 +51,7 @@ const H_TIP_SESSIONS = 3;
 const GROUPS = {
   foot: ['On foot', [[k('W', 'A', 'S', 'D'), 'Walk'], [k('Shift'), 'Run'], [k('E'), 'Get in a car · interact']]],
   drive: ['Driving', [[k('W'), 'Accelerate'], [k('S'), 'Brake · reverse'], [k('A', 'D'), 'Steer'], [k('Space'), 'Handbrake'], [k('C'), 'Camera'], [k('E'), 'Get out']]],
-  manual: ['Gearbox <small>· manual</small>', [[k('Left Shift'), 'Clutch (hold)'], [`${k('1')}–${k('5')}`, 'Gears'], [k('R'), 'Reverse'], [k('0'), 'Neutral'], [k('I'), 'Engine on · off'], [k('Space'), 'Parking brake on · off']]],
+  manual: ['Gearbox <small>· manual</small>', [[k('Shift'), 'Clutch (hold)'], [`${k('1')}–${k('5')}`, 'Gears'], [k('R'), 'Reverse'], [k('0'), 'Neutral'], [k('I'), 'Engine on · off'], [k('Space'), 'Parking brake on · off']]],
   auto: ['Gearbox <small>· automatic</small>', [[k('1'), 'Drive'], [k('R'), 'Reverse'], [k('0'), 'Neutral'], [k('9'), 'Park'], [k('I'), 'Engine on · off'], [k('Space'), 'Parking brake on · off']]],
   lesson: ['Lessons', [[k('Z'), 'Left indicator'], [k('X'), 'Right indicator'], [k('Q'), 'Check your mirrors']]],
   game: ['Game', [[k('P'), 'Phone'], [k('M'), 'Sound on · off'], [k('N'), 'Next song'], [k('F'), 'Radio (in a car)'], [k('H'), 'These controls']]],

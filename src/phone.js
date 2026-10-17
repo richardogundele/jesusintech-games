@@ -161,7 +161,7 @@ export class Phone {
       <h3>Learning in</h3>
       <div class="seg"><button class="${trans === 'manual' ? 'on' : ''}" data-act="trans" data-id="manual">Manual</button><button class="${trans === 'auto' ? 'on' : ''}" data-act="trans" data-id="auto">Automatic</button></div>
       <p class="note">${trans === 'manual'
-        ? 'Manual: <b>Left Shift</b> is the clutch (hold it), <b>1</b>-<b>5</b> the gears, <b>R</b> reverse, <b>0</b> neutral, <b>I</b> the engine, <b>Space</b> the handbrake. Pass in a manual and you can drive both.'
+        ? 'Manual: <b>Shift</b> is the clutch (hold it, either Shift key), <b>1</b>-<b>5</b> the gears, <b>R</b> reverse, <b>0</b> neutral, <b>I</b> the engine, <b>Space</b> the handbrake. Pass in a manual and you can drive both.'
         : 'Automatic: <b>1</b> drive, <b>R</b> reverse, <b>0</b> neutral, <b>9</b> park, <b>I</b> the engine, <b>Space</b> the handbrake. It creeps in D: cover the brake. Pass in an automatic and your licence is for automatics only.'}</p>
       <h3>Lesson car</h3>
       <div class="seg" style="flex-wrap:wrap">${this.hooks.lessonCars().map((c) => `<button class="${c.sel ? 'on' : ''}" data-act="lessoncar" data-id="${c.id}">${c.name}</button>`).join('')}</div>
