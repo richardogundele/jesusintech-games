@@ -397,8 +397,10 @@ export class Hud {
     if (!open) { this.controlsEl.classList.add('hidden'); return false; }
     if (!this.ui.hUsed) { this.ui.hUsed = true; this.persist(); }
     const box = car?.drive ? car.drive.kind : trans;
+    // the gearbox keys (clutch / P R N D / ignition) only do anything in the learner car, so only a
+    // learner car shows them in place; an ordinary car just drives, and on foot they preview the lessons
     const order = car?.drive ? [box, 'drive', 'lesson', 'game', 'foot']
-      : car ? ['drive', 'game', box, 'lesson', 'foot']
+      : car ? ['drive', 'game', 'foot']
       : ['foot', 'game', 'drive', box, 'lesson'];
     this.controlsBody.innerHTML = order.map((id) => {
       const [title, rows] = GROUPS[id];
