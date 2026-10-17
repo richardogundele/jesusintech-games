@@ -98,6 +98,8 @@ export class Hud {
     this.tipEl = $('ctl-tip');
     this.controlsEl = $('controls');
     this.controlsBody = $('controls-body');
+    this.dockEl = $('controldock');
+    this.dockKey = null;
     this.dt = { el: $('dtrain'), badge: $('dt-badge'), pb: $('dt-pb'), gear: $('dt-gear'), revBox: $('dt-rev'), rev: $('dt-rev').firstElementChild, clutch: $('dt-clutch'), clutchBar: $('dt-clutch').querySelector('i'), warn: $('dt-warn') };
     this.mapCanvas = $('minimap');
     this.map = this.mapCanvas.getContext('2d');
@@ -148,8 +150,9 @@ export class Hud {
     el.classList.toggle(cls, on);
   }
 
-  update({ world, x, z, car, balance, prompt, mode, gas = false }) {
+  update({ world, x, z, car, balance, prompt, mode, gas = false, trans = 'manual' }) {
     this.mode = mode;
+    this.renderDock({ car, mode, trans });
     this.set('city', this.city, world.name);
     this.set('place', this.place, world.place(x, z));
     this.set('money', this.money, formatMoney(balance));
@@ -388,6 +391,27 @@ export class Hud {
     if (!html) { this.last.trial = null; this.trialEl.classList.add('hidden'); return; }
     this.trialEl.classList.remove('hidden');
     this.set('trial', this.trialEl, html, 'innerHTML');
+  }
+
+  // ---------- the controls dock (the bottom 10% of the screen, always on) ----------
+  // Shows the same groups the H card would, for whatever you're doing now; only rebuilds on a change.
+  renderDock({ car = null, mode = 'menu', trans = 'manual' } = {}) {
+    const show = mode === 'foot' || mode === 'car';
+    this.dockEl.classList.toggle('hidden', !show);
+    if (!show) { this.dockKey = null; return; }
+    const box = car?.drive ? car.drive.kind : trans;
+    // show what you can actually use now, so the whole strip is visible at a glance
+    const order = car?.drive ? [box, 'drive', 'lesson', 'game']
+      : car ? ['drive', 'game']
+      : ['foot', 'game'];
+    const key = order.join(',');
+    if (key === this.dockKey) return;
+    this.dockKey = key;
+    this.dockEl.innerHTML = order.map((id) => {
+      const [title, rows] = GROUPS[id];
+      return `<div class="dock-group"><span class="dock-title">${title}</span>${rows
+        .map(([keys, label]) => `<span class="dock-item">${keys}<em>${label}</em></span>`).join('')}</div>`;
+    }).join('');
   }
 
   // ---------- the controls card ----------

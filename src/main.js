@@ -29,21 +29,25 @@ import { Traffic } from './traffic.js';
 
 // ---------- renderer ----------
 const canvas = document.getElementById('game');
+// the 3D game fills the top 90% of the screen; the controls dock sits in the bottom 10%
+const GAME_VH = 0.9;
+const viewW = () => window.innerWidth;
+const viewH = () => Math.round(window.innerHeight * GAME_VH);
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
-renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setSize(viewW(), viewH());
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.0;
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
-const camera = new THREE.PerspectiveCamera(62, window.innerWidth / window.innerHeight, 0.3, 12000);
+const camera = new THREE.PerspectiveCamera(62, viewW() / viewH(), 0.3, 12000);
 const pipeline = createPipeline(renderer, camera);
 window.addEventListener('resize', () => {
-  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.aspect = viewW() / viewH();
   camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
-  pipeline.setSize(window.innerWidth, window.innerHeight);
+  renderer.setSize(viewW(), viewH());
+  pipeline.setSize(viewW(), viewH());
 });
 const mirrorCam = new THREE.PerspectiveCamera(42, 292 / 70, 0.3, 600);
 const draw = () => {
@@ -52,20 +56,20 @@ const draw = () => {
   pipeline.render(world.scene);
   // a real rear-view mirror in the learner car (its 2px frame is #mirror: 296 x 74 at top 16px, style.css)
   if (car?.drive && mode === 'car') {
-    const w = 292, h = 70, x = (window.innerWidth - w) / 2, yTop = 18;
+    const w = 292, h = 70, x = (viewW() - w) / 2, yTop = 18;
     const fx = Math.sin(car.heading), fz = Math.cos(car.heading);
     mirrorCam.position.set(car.pos.x + fx * 0.2, 1.25, car.pos.z + fz * 0.2);
     mirrorCam.lookAt(car.pos.x - fx * 30, 0.9, car.pos.z - fz * 30);
     const auto = renderer.shadowMap.autoUpdate;
     renderer.shadowMap.autoUpdate = false;
     renderer.setScissorTest(true);
-    renderer.setScissor(x, window.innerHeight - yTop - h, w, h);
-    renderer.setViewport(x, window.innerHeight - yTop - h, w, h);
+    renderer.setScissor(x, viewH() - yTop - h, w, h);
+    renderer.setViewport(x, viewH() - yTop - h, w, h);
     car.model.root.visible = false;
     renderer.render(world.scene, mirrorCam);
     car.model.root.visible = true;
     renderer.setScissorTest(false);
-    renderer.setViewport(0, 0, window.innerWidth, window.innerHeight);
+    renderer.setViewport(0, 0, viewW(), viewH());
     renderer.shadowMap.autoUpdate = auto;
   }
 };
@@ -1151,7 +1155,7 @@ function step(dt) {
     camera.updateProjectionMatrix();
     camera.lookAt(shot.look);
     player.mesh.userData.animate(0, dt);
-    hud.update({ world, x: player.pos.x, z: player.pos.z, car: null, balance: state.balance, prompt: currentPrompt(), mode });
+    hud.update({ world, x: player.pos.x, z: player.pos.z, car: null, balance: state.balance, prompt: currentPrompt(), mode, trans: state.uk.trans });
   } else if (mode === 'cutscene') {
     if (cutscene) {
       cutscene.t += dt;
@@ -1194,7 +1198,7 @@ function step(dt) {
     updateCamera(dt);
     const p = car ? car.pos : player.pos;
     world.env.follow(p);
-    hud.update({ world, x: p.x, z: p.z, car, balance: state.balance, prompt: mode === 'jets' ? '' : currentPrompt(), mode, gas: input.up });
+    hud.update({ world, x: p.x, z: p.z, car, balance: state.balance, prompt: mode === 'jets' ? '' : currentPrompt(), mode, gas: input.up, trans: state.uk.trans });
     hud.minimap(world, p.x, p.z, car ? car.heading : player.heading, world.cars.filter((c) => c !== car), world.trials?.marks() || [], lesson?.path());
     const inLearner = mode === 'car' && !!car?.drive; // the rear-view mirror is the learner car's
     hud.limit(world.units === 'mph' ? world.speedLimitAt(p.x, p.z) : null, world.units === 'mph' && world.nslAt?.(p.x, p.z));
