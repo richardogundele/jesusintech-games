@@ -78,7 +78,7 @@ const draw = () => {
 const hud = new Hud();
 const audio = new EngineAudio();
 // the examiner that's always on while you free-drive (route-based lessons use LessonRun instead)
-const freeExam = new FreeExam({ flash: (text) => { hud.toast(text, 2600); audio.sfx('spend'); } });
+const freeExam = new FreeExam({ flash: (text) => { hud.toast(text, 2600); audio.sfx('spend'); }, tip: (text) => hud.toast(text, 2600) });
 const $ = (id) => document.getElementById(id);
 
 // ---------- worlds ----------
@@ -1251,7 +1251,7 @@ function step(dt) {
       crashCooldown = Math.max(0, crashCooldown - dt);
       if (res.impact > 3.5 && crashCooldown <= 0) { audio.sfx('crash'); camShake = Math.min(1.1, res.impact * 0.11); crashCooldown = 0.4; }
       // free-driving is always a test: mark the faults that don't need a route and keep the tally live
-      if (!lesson) { freeExam.update(dt, car, world, res); hud.exam(freeExam.counts, true); }
+      if (!lesson) { freeExam.update(dt, car, world, res); freeExam.coach(dt, car); hud.exam(freeExam.counts, true); }
       if (lesson) {
         lesson.update(dt, car, { indicator: drive.indicator, mirrorPressed: drive.mirrorPressed, hit: res.hit || drive.trafficHit });
       }
