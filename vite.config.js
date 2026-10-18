@@ -59,8 +59,8 @@ const stripPrivate = {
 };
 
 export default defineConfig(({ command, isPreview }) => ({
-  // production is served from jesusintech.com/games/ (proxied), so build (and preview) for that path
-  base: command === 'build' || isPreview ? '/games/' : '/',
+  // production is served from the root of games.jesusintech.com
+  base: '/',
   plugins: [shotSaver, fileInbox, stripPrivate],
   build: {
     outDir: OUT,
