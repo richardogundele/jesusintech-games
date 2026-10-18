@@ -5,6 +5,7 @@ import { buildYacht, buildJet, palms, planExtrude, mesh, rocks, stonePines } fro
 import { JETS } from '../catalog.js';
 import { hdri, pbr, texSet, instanced, model as modelOf, modelMaterial } from '../assets.js';
 import { buildBillboard, BILLBOARDS } from '../brandart.js';
+import { cityLights, placeSigns } from '../cityroads.js';
 
 const rand = (a, b) => a + Math.random() * (b - a);
 const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
@@ -333,6 +334,25 @@ export function buildMonaco(renderer) {
   const harbourLabel = label('Port Hercule', { size: 2 });
   harbourLabel.position.set(0, 22, 120);
   scene.add(harbourLabel);
+
+  // ---- road furniture: real UK signs + working traffic lights along the circuit ----
+  // a signalled crossing on the top straight (opposing heads alternate: offset 0 vs 12)
+  const lights = cityLights(scene, [
+    { x: 42, z: 52, yaw: 0, offset: 0 }, { x: 24, z: 34, yaw: Math.PI, offset: 12 },
+    { x: -150, z: 52, yaw: 0, offset: 6 }, { x: -168, z: 34, yaw: Math.PI, offset: 18 },
+    { x: 150, z: -150, yaw: Math.PI / 2, offset: 0 }, // casino square approach
+  ]);
+  tickers.push((t) => lights.tick(t));
+  placeSigns(scene, [
+    { id: 'speed_30', x: -120, z: 52, yaw: 0 },
+    { id: 'speed_30', x: 100, z: 52, yaw: 0 },
+    { id: 'zebra_crossing_ahead', x: 70, z: 52, yaw: 0 },
+    { id: 'roundabout_ahead', x: 188, z: 30, yaw: -0.5 },
+    { id: 'give_way', x: 128, z: -150, yaw: Math.PI / 2 },
+    { id: 'no_entry', x: -300, z: -50, yaw: Math.PI / 2 },
+    { id: 'school_children', x: -40, z: 52, yaw: 0 },
+    { id: 'traffic_signals_ahead', x: 2, z: 52, yaw: 0 },
+  ]);
 
   // ---- brand billboards: roadside along the promenade straight + one on the skyline ----
   const boards = [

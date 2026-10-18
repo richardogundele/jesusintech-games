@@ -5,6 +5,7 @@ import { M, waterMaterial, label, facadeMaterial } from '../materials.js';
 import { palms, mesh } from '../models.js';
 import { hdri, pbr } from '../assets.js';
 import { buildBillboard, BILLBOARDS } from '../brandart.js';
+import { cityLights, placeSigns } from '../cityroads.js';
 
 // Singapore: Marina Bay. Marina Bay Sands and its SkyPark across the water from the CBD skyline,
 // the Supertrees and domes of Gardens by the Bay, the Singapore Flyer, the Esplanade "durians",
@@ -326,6 +327,21 @@ export function buildSingapore(renderer) {
     scene.add(bb);
     colliders.box(b.x, b.z, b.w * 0.7, 3);
   }
+
+  // ---- road furniture along the East Coast Parkway: real signs + signalled crossings ----
+  const sgLights = cityLights(scene, [
+    { x: 420, z: 18, yaw: Math.PI / 2, offset: 0 }, { x: 460, z: -18, yaw: -Math.PI / 2, offset: 12 },
+    { x: 820, z: 18, yaw: Math.PI / 2, offset: 6 }, { x: 860, z: -18, yaw: -Math.PI / 2, offset: 18 },
+  ]);
+  tickers.push((t) => sgLights.tick(t));
+  placeSigns(scene, [
+    { id: 'speed_50', x: 350, z: 18, yaw: 0 },
+    { id: 'speed_50', x: 700, z: -18, yaw: Math.PI },
+    { id: 'traffic_signals_ahead', x: 360, z: 18, yaw: 0 },
+    { id: 'dual_carriageway_ahead', x: 560, z: 18, yaw: 0 },
+    { id: 'roundabout_ahead', x: 300, z: 18, yaw: 0 },
+    { id: 'give_way', x: 300, z: 40, yaw: Math.PI },
+  ]);
 
   scene.add(palms(palmSpots));
   // a few round towers with crowns among the boxes, so the skyline isn't all slabs

@@ -7,6 +7,7 @@ import { state } from '../state.js';
 import { buildMansion } from './mansion.js';
 import { hdri, pbr } from '../assets.js';
 import { buildBillboard, BILLBOARDS } from '../brandart.js';
+import { cityLights, placeSigns } from '../cityroads.js';
 
 const rand = (a, b) => a + Math.random() * (b - a);
 const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
@@ -240,6 +241,21 @@ export function buildDubai(renderer) {
     scene.add(bb);
     colliders.box(b.x, b.z, 3, b.w * 0.7);
   }
+
+  // ---- road furniture down Sheikh Zayed Road: real signs + signalled crossings ----
+  const dxLights = cityLights(scene, [
+    { x: 26, z: 20, yaw: 0, offset: 0 }, { x: -26, z: -20, yaw: Math.PI, offset: 12 },
+    { x: 26, z: 420, yaw: 0, offset: 6 }, { x: -26, z: 380, yaw: Math.PI, offset: 18 },
+  ]);
+  tickers.push((t) => dxLights.tick(t));
+  placeSigns(scene, [
+    { id: 'speed_60', x: 26, z: -140, yaw: Math.PI / 2 },
+    { id: 'speed_60', x: -26, z: 200, yaw: -Math.PI / 2 },
+    { id: 'traffic_signals_ahead', x: 26, z: -40, yaw: Math.PI / 2 },
+    { id: 'roundabout_ahead', x: 26, z: 520, yaw: Math.PI / 2 },
+    { id: 'no_u_turn', x: -26, z: -70, yaw: -Math.PI / 2 },
+    { id: 'give_way', x: 60, z: 40, yaw: -Math.PI / 2 },
+  ]);
 
   scene.add(palms(palmSpots));
 
