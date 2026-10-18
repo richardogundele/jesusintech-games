@@ -47,7 +47,7 @@ const fileInbox = {
   },
 };
 
-const OUT = 'dist/games';
+const OUT = 'dist'; // published at the root of games.jesusintech.com
 
 // build only: keep the Ferrari model (licence unconfirmed) off the public site
 const stripPrivate = {
