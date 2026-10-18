@@ -27,14 +27,14 @@ const PLAY = [
   { id: 'speed250', text: 'Hit 250 km/h', evt: 'speed', test: (v) => v >= 250 },
   { id: 'speed320', text: 'Hit 320 km/h', evt: 'speed', test: (v) => v >= 320 },
   { id: 'fly', text: 'Fly to another city', evt: 'fly' },
-  { id: 'gardens', text: 'Visit Gardens by the Bay in Singapore', evt: 'place', test: (p) => p === 'Gardens by the Bay' },
-  { id: 'talk', text: 'Give a talk at Dubai Arena', evt: 'talk' },
+  { id: 'gardens', text: 'Walk through Manchester city centre', evt: 'place', test: (p) => p === 'Manchester city centre' },
+  { id: 'talk', text: 'Give a talk at the London Arena', evt: 'talk' },
   { id: 'trial', text: 'Finish a time trial', evt: 'trial' },
   { id: 'gold', text: 'Win gold in a time trial', evt: 'trial', test: (m) => m === 'gold' },
-  { id: 'casino', text: 'Visit Casino Square', evt: 'place', test: (p) => p === 'Casino Square' },
-  { id: 'downtown', text: 'Cruise through Downtown Dubai', evt: 'place', test: (p) => p === 'Downtown Dubai' },
+  { id: 'casino', text: 'Visit the Bullring in Birmingham', evt: 'place', test: (p) => p === 'Birmingham city centre' },
+  { id: 'downtown', text: 'Drive a motorway leg to another city', evt: 'roadtrip' },
   { id: 'give', text: 'Fund a giving project', evt: 'give' },
-  { id: 'jetpark', text: 'Visit your Dubai jet park', evt: 'place', test: (p) => p === 'Jet Park' },
+  { id: 'jetpark', text: 'Visit your Kent jet park', evt: 'place', test: (p) => p === 'Jet Park' },
   { id: 'lesson', text: 'Pass a UK driving lesson', evt: 'lesson' },
 ];
 const ALL = Object.fromEntries([...REAL, ...PLAY].map((g) => [g.id, g]));
@@ -147,13 +147,13 @@ function spend(price, reason) {
   addFunds(-price, reason);
   return true;
 }
-/** Buy a car; it's delivered to `homeId` (monaco | dubai). */
+/** Buy a car; it's delivered to `homeId` (your Kent home). */
 export function buyCar(id, homeId) {
   const c = CARS[id];
   if (!c?.price || ownsCar(id) || !spend(c.price, `Bought ${c.maker} ${c.model}`)) return false;
   state.owned.cars.push({ id, world: homeId });
   save();
-  notify({ kind: 'buy', title: `${c.maker} ${c.model} delivered to your ${homeId === 'monaco' ? 'villa' : 'mansion'}`, amount: -c.price });
+  notify({ kind: 'buy', title: `${c.maker} ${c.model} delivered to your home in Kent`, amount: -c.price });
   return true;
 }
 export function buyJet(id) {
@@ -161,7 +161,7 @@ export function buyJet(id) {
   if (!j?.price || ownsJet(id) || !spend(j.price, `Bought ${j.maker} ${j.model}`)) return false;
   state.owned.jets.push(id);
   save();
-  notify({ kind: 'buy', title: `${j.maker} ${j.model} is waiting at your Dubai jet park`, amount: -j.price });
+  notify({ kind: 'buy', title: `${j.maker} ${j.model} is waiting at your Kent jet park`, amount: -j.price });
   return true;
 }
 export function give(id) {

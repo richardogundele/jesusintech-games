@@ -1,13 +1,12 @@
 import * as THREE from 'three';
-import { buildMonaco } from './worlds/monaco.js';
-import { buildDubai } from './worlds/dubai.js';
+import { buildUKCity } from './worlds/ukcity.js';
+import { buildMotorway } from './worlds/motorway.js';
 import { Car } from './vehicle.js';
 import { buildPlayer, buildJet } from './models.js';
 import { EngineAudio } from './audio.js';
 import { Hud } from './hud.js';
 import { state, save } from './state.js';
-import { JETS, CITIES, otherCities, fuelStop, flightTime, talkFee, LEARNER, CARS, RADIO_STATION } from './catalog.js';
-import { buildSingapore } from './worlds/singapore.js';
+import { JETS, CITIES, otherCities, fuelStop, flightTime, roadBetween, talkFee, LEARNER, CARS, RADIO_STATION } from './catalog.js';
 import { buildKent, setKentHooks } from './worlds/kent.js';
 import * as P from './progress.js';
 import { Phone } from './phone.js';
@@ -82,8 +81,24 @@ const freeExam = new FreeExam({ flash: (text) => { hud.toast(text, 2600); audio.
 const $ = (id) => document.getElementById(id);
 
 // ---------- worlds ----------
-const builders = { kent: buildKent, monaco: buildMonaco, dubai: buildDubai, arena: buildArena, uk: buildUK, singapore: buildSingapore };
-const HOMES = ['kent', 'monaco', 'dubai']; // worlds you can live in: the save remembers the last one
+// The three UK cities share one builder; each gets its own skyline, landmark and colour
+const UK_CITIES = {
+  london: { id: 'london', name: 'London', arena: true, skyline: 0x9aa6b4,
+    landmark: { name: 'The Shard', x: 380, z: -300, y: 120, size: 3 },
+    towers: [{ x: 380, z: -300, w: 44, d: 44, h: 300, kind: 'taper', color: 0xaab7c6 }, { x: 460, z: -220, w: 34, d: 34, h: 170, kind: 'round', color: 0x7f9aa8 },
+      { x: 320, z: -400, w: 36, d: 36, h: 150, kind: 'setback' }, { x: 520, z: -360, w: 30, d: 30, h: 130, kind: 'setback' }, { x: 420, z: -460, w: 40, d: 40, h: 200, kind: 'twist' }] },
+  birmingham: { id: 'birmingham', name: 'Birmingham', skyline: 0x8c96a2,
+    landmark: { name: 'The Bullring', x: -330, z: -280, y: 70, size: 2.6 },
+    towers: [{ x: -330, z: -280, w: 46, d: 46, h: 90, kind: 'round', color: 0xc9b8a8, podium: true }, { x: -420, z: -200, w: 30, d: 30, h: 130, kind: 'round', color: 0xb0b8c2 },
+      { x: -380, z: -380, w: 34, d: 34, h: 110, kind: 'setback' }, { x: -480, z: -300, w: 32, d: 32, h: 95, kind: 'setback' }] },
+  manchester: { id: 'manchester', name: 'Manchester', skyline: 0x7f8a97,
+    landmark: { name: 'Beetham Tower', x: 340, z: 300, y: 110, size: 2.8 },
+    towers: [{ x: 340, z: 300, w: 26, d: 40, h: 170, kind: 'setback', color: 0x8fa1b5 }, { x: 420, z: 360, w: 30, d: 30, h: 200, kind: 'setback', color: 0x7a8b9d },
+      { x: 480, z: 300, w: 30, d: 30, h: 180, kind: 'setback', color: 0x7a8b9d }, { x: 400, z: 440, w: 28, d: 28, h: 150, kind: 'taper' }] },
+};
+const cityBuilder = (spec) => (r) => buildUKCity(r, { ...spec, ownedJets: state.owned.jets });
+const builders = { kent: buildKent, london: cityBuilder(UK_CITIES.london), birmingham: cityBuilder(UK_CITIES.birmingham), manchester: cityBuilder(UK_CITIES.manchester), motorway: buildMotorway, arena: buildArena, uk: buildUK };
+const HOMES = ['kent']; // the world you live in: the save remembers it
 const worlds = {};
 function getWorld(id) {
   if (!worlds[id]) {
@@ -104,9 +119,9 @@ function getWorld(id) {
     w.traffic = w.trafficSystem || new Traffic(w.scene, w.life || {});
     w.interactions = w.interactions || [];
     w.trials = setupTrials(w, trialHooks);
-    if (w.terminal) w.interactions.push({ ...w.terminal, car: true, label: () => `Fly to ${otherCities(w.id).map((c) => CITIES[c].name).join(' or ')}`, action: openJets });
+    if (w.terminal) w.interactions.push({ ...w.terminal, car: true, label: () => `Fly or drive to ${otherCities(w.id).map((c) => CITIES[c].name).join(', ')}`, action: openJets });
     if (w.jetPark) w.interactions.push({ ...w.jetPark, car: true, label: () => `Open the jet park (${P.ownedJetIds().length} aircraft)`, action: openJets });
-    if (w.arenaDoor) w.interactions.push({ ...w.arenaDoor, car: true, label: () => 'Enter Dubai Arena', action: enterArena });
+    if (w.arenaDoor) w.interactions.push({ ...w.arenaDoor, car: true, label: () => 'Enter the London Arena', action: enterArena });
     if (w.exit) w.interactions.push({ ...w.exit, r: 1.6, label: () => 'Leave the arena', action: leaveArena });
     if (w.stageMark) w.interactions.push({ ...w.stageMark, r: 1.2, label: () => 'Start your talk', action: startTalk });
     worlds[id] = w;
@@ -300,9 +315,61 @@ function openJets() {
       b.onclick = () => { closeJets(true); travel(id, jetDest); };
       list.appendChild(b);
     }
+    // or take the motorway: a marked drive, the way a real test would have you on the road
+    const rb = roadBetween(from, jetDest);
+    const road = document.createElement('button');
+    road.className = 'card';
+    road.innerHTML = `<div class="maker">By road</div><div class="model">${rb?.road || 'Motorway'}</div>
+      <div class="spec">${rb?.miles ? `${rb.miles} miles` : 'Motorway'} · national speed limit<br>Marked like a driving test, report on arrival</div>
+      <div class="dest">${CITIES[from].name} → ${CITIES[jetDest].name} · in your own car</div>`;
+    road.onclick = () => { closeJets(true); driveTo(jetDest); };
+    list.appendChild(road);
   };
   render();
   $('jets').classList.remove('hidden');
+}
+// ---------- by road: a motorway leg to another city, marked by the examiner ----------
+let roadTrip = null;
+async function driveTo(to) {
+  const from = world.id;
+  if (car) car.park();
+  car = null;
+  mode = 'cutscene';
+  hud.show(false);
+  await fade(1);
+  const mw = getWorld('motorway');
+  mw.setRoute(from, to);
+  renderer.compile(mw.scene, camera);
+  renderer.compile(getWorld(to).scene, camera); // build the destination now so arrival never stalls
+  roadTrip = { from, to };
+  enterWorld('motorway', mw.start);
+  // your car is waiting in lane 1, engine running: the drive starts the moment you move off
+  for (const old of mw.cars.filter((c) => c.id === 'learner')) mw.scene.remove(old.model.root);
+  mw.cars = mw.cars.filter((c) => c.id !== 'learner');
+  const c = addLearnerCar(mw, 'learner', mw.start);
+  c.prepare({ engineOn: true, parkingBrake: true });
+  car = c; mode = 'car'; player.mesh.visible = false; camMode = 0;
+  freeExam.reset();
+  snapCamera();
+  hud.show(true);
+  await fade(0);
+  const rb = roadBetween(from, to);
+  hud.toast(`${rb?.road || 'Motorway'} to ${CITIES[to].name}${rb?.miles ? ` · ${rb.miles} miles` : ''}. National speed limit, keep left, take the exit at the end. This drive is marked like a test.`, 6500);
+}
+async function arriveByRoad() {
+  const { to } = roadTrip;
+  roadTrip = null;
+  const r = freeExam.result();
+  mode = 'cutscene';
+  hud.show(false);
+  await fade(1);
+  if (car) { car.park(); car = null; }
+  P.emit('roadtrip');
+  enterWorld(to);
+  hud.show(true);
+  await fade(0);
+  hud.exam(null, false);
+  showDriveResult(r, `Road trip · ${CITIES[to].name}`);
 }
 function closeJets(keepMode) {
   $('jets').classList.add('hidden');
@@ -439,11 +506,8 @@ async function land() {
   enterWorld(dest.id);
   hud.show(true);
   await fade(0);
-  const names = dest.cars.map((c) => c.spec.maker).join(' and the ');
   hud.toast(dest.id === 'kent' ? 'Chauffeured home to Beltinge. The sea is at the bottom of the garden.'
-    : dest.id === 'monaco' ? 'Chauffeured to the villa in Monaco.'
-    : dest.id === 'singapore' ? 'Welcome to Singapore. Marina Bay Sands is behind you, the skyline is across the water. Your cars are at the drop-off.'
-    : `Chauffeured to your Dubai Hills mansion. The ${names} are waiting.`, 5200);
+    : `Welcome to ${CITIES[dest.id]?.name || dest.name}. Your cars are in the car park by the terminal.`, 5200);
 }
 
 // ---------- the arena ----------
@@ -455,12 +519,12 @@ async function enterArena() {
   enterWorld('arena');
   arenaMusic = 0.4;
   await fade(0);
-  hud.toast('Backstage at Dubai Arena. Thousands are waiting. Walk out to the glowing mark on the catwalk.', 5000);
+  hud.toast('Backstage at the London Arena. Thousands are waiting. Walk out to the glowing mark on the catwalk.', 5000);
 }
 async function leaveArena() {
   mode = 'cutscene';
   await fade(1);
-  enterWorld('dubai', { x: 238, z: -560, heading: -Math.PI / 2 });
+  enterWorld('london', { x: -350, z: 160, heading: Math.PI / 2 });
   await fade(0);
 }
 function startTalk() {
@@ -534,7 +598,7 @@ const phone = new Phone({
     const i = P.boughtCarsIn(home).length - 1;
     if (w.slots?.[i]) addLearnerCar(w, carId, w.slots[i]);
   },
-  onJetBought(jetId) { worlds.kent?.addJet(jetId); worlds.dubai?.addJet(jetId); },
+  onJetBought(jetId) { for (const id of ['kent', 'london', 'birmingham', 'manchester']) worlds[id]?.addJet?.(jetId); },
   setLook: (l) => { player.mesh.userData.setLook?.(l); save(); },
   startLesson: (id) => startLesson(id),
   startTest: (centre, seed) => startTest(centre, seed),
@@ -591,8 +655,8 @@ function closeResult() {
   mode = prevMode;
 }
 /** the verdict for a free drive, shown on the same result sheet when you pull over and get out */
-function showDriveResult(r) {
-  $('res-name').textContent = 'Drive report';
+function showDriveResult(r, title = 'Drive report') {
+  $('res-name').textContent = title;
   $('res-medal').textContent = r.passed ? 'TEST PASSED' : (r.serious + r.dangerous > 0 ? 'TEST FAILED · SERIOUS FAULT' : 'TEST FAILED · TOO MANY FAULTS');
   $('res-medal').style.color = r.passed ? 'var(--green-soft)' : 'var(--red-soft)';
   $('res-time').textContent = `${r.minor}`;
@@ -1059,10 +1123,9 @@ function updateSoundscape() {
   const key = `${track}:${level}`;
   if (key !== musicKey) { musicKey = key; audio.music.play(track, level); }
   const p = car ? car.pos : player.pos;
-  const kind = world.id === 'monaco' ? 'coast'
-    : world.id === 'dubai' ? (world.indoors?.(p.x, p.z) ? 'indoor' : 'city')
-    : world.id === 'cabin' ? 'indoor' : world.id === 'kent' ? (world.indoors?.(p.x, p.z) ? 'indoor' : p.z < -5500 ? 'coast' : 'city')
-    : world.id === 'uk' || world.id === 'singapore' ? 'city' : 'none';
+  const kind = world.id === 'cabin' ? 'indoor'
+    : world.id === 'kent' ? (world.indoors?.(p.x, p.z) ? 'indoor' : p.z < -5500 ? 'coast' : 'city')
+    : ['uk', 'london', 'birmingham', 'manchester', 'motorway'].includes(world.id) ? 'city' : 'none';
   audio.ambience.set(kind, mode === 'car');
 }
 
@@ -1183,7 +1246,7 @@ $('start').onclick = () => {
   enterWorld(state.world in builders ? state.world : 'kent');
   hud.show(true);
   refreshHudExtras();
-  const hello = { kent: 'Welcome home to Kent.', monaco: 'Welcome to the villa in Monaco.', dubai: 'Welcome to Dubai Hills.' }[world.id] || 'Welcome back.';
+  const hello = { kent: 'Welcome home to Kent.', london: 'Welcome to London.', birmingham: 'Welcome to Birmingham.', manchester: 'Welcome to Manchester.' }[world.id] || 'Welcome back.';
   hud.toast(`${hello} Press P for your phone: today's goals are waiting.`, 5000);
 };
 
@@ -1252,6 +1315,8 @@ function step(dt) {
       if (res.impact > 3.5 && crashCooldown <= 0) { audio.sfx('crash'); camShake = Math.min(1.1, res.impact * 0.11); crashCooldown = 0.4; }
       // free-driving is always a test: mark the faults that don't need a route and keep the tally live
       if (!lesson) { freeExam.update(dt, car, world, res); freeExam.coach(dt, car); hud.exam(freeExam.counts, true); }
+      // the motorway leg ends at the exit for your destination
+      if (roadTrip && world.id === 'motorway' && car.pos.z > world.exitZ) arriveByRoad();
       if (lesson) {
         lesson.update(dt, car, { indicator: drive.indicator, mirrorPressed: drive.mirrorPressed, hit: res.hit || drive.trafficHit });
       }
@@ -1298,7 +1363,7 @@ setKentHooks({
   sfx: (k) => audio.sfx(k),
 });
 getWorld('kent'); // home first; the other cities build on demand (travel compiles them during the flight)
-world = getWorld(state.world in builders ? state.world : 'monaco');
+world = getWorld(state.world in builders && HOMES.includes(state.world) ? state.world : 'kent');
 renderer.compile(world.scene, camera);
 startBtn.disabled = false;
 startBtn.textContent = 'Enter';

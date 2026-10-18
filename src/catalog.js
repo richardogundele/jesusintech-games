@@ -165,11 +165,17 @@ export function fameLevel(reached) {
 }
 export const talkFee = (reached, crowd) => 250_000 + fameLevel(reached).level * 250_000 + crowd * 20;
 
-// The three cities you can fly between, and great-circle distances (km)
-export const CITIES = { kent: { name: 'Kent' }, monaco: { name: 'Monaco' }, dubai: { name: 'Dubai' }, singapore: { name: 'Singapore' } };
-// great-circle km; Kent flights measured from Manston
-const KM = { 'dubai-monaco': 4800, 'dubai-singapore': 5850, 'monaco-singapore': 10400, 'kent-monaco': 960, 'dubai-kent': 5390, 'kent-singapore': 10750 };
-const STOPS = { 'dubai-monaco': 'Cairo', 'dubai-singapore': 'Colombo', 'monaco-singapore': 'Dubai', 'dubai-kent': 'Istanbul', 'kent-singapore': 'Dubai' };
+// The UK cities you can fly or drive between, and great-circle distances (km)
+export const CITIES = { kent: { name: 'Kent' }, london: { name: 'London' }, birmingham: { name: 'Birmingham' }, manchester: { name: 'Manchester' } };
+// great-circle km; Kent flights measured from Manston. Every hop is short: no fuel stops in the UK.
+const KM = { 'kent-london': 95, 'birmingham-kent': 250, 'kent-manchester': 345, 'birmingham-london': 165, 'london-manchester': 265, 'birmingham-manchester': 115 };
+const STOPS = {};
+// the motorway you take by road, and the miles (the drive is compressed but the signs are real)
+export const ROADS_BETWEEN = {
+  'kent-london': { road: 'M20 · M25', miles: 70 }, 'birmingham-kent': { road: 'M20 · M25 · M40', miles: 170 }, 'kent-manchester': { road: 'M25 · M1 · M6', miles: 250 },
+  'birmingham-london': { road: 'M40', miles: 120 }, 'london-manchester': { road: 'M1 · M6', miles: 200 }, 'birmingham-manchester': { road: 'M6', miles: 85 },
+};
+export const roadBetween = (a, b) => ROADS_BETWEEN[[a, b].sort().join('-')];
 const key = (a, b) => [a, b].sort().join('-');
 export const otherCities = (from) => Object.keys(CITIES).filter((c) => c !== from);
 /** null if the jet can make it nonstop, else where it refuels */

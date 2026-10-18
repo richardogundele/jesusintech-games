@@ -10,7 +10,7 @@ import { LOOKS } from './character.js';
 const $ = (id) => document.getElementById(id);
 const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const TABS = [['today', 'Today'], ['wins', 'Log a win'], ['lessons', 'Driving lessons'], ['dealer', 'Dealer'], ['hangar', 'Hangar'], ['giving', 'Giving'], ['music', 'Music'], ['wardrobe', 'Wardrobe'], ['me', 'Profile']];
-const TRIAL_NAMES = { 'monaco-loop': 'Monte Carlo Grand Loop', 'dubai-szr': 'Sheikh Zayed Sprint' };
+const TRIAL_NAMES = { 'monaco-loop': 'Monte Carlo Grand Loop', 'dubai-szr': 'Sheikh Zayed Sprint', 'ring-road': 'Ring Road Lap' };
 
 export class Phone {
   /** hooks: { homeId(), crowdSize(), onCarBought(id, home), onJetBought(id), sfx(kind) } */
@@ -211,17 +211,17 @@ export class Phone {
       return `<div class="row"><div class="swatch" style="background:#${c.color.toString(16).padStart(6, '0')}"></div>
         <div class="grow"><div class="m">${c.maker}</div><div class="t">${c.model}</div><div class="s">${c.topSpeed} km/h</div></div>${btn}</div>`;
     }).join('');
-    return `<p class="note">Delivered to your ${{ kent: 'Kent home', monaco: 'Monaco villa', dubai: 'Dubai Hills mansion' }[home] || 'home'}.</p>${rows}`;
+    return `<p class="note">Delivered to your Kent home.</p>${rows}`;
   }
 
   hangar() {
-    return `<p class="note">New jets are parked in the second row at your Dubai jet park, and show up in the jet picker.</p>` +
+    return `<p class="note">New jets are parked in the second row at your Kent jet park, and show up in the jet picker.</p>` +
       Object.entries(JETS).sort((a, b) => (a[1].price || 0) - (b[1].price || 0)).map(([id, j]) => {
         const owned = P.ownsJet(id);
         const btn = owned ? '<span class="owned">Yours</span>'
           : `<button class="buy" data-act="jet" data-id="${id}" ${state.balance < j.price ? 'disabled' : ''}>${P.shortMoney(j.price)}</button>`;
         return `<div class="row"><div class="grow"><div class="m">${j.maker}</div><div class="t">${j.model}</div>
-          <div class="s">${j.range} · Mach ${j.mach} · Monaco to Singapore ${flightTime(j, 'monaco', 'singapore')}${fuelStop(j, 'monaco', 'singapore') ? ' (fuel stop)' : ' nonstop'}${j.note ? ` · ${j.note}` : ''}</div></div>${btn}</div>`;
+          <div class="s">${j.range} · Mach ${j.mach} · Kent to Manchester ${flightTime(j, 'kent', 'manchester')}${fuelStop(j, 'kent', 'manchester') ? ' (fuel stop)' : ' nonstop'}${j.note ? ` · ${j.note}` : ''}</div></div>${btn}</div>`;
       }).join('');
   }
 
@@ -268,7 +268,7 @@ export class Phone {
     const extra = o === 'Realistic soldier'
       ? '<p class="note">A realistic soldier in army digital camouflage (Microsoft Rocketbox avatar, MIT licence). Pick the beret uniform to choose your own camouflage and skin tone.</p>'
       : (o === 'Military uniform' ? row('camo', 'Camouflage') : row('top', 'Sweatshirt') + row('jeans', 'Jeans')) + row('skin', 'Skin tone');
-    return `<p class="note">What you're wearing around Kent, Monaco, Dubai and Singapore.</p>` + row('outfit', 'Outfit') + extra;
+    return `<p class="note">What you're wearing around Kent, London, Birmingham and Manchester.</p>` + row('outfit', 'Outfit') + extra;
   }
 
   me() {

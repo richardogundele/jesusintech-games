@@ -270,9 +270,9 @@ function bricks(ctx, x0, y0, w, h, base, scale = 1) {
     }
   }
 }
-const BRICKS = [[150, 70, 52], [128, 64, 48], [168, 98, 66], [112, 58, 46]];
+export const BRICKS = [[150, 70, 52], [128, 64, 48], [168, 98, 66], [112, 58, 46]];
 
-function brickTexture(base) {
+export function brickTexture(base) {
   const t = canvas(256, 256, (ctx, w, h) => bricks(ctx, 0, 0, w, h, base, 1.2));
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
   return t;
