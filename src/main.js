@@ -117,6 +117,7 @@ function getWorld(id) {
     // cars bought from the phone fill the extra bays at this home
     P.boughtCarsIn(id).forEach((carId, i) => w.slots?.[i] && addLearnerCar(w, carId, w.slots[i]));
     w.traffic = w.trafficSystem || new Traffic(w.scene, w.life || {});
+    if (!w.trafficSystem && w.signalHeads) w.traffic.heads = w.signalHeads; // the cities' lights: traffic stops on red
     w.interactions = w.interactions || [];
     w.trials = setupTrials(w, trialHooks);
     if (w.terminal) w.interactions.push({ ...w.terminal, car: true, label: () => `Fly or drive to ${otherCities(w.id).map((c) => CITIES[c].name).join(', ')}`, action: openJets });
@@ -1314,7 +1315,7 @@ function step(dt) {
       crashCooldown = Math.max(0, crashCooldown - dt);
       if (res.impact > 3.5 && crashCooldown <= 0) { audio.sfx('crash'); camShake = Math.min(1.1, res.impact * 0.11); crashCooldown = 0.4; }
       // free-driving is always a test: mark the faults that don't need a route and keep the tally live
-      if (!lesson) { freeExam.update(dt, car, world, res); freeExam.coach(dt, car); hud.exam(freeExam.counts, true); }
+      if (!lesson) { freeExam.update(dt, car, world, res, { indicator: drive.indicator }); freeExam.coach(dt, car); hud.exam(freeExam.counts, true); }
       // the motorway leg ends at the exit for your destination
       if (roadTrip && world.id === 'motorway' && car.pos.z > world.exitZ) arriveByRoad();
       if (lesson) {

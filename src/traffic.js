@@ -28,6 +28,8 @@ export class Traffic {
     this.scene = scene;
     this.cars = [];
     this.peds = [];
+    // () => [{ x, z, yaw | heading, state }]: the world's signal heads; cars stop at the line on red
+    this.heads = null;
     for (const lane of cars) {
       lane.len = lane.curve.getLength();
       for (let i = 0; i < lane.count; i++) {
@@ -62,16 +64,36 @@ export class Traffic {
         const ahead = list[(i + 1) % list.length];
         let gap = ahead === c ? Infinity : (ahead.u - c.u) * lane.dir;
         if (gap <= 0) gap += lane.closed ? lane.len : Infinity;
+        const f = laneFrame(lane, c.u);
+        const fx = Math.sin(f.heading), fz = Math.cos(f.heading);
         // player in our path?
         if (obstacle) {
-          const f = laneFrame(lane, c.u);
-          const fx = Math.sin(f.heading), fz = Math.cos(f.heading);
           const dx = obstacle.x - f.x, dz = obstacle.z - f.z;
           const along = dx * fx + dz * fz, side = Math.abs(dx * fz - dz * fx);
           if (along > 0 && along < 32 && side < 2.6 + obstacle.r) gap = Math.min(gap, along - obstacle.r);
         }
+        // a signal ahead for our direction: stop at the line on red (and on amber, if there's room to)
+        let lightStop = Infinity;
+        const heads = this.heads?.();
+        if (heads) {
+          for (const h of heads) {
+            const st = h.state;
+            if (st !== 'red' && st !== 'redamber' && st !== 'amber') continue;
+            const ay = h.yaw ?? h.heading;
+            if (ay == null) continue;
+            let da = Math.abs(ay - f.heading) % (Math.PI * 2); if (da > Math.PI) da = Math.PI * 2 - da;
+            if (da > 0.6) continue; // facing another approach
+            const dx = h.x - f.x, dz = h.z - f.z;
+            const along = dx * fx + dz * fz, side = Math.abs(dx * fz - dz * fx);
+            if (along < -1 || along > 50 || side > 7) continue; // behind us, far off, or another road
+            const d = along - 2; // the line sits just before the head
+            if (st === 'amber' && d < (c.v * c.v) / 12) continue; // too close to stop safely: carry on
+            lightStop = Math.min(lightStop, d);
+          }
+        }
         const safe = Math.max(0, (gap - 9) * 0.9);
         let want = Math.min(c.target, safe);
+        if (lightStop < Infinity) want = Math.min(want, lightStop <= 0.6 ? 0 : Math.sqrt(2 * 4.5 * lightStop));
         if (c.stun > 0) { c.stun -= dt; want = 0; }
         const dv = want - c.v;
         c.v += THREE.MathUtils.clamp(dv, -9 * dt, 2.6 * dt);

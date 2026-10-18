@@ -10,7 +10,11 @@ const MPH = 1 / 1.609344;
 
 export class FreeExam {
   constructor(hooks) { this.hooks = hooks; this.reset(); }
-  reset() { this.t = 0; this.dist = 0; this.faults = []; this.cool = {}; this.timers = {}; this.lastStalls = null; this.lastGrinds = null; this.ccool = {}; this.ctimers = {}; }
+  reset() {
+    this.t = 0; this.dist = 0; this.faults = []; this.cool = {}; this.timers = {}; this.lastStalls = null; this.lastGrinds = null; this.ccool = {}; this.ctimers = {};
+    this.lightAlong = new Map(); // signal head -> last distance to its stop line (to catch the crossing)
+    this.lane = null; this.lastSignal = { dir: null, t: -99 };
+  }
 
   get counts() {
     const c = { minor: 0, serious: 0, dangerous: 0 };
@@ -25,10 +29,12 @@ export class FreeExam {
   }
   held(key, cond, dt, secs) { this.timers[key] = cond ? (this.timers[key] || 0) + dt : 0; return this.timers[key] > secs; }
 
-  /** call every frame while free-driving a car (mode 'car', no lesson running) */
-  update(dt, car, world, res) {
+  /** call every frame while free-driving a car (mode 'car', no lesson running); ctx: { indicator } */
+  update(dt, car, world, res, ctx = {}) {
     this.t += dt;
     this.dist += Math.abs(car.vF) * dt;
+    this.redLights(car, world);
+    this.laneDiscipline(car, world, ctx.indicator);
     const mph = car.speedKmh * MPH;
     // the limit at the car, or a sensible 30 where a world doesn't post one
     const limit = world.speedLimitAt?.(car.pos.x, car.pos.z) ?? 30;
@@ -47,6 +53,39 @@ export class FreeExam {
       if (this.held('rev', !!d.flags?.overRev, dt, 1.0)) this.fault('minor', 'Control: over-revving', 'rev', 8);
     }
   }
+  // ---- traffic lights: crossing the stop line on red (or red+amber) is a serious fault ----
+  redLights(car, world) {
+    const heads = world.signalHeads?.();
+    if (!heads) return;
+    const fx = Math.sin(car.heading), fz = Math.cos(car.heading), v = Math.abs(car.vF);
+    for (const h of heads) {
+      const ay = h.yaw ?? h.heading;
+      if (ay == null) continue;
+      let da = Math.abs(ay - car.heading) % (Math.PI * 2); if (da > Math.PI) da = Math.PI * 2 - da;
+      const dx = h.x - car.pos.x, dz = h.z - car.pos.z;
+      const along = dx * fx + dz * fz - 2, side = Math.abs(dx * fz - dz * fx);
+      if (da > 0.7 || side > 8 || along > 80 || along < -30) { this.lightAlong.delete(h); continue; }
+      const prev = this.lightAlong.get(h);
+      if (prev != null && prev > 0 && along <= 0 && v > 0.8 && (h.state === 'red' || h.state === 'redamber')) {
+        this.fault('serious', 'Response to signals: traffic lights (went through a red)', 'red', 6);
+      }
+      this.lightAlong.set(h, along);
+    }
+  }
+  // ---- lane discipline: moving into another lane without indicating that way is a driving fault ----
+  laneDiscipline(car, world, indicator) {
+    if (indicator) this.lastSignal = { dir: indicator, t: this.t };
+    const L = world.laneAt?.(car.pos.x, car.pos.z, car.heading);
+    if (!L) { this.lane = null; return; }
+    if (!L.centred) return; // only count a change once you're settled in the new lane
+    const prev = this.lane;
+    this.lane = { road: L.road, lane: L.lane };
+    if (!prev || prev.road !== L.road || prev.lane === L.lane || Math.abs(car.vF) < 3) return;
+    const dir = L.lane > prev.lane ? 'right' : 'left'; // lane numbers rise to the driver's right
+    const signalled = this.lastSignal.dir === dir && this.t - this.lastSignal.t < 5;
+    if (!signalled) this.fault('minor', `Signals: necessary (changed lane ${dir} without indicating)`, 'lanesig', 6);
+  }
+
   // ---- the instructor: real-world manual coaching, told as tips, not marked as faults ----
   cHeld(key, cond, dt, secs) { this.ctimers[key] = cond ? (this.ctimers[key] || 0) + dt : 0; return this.ctimers[key] > secs; }
   tip(text, key = text, cooldown = 6) {

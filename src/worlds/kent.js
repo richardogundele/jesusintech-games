@@ -115,6 +115,7 @@ export function buildKent(renderer) {
     floorY: (x, z, yPrev) => house.floorY(x, z, yPrev),
     speedLimitAt: (x, z) => net.limitAt(x, z),
     nslAt: (x, z) => net.nslAt(x, z),
+    signalHeads: () => signals.heads, // live heads ({x, z, heading, state}) for the free-drive examiner
     player,
   };
 }

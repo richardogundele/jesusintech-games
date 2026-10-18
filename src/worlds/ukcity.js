@@ -42,7 +42,7 @@ export function buildUKCity(renderer, spec) {
   const ringPts = Array.from({ length: 12 }, (_, i) => { const a = (i / 12) * Math.PI * 2; return V(Math.cos(a) * RING, Math.sin(a) * RING); });
   const ring = buildRoad(new THREE.CatmullRomCurve3(ringPts, true, 'centripetal'), { closed: true, width: 14 });
   const rbPts = Array.from({ length: 16 }, (_, i) => { const a = (i / 16) * Math.PI * 2; return V(Math.cos(a) * RB, Math.sin(a) * RB); });
-  const rbRoad = buildRoad(new THREE.CatmullRomCurve3(rbPts, true, 'centripetal'), { closed: true, width: 10, lines: false });
+  const rbRoad = buildRoad(new THREE.CatmullRomCurve3(rbPts, true, 'centripetal'), { closed: true, width: 10, lanes: 2, lines: true }); // two marked lanes round the island
   const radials = [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([dx, dz]) => buildRoad(new THREE.LineCurve3(V(dx * (RB + 2), dz * (RB + 2)), V(dx * (RING - 2), dz * (RING - 2))), { width: 12 }));
   const airLink = buildRoad(new THREE.CatmullRomCurve3([V(RING, 0), V(400, -10), V(AIR.x - 160, AIR.z + 440), V(AIR.x - 60, AIR.z + 470)]), { width: 12, curbs: false, y: 0.025 });
   const roads = [ring, rbRoad, ...radials, airLink];
@@ -94,6 +94,9 @@ export function buildUKCity(renderer, spec) {
 
   // ---- road furniture: lights at the roundabout approaches, real signs on the radials and ring ----
   const lights = cityLights(scene, [
+    // signalled junctions on the ring where the east and west radials meet it (one head per direction)
+    { x: RING + 8, z: 14, yaw: 0, offset: 0 }, { x: RING - 8, z: -14, yaw: Math.PI, offset: 12 },
+    { x: -RING - 8, z: -14, yaw: Math.PI, offset: 6 }, { x: -RING + 8, z: 14, yaw: 0, offset: 18 },
     { x: RB + 30, z: 8, yaw: Math.PI / 2, offset: 0 }, { x: -(RB + 30), z: -8, yaw: -Math.PI / 2, offset: 12 },
     { x: 8, z: -(RB + 30), yaw: Math.PI, offset: 6 }, { x: -8, z: RB + 30, yaw: 0, offset: 18 },
     { x: RING - 60, z: 8, yaw: Math.PI / 2, offset: 3 }, { x: -(RING - 60), z: -8, yaw: -Math.PI / 2, offset: 15 },
@@ -172,5 +175,7 @@ export function buildUKCity(renderer, spec) {
       if (r < RING + 20) return 'Ring Road';
       return name;
     },
+    signalHeads: () => lights.heads, // traffic stops at them; the examiner marks a red run
+    laneAt: null, // city streets are one lane each way, so no lane-change marking here
   };
 }
