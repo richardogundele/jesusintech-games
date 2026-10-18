@@ -1069,7 +1069,7 @@ export function carefulDriver(run, car, st, bad = null) {
 function careful(run, car, st, bad) {
   const pts = run.route.pts, s = run.s, v = car.vF, mph = Math.abs(v) * MPH;
   st.t = (st.t || 0) + 1 / 60;
-  const out = { input: { up: false, down: false, brake: false, steer: 0, run: false }, indicator: null, mirror: false, want: 0 };
+  const out = { input: { up: false, down: false, brake: false, steer: 0, run: false, fastSteer: true }, indicator: null, mirror: false, want: 0 };
   if (!st.ready) {
     // mirrors, signal right, wait a moment, go
     st.ready = st.t > 1.5;
@@ -1168,7 +1168,7 @@ function carefulKent(run, car, st, bad) {
   const pts = run.route.pts, s = run.s, v = car.vF, mph = Math.abs(v) * MPH, dt = 1 / 60, w = run.world;
   const half = car.model.length / 2;
   st.t = (st.t || 0) + dt;
-  const out = { input: { up: false, down: false, brake: false, steer: 0, run: false }, indicator: null, mirror: false, want: 0 };
+  const out = { input: { up: false, down: false, brake: false, steer: 0, run: false, fastSteer: true }, indicator: null, mirror: false, want: 0 };
   if (st.route !== run.route) { st.route = run.route; st.plan = speedPlan(run, bad); }
   const fx = Math.sin(car.heading), fz = Math.cos(car.heading);
   const traffic = w.traffic?.cars || [];

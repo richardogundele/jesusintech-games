@@ -244,11 +244,18 @@ export class Car {
     if (input.brake) vF -= Math.sign(vF) * Math.min(Math.abs(vF), 6 * dt);
     }
 
-    // steering: less lock at speed so it stays controllable at 300 km/h.
-    // Turn the wheel in gently (so keyboard steering isn't twitchy) and let it unwind a little quicker.
-    const speedFactor = 1 - 0.6 * Math.min(1, Math.abs(vF) / 70);
-    const target = input.steer * s.steer * speedFactor;
-    const rate = Math.abs(target) > Math.abs(this.steer) ? 4 : 6.5;
+    // steering. The lesson autopilot (input.fastSteer) keeps the original quick, full-lock response so
+    // it drives the routes precisely. A human on the keyboard gets a gentler feel: the lock builds up
+    // slowly (a tap is a smooth turn, not a flick) and a lot of it bleeds away with speed so it isn't
+    // twitchy — it unwinds a touch quicker than it winds on.
+    let target, rate;
+    if (input.fastSteer) {
+      target = input.steer * s.steer * (1 - 0.6 * Math.min(1, Math.abs(vF) / 70));
+      rate = Math.abs(target) > Math.abs(this.steer) ? 4 : 6.5;
+    } else {
+      target = input.steer * s.steer * (1 - 0.64 * Math.min(1, Math.abs(vF) / 26));
+      rate = Math.abs(target) > Math.abs(this.steer) ? 2.4 : 4;
+    }
     this.steer += (target - this.steer) * Math.min(1, dt * rate);
 
     // lateral grip

@@ -21,7 +21,7 @@ function atPullUp(run) {
   return !!run.drill || s > run.route.length - 70 || run.events.some((e) => (e.kind === 'stop' && Math.abs(e.s - s) < 30) || (e.kind === 'baypark' && s > e.s - 30));
 }
 const JUNCTION_KINDS = ['turn', 'emerge', 'rb', 'mini', 'cross'];
-const controls = (o) => ({ up: false, down: false, steer: o.input.steer, brake: false, run: false, clutch: false, shift: null, ignition: false, pbrakeToggle: false });
+const controls = (o) => ({ up: false, down: false, steer: o.input.steer, brake: false, run: false, clutch: false, shift: null, ignition: false, pbrakeToggle: false, fastSteer: true });
 
 export function pedalsManual(run, car, st, o, bad) {
   const c = feetManual(run, car, st, o, bad), d = car.drive, K = GEAR_K[d.gear] || 0;
