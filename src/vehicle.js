@@ -251,15 +251,17 @@ export class Car {
 
     // steering. The lesson autopilot (input.fastSteer) keeps the original quick, full-lock response so
     // it drives the routes precisely. A human on the keyboard gets a gentler feel: the lock builds up
-    // slowly (a tap is a smooth turn, not a flick) and a lot of it bleeds away with speed so it isn't
-    // twitchy — it unwinds a touch quicker than it winds on.
+    // slowly (a tap is a smooth turn, not a flick) and the lock falls away hard with speed, like a real
+    // wheel: full lock only at a crawl (manoeuvres), about a sixth of it at 30 mph and a twentieth at
+    // 60, so a held arrow key is a steady turn (~20°/s in town) and a tap is a small correction.
     let target, rate;
     if (input.fastSteer) {
       target = input.steer * s.steer * (1 - 0.6 * Math.min(1, Math.abs(vF) / 70));
       rate = Math.abs(target) > Math.abs(this.steer) ? 4 : 6.5;
     } else {
-      target = input.steer * s.steer * (1 - 0.64 * Math.min(1, Math.abs(vF) / 26));
-      rate = Math.abs(target) > Math.abs(this.steer) ? 2.4 : 4;
+      const lock = 1 / (1 + Math.pow(Math.abs(vF) / 3.5, 1.6));
+      target = input.steer * s.steer * lock;
+      rate = Math.abs(target) > Math.abs(this.steer) ? 1.8 : 3.2;
     }
     this.steer += (target - this.steer) * Math.min(1, dt * rate);
 
