@@ -54,3 +54,7 @@ and `vite.config.js` strips `ferrari.glb` / `ferrari_ao.png` from `dist`.
 
 Deploys run from this folder (Netlify builds it with `npm run build`). Move `assets-src/`, `shots/` and `node_modules/` out of the folder
 first (and delete `dist/`), or the upload is several hundred MB and can fail.
+
+## Deploys
+
+Live at https://games.jesusintech.com. Netlify builds and deploys automatically on every push to `main` (`npm run build` → `dist/`).
