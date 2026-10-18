@@ -100,6 +100,7 @@ export class Hud {
     this.controlsBody = $('controls-body');
     this.dockEl = $('controldock');
     this.dockKey = null;
+    this.examEl = $('exam');
     this.dt = { el: $('dtrain'), badge: $('dt-badge'), pb: $('dt-pb'), gear: $('dt-gear'), revBox: $('dt-rev'), rev: $('dt-rev').firstElementChild, clutch: $('dt-clutch'), clutchBar: $('dt-clutch').querySelector('i'), warn: $('dt-warn') };
     this.mapCanvas = $('minimap');
     this.map = this.mapCanvas.getContext('2d');
@@ -391,6 +392,15 @@ export class Hud {
     if (!html) { this.last.trial = null; this.trialEl.classList.add('hidden'); return; }
     this.trialEl.classList.remove('hidden');
     this.set('trial', this.trialEl, html, 'innerHTML');
+  }
+
+  // ---------- the free-drive examiner's live tally ----------
+  exam(counts, show) {
+    this.flag(this.examEl, 'hidden', !show);
+    if (!show) return;
+    const bad = counts.serious + counts.dangerous;
+    this.flag(this.examEl, 'bad', bad > 0);
+    this.examEl.innerHTML = `<b>L</b>On test · ${counts.minor} fault${counts.minor === 1 ? '' : 's'}${bad ? ` · ${bad} serious` : ''}`;
   }
 
   // ---------- the controls dock (the bottom 10% of the screen, always on) ----------

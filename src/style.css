@@ -151,6 +151,10 @@ h1 { font-family: var(--font-display); font-size: clamp(40px, 9vw, 112px); lette
 /* top left: location, the goals chip, the sat nav */
 .hud-top-left { position: absolute; top: var(--edge); left: var(--edge); display: flex; flex-direction: column; align-items: flex-start; gap: var(--sp-2); max-width: 280px; }
 .loc { padding: 7px 12px 8px; border-radius: var(--r-sm); }
+/* the always-on examiner's live tally while free-driving */
+#exam { padding: 7px 12px; border-radius: var(--r-sm); font: 600 var(--fs-sm) var(--font); color: var(--text); display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+#exam b { display: grid; place-items: center; width: 18px; height: 18px; border-radius: 4px; background: var(--red-soft); color: #2a0b06; font: 800 12px var(--font); }
+#exam.bad { box-shadow: inset 0 0 0 1px var(--red-soft); color: var(--red-soft); }
 #loc-city { font-size: var(--fs-2xs); font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; color: var(--gold); line-height: 1.3; }
 #loc-place { font-size: var(--fs-sm); font-weight: 500; color: var(--text); line-height: 1.3; margin-top: 1px; }
 .chip {

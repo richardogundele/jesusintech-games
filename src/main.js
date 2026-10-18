@@ -18,6 +18,7 @@ import { buildCabin } from './worlds/cabin.js';
 import { buildArena } from './worlds/arena.js';
 import { buildUK, lPlateTex, MPH } from './worlds/uk.js';
 import { LESSONS, LessonRun, carefulDriver, TELL_ME, randomPlate, plateOptions, testDef } from './lessons.js';
+import { FreeExam } from './freedrive.js';
 import { KENT_ROUTES } from './kent/lesson-routes.js';
 import { generateTest, signsOnRoute } from './kent/test-routes.js';
 import { signQuestion } from './sign-quiz.js';
@@ -76,6 +77,8 @@ const draw = () => {
 
 const hud = new Hud();
 const audio = new EngineAudio();
+// the examiner that's always on while you free-drive (route-based lessons use LessonRun instead)
+const freeExam = new FreeExam({ flash: (text) => { hud.toast(text, 2600); audio.sfx('spend'); } });
 const $ = (id) => document.getElementById(id);
 
 // ---------- worlds ----------
@@ -251,6 +254,7 @@ function interact() {
       snapCamera();
       if (c.drive) learnerHello(c);
       else hud.toast(`${c.spec.maker} ${c.spec.model} · ${c.spec.topSpeed} km/h top speed`, 2600);
+      freeExam.reset(); // every drive is a fresh test
     }
   } else if (mode === 'car') {
     if (car.speedKmh > 20) return hud.toast('Slow down to get out', 1400);
@@ -261,9 +265,13 @@ function interact() {
     player.mesh.visible = true;
     car.park();
     if (car.drive) { car.drive.parkingBrake = true; car.drive.engineOn = false; car.drive.rpm = 0; car.drive.gear = car.drive.neutral; } // handbrake on, engine off, out of gear
+    const drove = !lesson && freeExam.dist > 30;
     car = null;
     mode = 'foot';
     snapCamera();
+    hud.exam(null, false);
+    if (drove) showDriveResult(freeExam.result()); // every drive gets its result
+    return;
   }
 }
 
@@ -581,6 +589,20 @@ function closeResult() {
   if (mode !== 'result') return;
   $('result').classList.add('hidden');
   mode = prevMode;
+}
+/** the verdict for a free drive, shown on the same result sheet when you pull over and get out */
+function showDriveResult(r) {
+  $('res-name').textContent = 'Drive report';
+  $('res-medal').textContent = r.passed ? 'TEST PASSED' : (r.serious + r.dangerous > 0 ? 'TEST FAILED · SERIOUS FAULT' : 'TEST FAILED · TOO MANY FAULTS');
+  $('res-medal').style.color = r.passed ? 'var(--green-soft)' : 'var(--red-soft)';
+  $('res-time').textContent = `${r.minor}`;
+  $('res-sub').innerHTML = `driving fault${r.minor === 1 ? '' : 's'} · ${r.serious} serious · ${r.dangerous} dangerous · ${(r.dist / 1000).toFixed(1)} km driven`;
+  $('res-retry').classList.add('hidden');
+  $('result').querySelector('.modal').classList.remove('sheet');
+  prevMode = 'foot';
+  mode = 'result';
+  audio.sfx(r.passed ? 'medal' : 'spend');
+  $('result').classList.remove('hidden');
 }
 $('res-ok').onclick = closeResult;
 
@@ -944,6 +966,7 @@ async function startLesson(id) {
   const where = def.world === 'kent' ? 'kent' : 'uk';
   if (world.id !== where) await (where === 'kent' ? goKent() : goUK());
   if (lesson) lesson.cancel();
+  hud.exam(null, false); // a set lesson marks its own route; hide the free-drive tally
   const learner = world.cars.find((c) => c.id === 'learner') || rebuildLearner(world);
   if (car && car !== learner) car.park();
   car = learner;
@@ -1227,6 +1250,8 @@ function step(dt) {
       // a real hit: a crunch and a camera jolt, scaled by how hard you hit (with a short cooldown)
       crashCooldown = Math.max(0, crashCooldown - dt);
       if (res.impact > 3.5 && crashCooldown <= 0) { audio.sfx('crash'); camShake = Math.min(1.1, res.impact * 0.11); crashCooldown = 0.4; }
+      // free-driving is always a test: mark the faults that don't need a route and keep the tally live
+      if (!lesson) { freeExam.update(dt, car, world, res); hud.exam(freeExam.counts, true); }
       if (lesson) {
         lesson.update(dt, car, { indicator: drive.indicator, mirrorPressed: drive.mirrorPressed, hit: res.hit || drive.trafficHit });
       }
@@ -1282,7 +1307,7 @@ frame();
 // debug handle for testing in the console
 window.__game = {
   get world() { return world; }, get car() { return car; }, get mode() { return mode; }, player, keys, camera, pipeline, renderer,
-  state, P, phone, audio, songs, ytradio, worlds, togglePhone, interact, enterWorld, hud, startLesson, startTest, setLearnerTrans, setLessonCar, goUK, goHome,
+  state, P, phone, audio, songs, ytradio, worlds, freeExam, togglePhone, interact, enterWorld, hud, startLesson, startTest, setLearnerTrans, setLessonCar, goUK, goHome,
   get lesson() { return lesson; }, drive, autoDrive: false,
   // dev: render the current frame and save it to shots/<name>.jpg via the Vite dev server
   async shot(name = 'live', w = 1280, h = 800) {
