@@ -92,12 +92,12 @@ function getWorld(id) {
       w.cars.push(c);
       return c;
     };
-    w.garage.forEach((g) => w.addCar(g.id, g));
+    w.garage.forEach((g) => addLearnerCar(w, g.id, g));
     if (w.learnerAt) rebuildLearner(w);
     if (w.parked) addEyesightCar(w, { x: w.parked.x, z: w.parked.z, heading: 0 });
     for (const spot of w.eyesight || []) addEyesightCar(w, spot); // Kent: one at each test centre
     // cars bought from the phone fill the extra bays at this home
-    P.boughtCarsIn(id).forEach((carId, i) => w.slots?.[i] && w.addCar(carId, w.slots[i]));
+    P.boughtCarsIn(id).forEach((carId, i) => w.slots?.[i] && addLearnerCar(w, carId, w.slots[i]));
     w.traffic = w.trafficSystem || new Traffic(w.scene, w.life || {});
     w.interactions = w.interactions || [];
     w.trials = setupTrials(w, trialHooks);
@@ -524,7 +524,7 @@ const phone = new Phone({
     const w = worlds[home];
     if (!w) return;
     const i = P.boughtCarsIn(home).length - 1;
-    if (w.slots?.[i]) w.addCar(carId, w.slots[i]);
+    if (w.slots?.[i]) addLearnerCar(w, carId, w.slots[i]);
   },
   onJetBought(jetId) { worlds.kent?.addJet(jetId); worlds.dubai?.addJet(jetId); },
   setLook: (l) => { player.mesh.userData.setLook?.(l); save(); },
@@ -624,20 +624,26 @@ function lessonSpecFor(id) {
   const base = CARS[id];
   return { ...base, topSpeed: LEARNER.topSpeed, accel: LEARNER.accel, grip: LEARNER.grip, steer: LEARNER.steer };
 }
-/** (re)build a world's learner car from the chosen lesson car + gearbox, with L plates */
+/** every car you drive is a learner car: its own looks, the learner gearbox, L plates on the back.
+ *  The dedicated test car ('learner') also takes the calm handling of the chosen lesson car. */
+function addLearnerCar(w, carId, at) {
+  const base = carId === 'learner' ? lessonSpecFor(state.uk.lessonCar) : (CARS[carId] || LEARNER);
+  const c = w.addCar(carId, at, { ...base, trans: state.uk.trans });
+  addLPlates(c); addAutoBadge(c);
+  return c;
+}
+/** (re)build a world's dedicated test car from the chosen lesson car + gearbox */
 function rebuildLearner(w) {
   if (!w.learnerAt) return null;
   const i = w.cars.findIndex((c) => c.id === 'learner');
   if (i >= 0) { w.scene.remove(w.cars[i].model.root); w.cars.splice(i, 1); }
-  const c = w.addCar('learner', w.learnerAt, { ...lessonSpecFor(state.uk.lessonCar), trans: state.uk.trans });
-  addLPlates(c); addAutoBadge(c);
-  return c;
+  return addLearnerCar(w, 'learner', w.learnerAt);
 }
 /** the phone's "Learning in" choice: every learner car already built changes gearbox (and badge) */
 function setLearnerTrans(t) {
   if (lesson && !window.__game?.autoQuiz) { hud.toast('Finish (or stop) this lesson before you change car', 2600); return; }
   state.uk.trans = t; save();
-  for (const w of Object.values(worlds)) for (const c of w.cars) if (c.id === 'learner') { c.setTrans(t); if (c.autoBadge) c.autoBadge.visible = t === 'auto'; }
+  for (const w of Object.values(worlds)) for (const c of w.cars) if (c.drive) { c.setTrans(t); if (c.autoBadge) c.autoBadge.visible = t === 'auto'; }
 }
 /** the phone's "Lesson car" choice: take lessons in any car you own (it wears L plates) */
 function setLessonCar(id) {
