@@ -68,7 +68,7 @@ export function placeSigns(scene, list) {
   for (const s of list) {
     try {
       const sign = makeSign({ id: s.id, band: s.band || '30', plate: s.plate });
-      sign.position.set(s.x, 0, s.z);
+      sign.position.set(s.x, s.y ?? 0, s.z); // y for signs standing on a hill
       sign.rotation.y = s.yaw || 0;
       scene.add(sign);
     } catch { /* skip an id that can't be drawn rather than break the world */ }

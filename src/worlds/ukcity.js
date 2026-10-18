@@ -21,6 +21,13 @@ const V = (x, z) => new THREE.Vector3(x, 0, z);
 const RING = 240;      // ring road radius
 const RB = 22;         // central roundabout radius
 const AIR = { x: 640, z: -40 }; // the airfield origin, east of the ring
+// the hill on the north radial: a raised-cosine rise of 5 m over 160 m, about 1 in 10 at its steepest
+// (a real test hill), so hill starts are real. Flat everywhere else.
+const HILL = { z0: -70, z1: -230, h: 5, halfW: 12, fade: 10 };
+const hillH = (z) => { if (z > HILL.z0 || z < HILL.z1) return 0; const u = (HILL.z0 - z) / (HILL.z0 - HILL.z1); return HILL.h * (1 - Math.cos(Math.PI * 2 * u)) / 2; };
+const hillW = (x) => { const f = Math.max(0, Math.min(1, (HILL.halfW + HILL.fade - Math.abs(x)) / HILL.fade)); return f * f * (3 - 2 * f); };
+const heightAt = (x, z) => hillH(z) * hillW(x);
+const gradeAt = (x, z, heading) => { const fx = Math.sin(heading), fz = Math.cos(heading); return (heightAt(x + fx, z + fz) - heightAt(x - fx, z - fz)) / 2; };
 
 export function buildUKCity(renderer, spec) {
   const { id, name, landmark, towers = [], skyline = 0x8d98a6, arena = false, ownedJets = [] } = spec;
@@ -43,7 +50,16 @@ export function buildUKCity(renderer, spec) {
   const ring = buildRoad(new THREE.CatmullRomCurve3(ringPts, true, 'centripetal'), { closed: true, width: 14 });
   const rbPts = Array.from({ length: 16 }, (_, i) => { const a = (i / 16) * Math.PI * 2; return V(Math.cos(a) * RB, Math.sin(a) * RB); });
   const rbRoad = buildRoad(new THREE.CatmullRomCurve3(rbPts, true, 'centripetal'), { closed: true, width: 10, lanes: 2, lines: true }); // two marked lanes round the island
-  const radials = [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([dx, dz]) => buildRoad(new THREE.LineCurve3(V(dx * (RB + 2), dz * (RB + 2)), V(dx * (RING - 2), dz * (RING - 2))), { width: 12 }));
+  const radials = [[1, 0], [-1, 0], [0, 1]].map(([dx, dz]) => buildRoad(new THREE.LineCurve3(V(dx * (RB + 2), dz * (RB + 2)), V(dx * (RING - 2), dz * (RING - 2))), { width: 12 }));
+  // the north radial climbs the hill: sample it so the road follows the ground
+  const hillPts = []; for (let z = -(RB + 2); z >= -(RING - 2); z -= 8) hillPts.push(new THREE.Vector3(0, heightAt(0, z), z));
+  radials.push(buildRoad(new THREE.CatmullRomCurve3(hillPts, false, 'centripetal'), { width: 12, step: 4 }));
+  // the ground rises with it: a paved strip shaped to the hill, over the flat centre
+  { const sw = 2 * (HILL.halfW + HILL.fade), sl = (HILL.z0 - HILL.z1) + 24;
+    const geo = new THREE.PlaneGeometry(sw, sl, 10, 72); geo.rotateX(-Math.PI / 2); geo.translate(0, 0, (HILL.z0 + HILL.z1) / 2);
+    const P = geo.attributes.position; for (let i = 0; i < P.count; i++) P.setY(i, heightAt(P.getX(i), P.getZ(i)) + 0.015);
+    geo.computeVertexNormals();
+    const strip = new THREE.Mesh(geo, pbr('rectangular_paving', { repeat: [6, 36], color: 0xc3bfb6 })); strip.receiveShadow = true; scene.add(strip); }
   const airLink = buildRoad(new THREE.CatmullRomCurve3([V(RING, 0), V(400, -10), V(AIR.x - 160, AIR.z + 440), V(AIR.x - 60, AIR.z + 470)]), { width: 12, curbs: false, y: 0.025 });
   const roads = [ring, rbRoad, ...radials, airLink];
   roads.forEach((r) => scene.add(r.mesh));
@@ -62,6 +78,7 @@ export function buildUKCity(renderer, spec) {
       if (r < RB + 24 || r > RING - 22) continue;
       const bx = x + rand(-3, 3), bz = z + rand(-3, 3), w = rand(11, 18), d = rand(11, 18);
       if (distToRoads(bx, bz, roads) < Math.max(w, d) / 2 + 9) continue;
+      if (Math.abs(bx) < HILL.halfW + HILL.fade + 6 && bz < HILL.z0 + 12 && bz > HILL.z1 - 12) continue; // keep the hillside clear
       blocks.push({ x: bx, z: bz, w, d, h: rand(8, 22), color: pick(brickCols) });
       colliders.box(bx, bz, w, d);
     }
@@ -86,7 +103,7 @@ export function buildUKCity(renderer, spec) {
   // ---- trees along the ring and in the quadrants ----
   const tree = [];
   for (let i = 0; i < 48; i++) { const a = (i / 48) * Math.PI * 2; tree.push({ x: Math.cos(a) * (RING + 12), z: Math.sin(a) * (RING + 12), rot: rand(0, 6.28), scale: rand(1.1, 1.6) }); }
-  for (let i = 0; i < 60; i++) { const x = rand(-RING, RING), z = rand(-RING, RING); if (Math.hypot(x, z) < RING - 10 && distToRoads(x, z, roads) > 10 && !colliders.boxes.some((b) => x > b.minX - 2 && x < b.maxX + 2 && z > b.minZ - 2 && z < b.maxZ + 2)) tree.push({ x, z, rot: rand(0, 6.28), scale: rand(1, 1.5) }); }
+  for (let i = 0; i < 60; i++) { const x = rand(-RING, RING), z = rand(-RING, RING); if (heightAt(x, z) > 0.01) continue; if (Math.hypot(x, z) < RING - 10 && distToRoads(x, z, roads) > 10 && !colliders.boxes.some((b) => x > b.minX - 2 && x < b.maxX + 2 && z > b.minZ - 2 && z < b.maxZ + 2)) tree.push({ x, z, rot: rand(0, 6.28), scale: rand(1, 1.5) }); }
   scene.add(instanced('island_tree_02', tree, { chunk: 80, maxDist: 320 }));
   // street lamps round the ring
   const lamps = ringPts.flatMap((p, i) => { const n = p.clone().normalize(); return [1, -1].map((s) => ({ x: p.x + n.x * 9 * s, z: p.z + n.z * 9 * s, scale: 1.3, rot: Math.atan2(n.x, n.z) })); });
@@ -111,7 +128,13 @@ export function buildUKCity(renderer, spec) {
     { id: 'traffic_signals_ahead', x: RING - 110, z: 8, yaw: Math.PI / 2 }, { id: 'school_children', x: 8, z: -(RING - 150), yaw: Math.PI },
     { id: 'no_entry', x: 20, z: RING - 60, yaw: 0 }, { id: 'zebra_crossing_ahead', x: -(RING - 160), z: -8, yaw: -Math.PI / 2 },
     { id: 'speed_40', x: RING + 9, z: -40, yaw: Math.PI }, { id: 'keep_left_bollard', x: RB + 1.5, z: 6.5, yaw: Math.PI / 2 },
-  ]);
+  ].map((s) => ({ ...s, y: heightAt(s.x, s.z) }))); // signs on the hill stand on the hill
+  // ---- the hill-start line: stop here facing uphill, handbrake on, then move off without rolling back ----
+  const hillStart = { x: 3, z: -110, heading: Math.PI }; // the left lane going up (north), mid-slope
+  { const y = heightAt(hillStart.x, hillStart.z), g = gradeAt(hillStart.x, hillStart.z, Math.PI);
+    const line = mesh(new THREE.BoxGeometry(4.6, 0.02, 0.35), new THREE.MeshStandardMaterial({ color: 0xf2f2ee, roughness: 0.7, polygonOffset: true, polygonOffsetFactor: -3 }), { cast: false });
+    line.position.set(hillStart.x, y + 0.03, hillStart.z); line.rotation.x = -Math.atan(g); scene.add(line);
+    const board = label('Hill start', { size: 1.5, sub: 'Stop at the line · handbrake · bite · go' }); board.position.set(hillStart.x + 8, y + 7, hillStart.z - 2); scene.add(board); }
   // brand billboards on the ring
   [[0, RING + 24, Math.PI, 1], [-RING - 24, 0, Math.PI / 2, 0], [RING + 24, 60, -Math.PI / 2, 4]].forEach(([x, z, rot, i]) => {
     const bb = buildBillboard({ width: 16, spec: BILLBOARDS[i] }); bb.position.set(x, 0, z); bb.rotation.y = rot; scene.add(bb); colliders.box(x, z, 4, 4);
@@ -177,5 +200,6 @@ export function buildUKCity(renderer, spec) {
     },
     signalHeads: () => lights.heads, // traffic stops at them; the examiner marks a red run
     laneAt: null, // city streets are one lane each way, so no lane-change marking here
+    heightAt, gradeAt, floorY: (x, z) => heightAt(x, z), hillStart, // the hill on the north radial
   };
 }

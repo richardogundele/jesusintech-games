@@ -66,7 +66,7 @@ class Manual extends Drivetrain {
     if (typeof g === 'number' && v < -0.8) return this.say('Stop before you select a forward gear');
     this.gear = g; this.locked = false;
   }
-  step(dt, input, v) {
+  step(dt, input, v, grade = 0) {
     this.t += dt;
     this.flags.grind = false;
     if (input.pbrakeToggle) this.parkingBrake = !this.parkingBrake;
@@ -87,7 +87,8 @@ class Manual extends Drivetrain {
       if (this.rpm > REDLINE) thr = 0; // the rev limiter
       Te = thr * tFull(this.rpm) - tFric(this.rpm);
     } else Te = -(tFric(this.rpm) + (this.rpm > 30 ? 25 : 0)); // a dead engine: friction and compression
-    const K = GEAR_K[this.gear] || 0, eng = this.engaged, a0 = resist(v);
+    // gravity along the road: uphill holds you back (and rolls you back with the clutch down), downhill pulls
+    const K = GEAR_K[this.gear] || 0, eng = this.engaged, a0 = resist(v) - 9.81 * grade;
     if (!K || eng <= 0) {
       // out of gear or clutch down: the engine spins on its own, the car rolls
       this.locked = false;
@@ -146,14 +147,14 @@ class Auto extends Drivetrain {
     if (g === 'D' && v < -0.8) return this.say('Stop before you select drive');
     this.gear = g;
   }
-  step(dt, input, v) {
+  step(dt, input, v, grade = 0) {
     this.t += dt;
     if (input.pbrakeToggle) this.parkingBrake = !this.parkingBrake;
     if (input.ignition) this.ignition(v);
     if (input.shift != null) this.select(input.shift, v);
     this.throttle = easeThrottle(this.throttle, input, dt);
     if (this.crank > 0) { this.crank -= dt; if (this.crank <= 0) { this.engineOn = true; this.rpm = 1000; this.keyOff = false; } }
-    let a = resist(v);
+    let a = resist(v) - 9.81 * grade; // gravity along the road
     const dir = this.gear === 'D' ? 1 : this.gear === 'R' ? -1 : 0, run = this.engineOn && this.crank <= 0;
     if (run && dir) {
       const fwdV = dir * v;
@@ -225,9 +226,13 @@ export class Car {
     let vR = this.vel.dot(right);
     const prevVF = vF;
     const drift = !this.drive && input.brake; // the learner car's Space is its parking brake
+    // the slope under the car along its heading (rise per metre); hills are where hill starts happen
+    const grade = world.gradeAt ? world.gradeAt(this.pos.x, this.pos.z, this.heading) : 0;
+    this.grade = grade;
 
-    if (this.drive) vF = this.drive.step(dt, input, vF);
+    if (this.drive) vF = this.drive.step(dt, input, vF, grade);
     else {
+    vF -= 9.81 * grade * dt; // gravity along the road
     // throttle / brake / reverse
     if (input.up) {
       if (vF < -0.5) vF += 24 * dt;
@@ -306,6 +311,7 @@ export class Car {
     const accel = (this.vF - prevVF) / Math.max(dt, 1e-4);
     this.accelSmoothed += (accel - this.accelSmoothed) * Math.min(1, dt * 6);
     this.slip = Math.abs(vR);
+    this.pos.y = world.heightAt ? world.heightAt(this.pos.x, this.pos.z) : 0; // sit on the ground, hills included
     this.sync(dt);
     return { hit, impact };
   }
@@ -328,7 +334,8 @@ export class Car {
     root.rotation.y = this.heading;
     // body roll + pitch for weight transfer
     const roll = THREE.MathUtils.clamp(-this.steer * this.vF * 0.006, -0.06, 0.06);
-    const pitch = THREE.MathUtils.clamp(-this.accelSmoothed * 0.004, -0.04, 0.04);
+    // weight transfer, plus the slope of the road under the car (nose up going uphill)
+    const pitch = THREE.MathUtils.clamp(-this.accelSmoothed * 0.004, -0.04, 0.04) - Math.atan(this.grade || 0);
     body.rotation.z += (roll - body.rotation.z) * Math.min(1, dt * 6);
     body.rotation.x += (pitch - body.rotation.x) * Math.min(1, dt * 6);
     for (const w of wheels) {

@@ -58,8 +58,8 @@ const draw = () => {
   if (car?.drive && mode === 'car') {
     const w = 292, h = 70, x = (viewW() - w) / 2, yTop = 18;
     const fx = Math.sin(car.heading), fz = Math.cos(car.heading);
-    mirrorCam.position.set(car.pos.x + fx * 0.2, 1.25, car.pos.z + fz * 0.2);
-    mirrorCam.lookAt(car.pos.x - fx * 30, 0.9, car.pos.z - fz * 30);
+    mirrorCam.position.set(car.pos.x + fx * 0.2, car.pos.y + 1.25, car.pos.z + fz * 0.2);
+    mirrorCam.lookAt(car.pos.x - fx * 30, car.pos.y + 0.9, car.pos.z - fz * 30);
     const auto = renderer.shadowMap.autoUpdate;
     renderer.shadowMap.autoUpdate = false;
     renderer.setScissorTest(true);
@@ -1144,15 +1144,15 @@ function camRig() {
     const v = Math.abs(car.vF);
     if (camMode === 2) {
       const hf = new THREE.Vector3(Math.sin(car.heading), 0, Math.cos(car.heading));
-      desired.copy(target).addScaledVector(hf, -0.4).setY(m.height * 0.92);
-      look.copy(target).addScaledVector(hf, 30).setY(m.height * 0.8);
+      desired.copy(target).addScaledVector(hf, -0.4).setY(target.y + m.height * 0.92);
+      look.copy(target).addScaledVector(hf, 30).setY(target.y + m.height * 0.8);
       return { fov: 72 + Math.min(14, v * 0.12), snap: true };
     }
     const far = camMode === 1;
     const dist = (far ? m.length * 2.6 + 5 : m.length * 1.0 + 2.3) + v * 0.012;
     const height = far ? m.height + 3.4 : m.height + 1.05;
-    desired.copy(target).addScaledVector(f, -dist).setY(height);
-    look.copy(target).addScaledVector(f, 4).setY(m.height * 0.6);
+    desired.copy(target).addScaledVector(f, -dist).setY(target.y + height); // the car's y: hills
+    look.copy(target).addScaledVector(f, 4).setY(target.y + m.height * 0.6);
     return { fov: 58 + Math.min(12, v * 0.12) };
   }
   if (world.cameraRig) {

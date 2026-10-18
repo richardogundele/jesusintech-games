@@ -14,6 +14,7 @@ export class FreeExam {
     this.t = 0; this.dist = 0; this.faults = []; this.cool = {}; this.timers = {}; this.lastStalls = null; this.lastGrinds = null; this.ccool = {}; this.ctimers = {};
     this.lightAlong = new Map(); // signal head -> last distance to its stop line (to catch the crossing)
     this.lane = null; this.lastSignal = { dir: null, t: -99 };
+    this.rollBack = 0; this.rollMarked = 0; // metres rolled back on a hill since you last moved off
   }
 
   get counts() {
@@ -35,6 +36,12 @@ export class FreeExam {
     this.dist += Math.abs(car.vF) * dt;
     this.redLights(car, world);
     this.laneDiscipline(car, world, ctx.indicator);
+    // hill starts: rolling back on an upslope. A little is a driving fault, a lot is serious.
+    const grade = car.grade || 0;
+    if (grade > 0.03 && car.vF < -0.15) this.rollBack += -car.vF * dt;
+    else if (car.vF > 1) { this.rollBack = 0; this.rollMarked = 0; }
+    if (this.rollBack > 1.5 && this.rollMarked < 2) { this.rollMarked = 2; this.fault('serious', 'Control: rolled back a long way on a hill start', 'rollback', 8); }
+    else if (this.rollBack > 0.5 && this.rollMarked < 1) { this.rollMarked = 1; this.fault('minor', 'Control: rolled back on a hill start', 'rollback', 8); }
     const mph = car.speedKmh * MPH;
     // the limit at the car, or a sensible 30 where a world doesn't post one
     const limit = world.speedLimitAt?.(car.pos.x, car.pos.z) ?? 30;
@@ -96,7 +103,14 @@ export class FreeExam {
   /** call every frame while free-driving a manual: gentle guidance on gears and the engine */
   coach(dt, car) {
     const d = car.drive;
-    if (!d || d.kind !== 'manual' || !d.engineOn || typeof d.gear !== 'number') return;
+    if (!d || !d.engineOn) return;
+    // stopped facing uphill: the hill-start routine (handbrake, bite, then release as it pulls)
+    if (this.cHeld('hill', (car.grade || 0) > 0.03 && Math.abs(car.vF) < 0.3, dt, 1.2)) {
+      return this.tip(d.kind === 'manual'
+        ? 'Hill start: handbrake on (Space), first gear, a little gas (W), let the clutch (Shift) up to the bite — then Space off as the car tries to pull'
+        : 'Hill start: hold it on the brake, select Drive, then move your foot to the gas — it won’t roll back', 'hill', 12);
+    }
+    if (d.kind !== 'manual' || typeof d.gear !== 'number') return;
     const g = d.gear, mph = car.speedKmh * MPH, ideal = gearFor(car.vF, g), f = d.flags || {};
     if (this.cHeld('rev', !!f.overRev, dt, 0.7)) return this.tip(`Change up to ${Math.min(5, g + 1)} — you're over-revving`, 'gear', 5);
     if (this.cHeld('lab', !!f.labouring, dt, 0.7)) return this.tip(`Change down to ${Math.max(1, g - 1)} — the engine's labouring`, 'gear', 5);

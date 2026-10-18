@@ -113,7 +113,7 @@ export function buildRoad(curve, { width = 14, lanes = 2, closed = false, y = 0.
     for (let i = 0; i < frames.length; i++) {
       const { p, n, d } = frames[i];
       const A = p.clone().addScaledVector(n, o0), B = p.clone().addScaledVector(n, o1);
-      pos.push(A.x, yy, A.z, B.x, yy, B.z);
+      pos.push(A.x, A.y + yy, A.z, B.x, B.y + yy, B.z); // follow the curve's height, so roads can climb hills
       uv.push(0, d * uvScale, Math.abs(o1 - o0) * uvScale, d * uvScale);
       if (i < frames.length - 1 && keep((d + frames[i + 1].d) / 2)) {
         const k = v * 2;
