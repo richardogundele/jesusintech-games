@@ -264,13 +264,13 @@ export class RoadNet {
     return best;
   }
   placeAt(x, z) {
-    const n = this.nearest(x, z, 60), place = this.placeOf(x, z);
-    if (!n) return place ? place.name : 'Kent';
+    const n = this.nearest(x, z, 60), place = this.placeOf(x, z), region = this.data.name || 'Kent';
+    if (!n) return place ? place.name : region;
     const w = n.way;
     if (w.ref && w.name) return `${w.ref} ${w.name}`;
     if (w.ref) return place ? `${w.ref}, ${place.name}` : w.ref;
     if (w.name) return place ? `${w.name}, ${place.name}` : w.name;
-    return place ? place.name : 'Kent';
+    return place ? place.name : region;
   }
   buildingsNear(x, z, r) { return this.buildingGrid.near(x, z, r); }
 

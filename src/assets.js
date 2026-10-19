@@ -73,6 +73,13 @@ export async function loadAll(r, onProgress = () => {}) {
   await Promise.all(jobs);
 }
 
+/** a city's real-map road network (public/assets/<id>/region.json), fetched once, on the way there */
+const regionJobs = {};
+export function loadRegion(id) {
+  if (!regionJobs[id]) regionJobs[id] = fetch(`${BASE}/${id}/region.json`).then((r) => (r.ok ? r.json() : null)).then((d) => { store.misc[`${id}Region`] = d; return d; }).catch(() => { store.misc[`${id}Region`] = null; return null; });
+  return regionJobs[id];
+}
+
 export const hdri = (k) => store.hdri[k];
 
 /** PBR material from a Poly Haven texture set. repeat = tiles per UV unit. */

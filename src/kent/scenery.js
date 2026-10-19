@@ -1437,7 +1437,8 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
         // which of the two long faces looks at the road
         const nz = [s, c], sgn = Math.sign(nz[0] * toRoad[0] + nz[1] * toRoad[1]) || 1;
         const fx = lm.x + nz[0] * sgn * 6.05, fz = lm.z + nz[1] * sgn * 6.05;
-        const city = /canterbury/i.test(lm.name) ? 'Canterbury' : 'Herne Bay';
+        // Kent's two centres by name; a city region's centre is "Mill Hill (London)" etc.
+        const city = /canterbury/i.test(lm.name) ? 'Canterbury' : /herne/i.test(lm.name) ? 'Herne Bay' : (lm.name || 'DVSA').replace(/\s*\(.*\)\s*$/, '');
         if (hasDOM) {
           const sign = new THREE.Mesh(new THREE.PlaneGeometry(10, 1.4), new THREE.MeshStandardMaterial({ map: plateTex(`${city} Driving Test Centre`), roughness: 0.6 }));
           sign.position.set(fx, 3.3, fz);

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { buildUKCity } from './worlds/ukcity.js';
+import { buildRegion } from './worlds/region.js';
 import { buildMotorway } from './worlds/motorway.js';
 import { Car } from './vehicle.js';
 import { buildPlayer, buildJet } from './models.js';
@@ -23,7 +23,7 @@ import { generateTest, signsOnRoute } from './kent/test-routes.js';
 import { signQuestion } from './sign-quiz.js';
 import { buildCar } from './models.js';
 import { TRAFFIC } from './catalog.js';
-import { loadAll, updateCulling } from './assets.js';
+import { loadAll, updateCulling, loadRegion, misc } from './assets.js';
 import { createPipeline } from './render.js';
 import { Traffic } from './traffic.js';
 
@@ -81,23 +81,12 @@ const freeExam = new FreeExam({ flash: (text) => { hud.toast(text, 2600); audio.
 const $ = (id) => document.getElementById(id);
 
 // ---------- worlds ----------
-// The three UK cities share one builder; each gets its own skyline, landmark and colour
-const UK_CITIES = {
-  london: { id: 'london', name: 'London', arena: true, skyline: 0x9aa6b4,
-    landmark: { name: 'The Shard', x: 380, z: -300, y: 120, size: 3 },
-    towers: [{ x: 380, z: -300, w: 44, d: 44, h: 300, kind: 'taper', color: 0xaab7c6 }, { x: 460, z: -220, w: 34, d: 34, h: 170, kind: 'round', color: 0x7f9aa8 },
-      { x: 320, z: -400, w: 36, d: 36, h: 150, kind: 'setback' }, { x: 520, z: -360, w: 30, d: 30, h: 130, kind: 'setback' }, { x: 420, z: -460, w: 40, d: 40, h: 200, kind: 'twist' }] },
-  birmingham: { id: 'birmingham', name: 'Birmingham', skyline: 0x8c96a2,
-    landmark: { name: 'The Bullring', x: -330, z: -280, y: 70, size: 2.6 },
-    towers: [{ x: -330, z: -280, w: 46, d: 46, h: 90, kind: 'round', color: 0xc9b8a8, podium: true }, { x: -420, z: -200, w: 30, d: 30, h: 130, kind: 'round', color: 0xb0b8c2 },
-      { x: -380, z: -380, w: 34, d: 34, h: 110, kind: 'setback' }, { x: -480, z: -300, w: 32, d: 32, h: 95, kind: 'setback' }] },
-  manchester: { id: 'manchester', name: 'Manchester', skyline: 0x7f8a97,
-    landmark: { name: 'Beetham Tower', x: 340, z: 300, y: 110, size: 2.8 },
-    towers: [{ x: 340, z: 300, w: 26, d: 40, h: 170, kind: 'setback', color: 0x8fa1b5 }, { x: 420, z: 360, w: 30, d: 30, h: 200, kind: 'setback', color: 0x7a8b9d },
-      { x: 480, z: 300, w: 30, d: 30, h: 180, kind: 'setback', color: 0x7a8b9d }, { x: 400, z: 440, w: 28, d: 28, h: 150, kind: 'taper' }] },
-};
-const cityBuilder = (spec) => (r) => buildUKCity(r, { ...spec, ownedJets: state.owned.jets });
-const builders = { kent: buildKent, london: cityBuilder(UK_CITIES.london), birmingham: cityBuilder(UK_CITIES.birmingham), manchester: cityBuilder(UK_CITIES.manchester), motorway: buildMotorway, arena: buildArena, uk: buildUK };
+// The three cities are built from the real map around their driving test centres (worlds/region.js);
+// their road data is fetched on the way there (loadRegion), so the first visit awaits it
+const cityBuilder = (id, name, extra = {}) => (r) => buildRegion(r, { id, name, data: misc(`${id}Region`), ...extra });
+const builders = { kent: buildKent, london: cityBuilder('london', 'London', { arena: true }), birmingham: cityBuilder('birmingham', 'Birmingham'), manchester: cityBuilder('manchester', 'Manchester'), motorway: buildMotorway, arena: buildArena, uk: buildUK };
+const REGION_WORLDS = ['london', 'birmingham', 'manchester'];
+const ensureWorldData = (id) => (REGION_WORLDS.includes(id) && !worlds[id] ? loadRegion(id) : Promise.resolve());
 const HOMES = ['kent']; // the world you live in: the save remembers it
 const worlds = {};
 function getWorld(id) {
@@ -338,6 +327,7 @@ async function driveTo(to) {
   mode = 'cutscene';
   hud.show(false);
   await fade(1);
+  await ensureWorldData(to); // the city's real road map, if this is the first visit
   const mw = getWorld('motorway');
   mw.setRoute(from, to);
   renderer.compile(mw.scene, camera);
@@ -477,6 +467,7 @@ async function travel(jetId, to) {
   cabin.interactions.push({ ...cabin.mySeat, r: 0.9, label: () => `Take your seat and land in ${route.label}`, action: land });
   renderer.compile(cabin.scene, camera);
   // build the destination now, while the card is up, so landing never stalls
+  await ensureWorldData(route.to); // the city's real road map, if this is the first visit
   renderer.compile(getWorld(route.to).scene, camera);
   flight = { jetId, to: route.to, cabin };
   await wait(1500);
@@ -525,7 +516,8 @@ async function enterArena() {
 async function leaveArena() {
   mode = 'cutscene';
   await fade(1);
-  enterWorld('london', { x: -350, z: 160, heading: Math.PI / 2 });
+  const ldn = getWorld('london'), door = ldn.arenaDoor;
+  enterWorld('london', door ? { x: door.x - 8, z: door.z, heading: -Math.PI / 2 } : ldn.spawn);
   await fade(0);
 }
 function startTalk() {
@@ -1373,7 +1365,7 @@ frame();
 // debug handle for testing in the console
 window.__game = {
   get world() { return world; }, get car() { return car; }, get mode() { return mode; }, player, keys, camera, pipeline, renderer,
-  state, P, phone, audio, songs, ytradio, worlds, freeExam, togglePhone, interact, enterWorld, hud, startLesson, startTest, setLearnerTrans, setLessonCar, goUK, goHome,
+  state, P, phone, audio, songs, ytradio, worlds, freeExam, togglePhone, interact, enterWorld, ensureWorldData, hud, startLesson, startTest, setLearnerTrans, setLessonCar, goUK, goHome,
   get lesson() { return lesson; }, drive, autoDrive: false,
   // dev: render the current frame and save it to shots/<name>.jpg via the Vite dev server
   async shot(name = 'live', w = 1280, h = 800) {
