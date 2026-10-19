@@ -5,7 +5,7 @@ import { Car } from './vehicle.js';
 import { buildPlayer, buildJet } from './models.js';
 import { EngineAudio } from './audio.js';
 import { Hud } from './hud.js';
-import { state, save } from './state.js';
+import { state, save, recordDrive, careerRating } from './state.js';
 import { JETS, CITIES, otherCities, fuelStop, flightTime, roadBetween, talkFee, LEARNER, CARS, RADIO_STATION } from './catalog.js';
 import { buildKent, setKentHooks } from './worlds/kent.js';
 import * as P from './progress.js';
@@ -649,11 +649,16 @@ function closeResult() {
 }
 /** the verdict for a free drive, shown on the same result sheet when you pull over and get out */
 function showDriveResult(r, title = 'Drive report') {
+  recordDrive(r); // the drive is banked into state.career for the overall rating
+  const rating = careerRating();
   $('res-name').textContent = title;
   $('res-medal').textContent = r.passed ? 'TEST PASSED' : (r.serious + r.dangerous > 0 ? 'TEST FAILED · SERIOUS FAULT' : 'TEST FAILED · TOO MANY FAULTS');
   $('res-medal').style.color = r.passed ? 'var(--green-soft)' : 'var(--red-soft)';
   $('res-time').textContent = `${r.minor}`;
-  $('res-sub').innerHTML = `driving fault${r.minor === 1 ? '' : 's'} · ${r.serious} serious · ${r.dangerous} dangerous · ${(r.dist / 1000).toFixed(1)} km driven`;
+  const career = rating.score != null
+    ? `<div class="career">Driver rating <b>${rating.score}</b> · grade <b>${rating.grade}</b> · ${rating.passes} of ${rating.drives} drives passed · ${rating.km} km</div>`
+    : '';
+  $('res-sub').innerHTML = `driving fault${r.minor === 1 ? '' : 's'} · ${r.serious} serious · ${r.dangerous} dangerous · ${(r.dist / 1000).toFixed(1)} km driven${career}`;
   $('res-retry').classList.add('hidden');
   $('result').querySelector('.modal').classList.remove('sheet');
   prevMode = 'foot';
@@ -1307,7 +1312,7 @@ function step(dt) {
       crashCooldown = Math.max(0, crashCooldown - dt);
       if (res.impact > 3.5 && crashCooldown <= 0) { audio.sfx('crash'); camShake = Math.min(1.1, res.impact * 0.11); crashCooldown = 0.4; }
       // free-driving is always a test: mark the faults that don't need a route and keep the tally live
-      if (!lesson) { freeExam.update(dt, car, world, res, { indicator: drive.indicator }); freeExam.coach(dt, car); hud.exam(freeExam.counts, true); }
+      if (!lesson) { freeExam.update(dt, car, world, res, { indicator: drive.indicator }); freeExam.coach(dt, car); hud.exam(freeExam.counts, true, careerRating()); }
       // the motorway leg ends at the exit for your destination
       if (roadTrip && world.id === 'motorway' && car.pos.z > world.exitZ) arriveByRoad();
       if (lesson) {

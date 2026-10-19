@@ -394,13 +394,14 @@ export class Hud {
     this.set('trial', this.trialEl, html, 'innerHTML');
   }
 
-  // ---------- the free-drive examiner's live tally ----------
-  exam(counts, show) {
+  // ---------- the free-drive examiner's live tally and your overall driver rating ----------
+  exam(counts, show, rating = null) {
     this.flag(this.examEl, 'hidden', !show);
     if (!show) return;
     const bad = counts.serious + counts.dangerous;
     this.flag(this.examEl, 'bad', bad > 0);
-    this.examEl.innerHTML = `<b>L</b>On test · ${counts.minor} fault${counts.minor === 1 ? '' : 's'}${bad ? ` · ${bad} serious` : ''}`;
+    const r = rating && rating.score != null ? ` <span class="rating">· ${rating.score}/100 ${rating.grade}</span>` : '';
+    this.examEl.innerHTML = `<b>L</b>On test · ${counts.minor} fault${counts.minor === 1 ? '' : 's'}${bad ? ` · ${bad} serious` : ''}${r}`;
   }
 
   // ---------- the controls dock (the bottom 10% of the screen, always on) ----------
