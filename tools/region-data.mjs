@@ -267,7 +267,8 @@ const wayById = new Map(kept.map((p) => [p.id, p]));
 const cumOf = (p) => { const c = [0]; for (let i = 1; i < p.pts.length; i++) c.push(c[i - 1] + dist(p.pts[i], p.pts[i - 1])); return c; };
 
 // ---------- 5. roundabouts ----------
-const LANE_RULE = (tag, r, maxEntry) => (tag ? tag : maxEntry >= 3 ? 3 : (maxEntry >= 2 && r >= 10) || r >= 24 ? 2 : 1);
+// Lower lanes thresholds: more small rings become 2-lane, and the tightest 1-lane rings stay 1 lane
+const LANE_RULE = (tag, r, maxEntry) => (tag ? tag : maxEntry >= 3 ? 3 : (maxEntry >= 2 && r >= 8) || r >= 18 ? 2 : 1);
 const roundabouts = [], stitched = [], skippedRb = [], demoted = [];
 let synthSeq = 0;
 for (const rb of rbsIn) {
@@ -373,7 +374,9 @@ for (const rb of rbsIn) {
   const maxEntry = Math.max(0, ...armsOut.map((a) => a.entryLanes));
   const ringTag = rb.lanes_src === 'tag' && rb.lanes ? rb.lanes : null;
   const lanes = LANE_RULE(ringTag, r, maxEntry);
-  const laneW = r < 12 ? 3.0 : 3.65;
+  // Wider ring lanes (3.65 m is a UK main-road lane; a roundabout gets a touch more so a Chiron fits
+  // comfortably alongside traffic). Small rings use a narrower lane but still wider than a city street.
+  const laneW = r < 12 ? 3.5 : 4.0;
   const tagged = ringWayIds.map((id) => wayById.get(id)).filter((p) => p.limitTag);
   const limit = tagged.length ? Math.max(...tagged.map((p) => p.limitTag)) : Math.max(30, ...armsOut.flatMap((a) => a.entryWays.map((id) => wayById.get(id).limit)));
   for (const id of ringWayIds) { const p = wayById.get(id); p.limit = limit; p.nsl = false; p.lanesF = Math.max(p.lanesF, lanes); p.width = r1(lanes * laneW); }
@@ -552,6 +555,37 @@ for (const tc of testCentres) {
   tc.x = nx2; tc.z = nz2;
 }
 const homeNote = null; // no home in a city region: you arrive at the jet centre
+
+// ---------- 11. terrain: real hills from the OS-equivalent EU-DEM 25 m grid ----------
+// Baked relative to the test centre's elevation so y=0 at the TC. The game samples this bilinearly
+// for world.heightAt and world.gradeAt — hill starts and gravity work on the real streets.
+let terrain = null;
+const elevationFile = path.join(osm, 'elevation.json');
+if (fs.existsSync(elevationFile)) {
+  const g = load(elevationFile);
+  // sample the TC's elevation on the grid, make that the datum
+  const tc = testCentres[0] || { x: 0, z: 0 };
+  const sample = (gx, gz) => {
+    const fx = (gx - g.x0) / g.step, fz = (gz - g.z0) / g.step;
+    const i = Math.max(0, Math.min(g.nx - 2, Math.floor(fx))), j = Math.max(0, Math.min(g.nz - 2, Math.floor(fz)));
+    const u = Math.max(0, Math.min(1, fx - i)), v = Math.max(0, Math.min(1, fz - j));
+    const h00 = g.heights[j * g.nx + i], h10 = g.heights[j * g.nx + (i + 1)], h01 = g.heights[(j + 1) * g.nx + i], h11 = g.heights[(j + 1) * g.nx + (i + 1)];
+    return (1 - u) * (1 - v) * h00 + u * (1 - v) * h10 + (1 - u) * v * h01 + u * v * h11;
+  };
+  const base = sample(tc.x, tc.z);
+  // Feather the elevation to 0 at the grid's edge so a road leaving the fetched square (the jet
+  // centre road) doesn't feel a step. 5 cells (500 m) of smoothstep.
+  const BORDER = 5;
+  const smooth = (t) => (t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t));
+  const relH = new Array(g.heights.length);
+  for (let j = 0; j < g.nz; j++) for (let i = 0; i < g.nx; i++) {
+    const k = j * g.nx + i, m = Math.min(i, j, g.nx - 1 - i, g.nz - 1 - j);
+    relH[k] = r1((g.heights[k] - base) * smooth(m / BORDER));
+  }
+  terrain = { source: g.source, step: g.step, x0: g.x0, z0: g.z0, nx: g.nx, nz: g.nz, base: r1(base), min: r1(Math.min(...relH)), max: r1(Math.max(...relH)), heights: relH };
+  region.terrain = terrain;
+} else warn.push(`no elevation file (${elevationFile}): terrain = null (flat city)`);
+
 // NaN guard before writing
 const scan = (v, p) => { if (typeof v === 'number') { if (!Number.isFinite(v)) throw new Error('non-finite number at ' + p); } else if (Array.isArray(v)) v.forEach((e, i) => scan(e, p + '[' + i + ']')); else if (v && typeof v === 'object') for (const k of Object.keys(v)) scan(v[k], p + '.' + k); };
 scan(region, 'region');

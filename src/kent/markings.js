@@ -10,7 +10,7 @@ import * as THREE from 'three';
 // warning line always ends with a full mark at the give-way line.
 
 export const LW = 3.65;            // standard lane
-export const LW_RING_SMALL = 3.0;  // circulating lane on rings under 12 m
+export const LW_RING_SMALL = 3.5;  // circulating lane on rings under 12 m (widened for easier driving)
 export const PAVE_W = 2.0;         // pavement
 export const KERB_W = 0.15;
 export const KERB_H = 0.13;

@@ -22,10 +22,34 @@ import { SignalSystem } from '../kent/signals.js';
 import { KentTraffic } from '../kent/traffic.js';
 import { testCentreLayout } from '../kent/lesson-routes.js';
 
+/** heightAt/gradeAt from the baked EU-DEM 25 m grid (region.json terrain). Returns 0 outside the
+ *  fetched streets square so the jet centre, which sits past it, stays flat. */
+function makeTerrain(data) {
+  const T = data.terrain;
+  if (!T) return { heightAt: () => 0, gradeAt: () => 0, range: 0 };
+  const { x0, z0, step, nx, nz, heights } = T;
+  const x1 = x0 + (nx - 1) * step, z1 = z0 + (nz - 1) * step;
+  const heightAt = (x, z) => {
+    if (x < x0 || x > x1 || z < z0 || z > z1) return 0;
+    const fx = (x - x0) / step, fz = (z - z0) / step;
+    const i = Math.max(0, Math.min(nx - 2, Math.floor(fx))), j = Math.max(0, Math.min(nz - 2, Math.floor(fz)));
+    const u = Math.max(0, Math.min(1, fx - i)), v = Math.max(0, Math.min(1, fz - j));
+    const h00 = heights[j * nx + i], h10 = heights[j * nx + (i + 1)], h01 = heights[(j + 1) * nx + i], h11 = heights[(j + 1) * nx + (i + 1)];
+    return (1 - u) * (1 - v) * h00 + u * (1 - v) * h10 + (1 - u) * v * h01 + u * v * h11;
+  };
+  /** rise per metre along `heading` — gravity along the road */
+  const gradeAt = (x, z, heading) => {
+    const dx = Math.sin(heading), dz = Math.cos(heading);
+    return (heightAt(x + dx, z + dz) - heightAt(x - dx, z - dz)) / 2;
+  };
+  return { heightAt, gradeAt, range: T.max - T.min };
+}
+
 /** buildRegion(renderer, { id, name, data, arena }) — data is the baked region.json */
 export function buildRegion(renderer, { id, name, data, arena = false }) {
   if (!data) throw new Error(`${name} region data missing (public/assets/${id}/region.json)`);
   const net = new RoadNet(data);
+  const terrain = makeTerrain(data);
   const scene = new THREE.Scene();
   const env = setupSky(scene, renderer, {
     hdri: hdri('monaco'), sunAzimuth: 330, exposure: 0.95, envIntensity: 0.9,
@@ -136,6 +160,10 @@ export function buildRegion(renderer, { id, name, data, arena = false }) {
     nslAt: (x, z) => net.nslAt(x, z),
     signalHeads: () => signals.heads, // live heads for the free-drive examiner
     laneAt: null,
+    // real hills from the baked EU-DEM grid: the vehicle feels gravity on sloped roads
+    heightAt: terrain.heightAt, gradeAt: terrain.gradeAt,
+    floorY: (x, z) => terrain.heightAt(x, z),
+    terrainRange: terrain.range,
     player,
   };
 }
