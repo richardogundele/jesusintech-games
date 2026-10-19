@@ -1,5 +1,5 @@
 // The phone (P or Tab): today's goals, logging real wins, the dealer, the hangar, giving, your profile.
-import { state, formatMoney } from './state.js';
+import { state, formatMoney, lifeScore } from './state.js';
 import { CARS, JETS, WINS, GIVING, fameLevel, talkFee, flightTime, fuelStop, RADIO_STATION } from './catalog.js';
 import * as P from './progress.js';
 import { fmtTime } from './trials.js';
@@ -105,6 +105,10 @@ export class Phone {
     const goals = P.dailyGoals();
     const mult = P.streakMultiplier();
     const fame = fameLevel(state.reached);
+    const score = lifeScore({ ownedCars: P.boughtCarsIn('kent').length + P.boughtCarsIn('london').length + P.boughtCarsIn('birmingham').length + P.boughtCarsIn('manchester').length, ownedJets: P.ownedJetIds().length - 2 /* starter jets */, lessonsTotal: LESSONS.length });
+    const scoreRows = score.parts.map((p) => `
+      <div class="row"><div class="grow"><div class="t">${p.k} <span class="s">${p.hint}</span></div><div class="bar"><i style="width:${Math.round((p.v / p.max) * 100)}%"></i></div></div>
+        <div class="amt">${p.v}<small>/ ${p.max}</small></div></div>`).join('');
     const goalRows = goals.map((g, i) => `
       <div class="row ${g.done ? 'done' : ''}">
         <div class="tick">${g.done ? '✓' : i + 1}</div>
@@ -113,9 +117,10 @@ export class Phone {
       </div>`).join('');
     return `
       <div class="hero">
-        <div class="big">${state.streak.count}<span>day streak</span></div>
-        <div class="s">Rewards ×${mult.toFixed(1)} · finish all three for a ${P.shortMoney(Math.round(P.ALL_DONE_BONUS * mult))} bonus${state.daily.bonus ? ' (claimed)' : ''}</div>
+        <div class="big">${score.total}<span>Life Score · ${score.grade}</span></div>
+        <div class="s">${score.title} · ${state.streak.count}-day streak · rewards ×${mult.toFixed(1)}</div>
       </div>
+      <h3>What's scoring you</h3>${scoreRows}
       <h3>Today's goals</h3>${goalRows}
       <h3>On stage</h3>
       <div class="row"><div class="grow"><div class="t">${fame.title}</div>

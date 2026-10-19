@@ -97,6 +97,41 @@ export function recordDrive(r) {
   save();
 }
 
+/** The whole-game Life Score: 0..1000, from everything you've done. Rolled from the per-system
+ *  state so it needs no extra tracking. The breakdown lets the UI show where the points come from. */
+export function lifeScore(ctx = {}) {
+  const c = state.career, uk = state.uk;
+  const owned = (ctx.ownedCars != null ? ctx.ownedCars : (state.owned.cars || []).length);
+  const jets = (ctx.ownedJets != null ? ctx.ownedJets : (state.owned.jets || []).length);
+  const trialsCount = state.stats?.trials || 0;
+  const flights = state.stats?.flights || 0, talks = state.stats?.talks || 0;
+  const lessonsTotal = ctx.lessonsTotal || 17; // the full curriculum (KENT + WHITMORE)
+  const lessonsPassed = Object.values(uk.lessons || {}).filter((l) => l?.passed).length;
+  const driver = careerRating();
+  const driving = Math.round((driver.score ?? 0) * 3);                          // 300
+  const licence = uk.licence === 'full' ? 120 : uk.licence === 'auto' ? 60 : 0; // 120
+  const lessons = Math.round((lessonsPassed / lessonsTotal) * 200);             // 200
+  const fleet = Math.min(100, owned * 20 + jets * 25);                           // 100
+  const trials = Math.min(100, trialsCount * 15 + Math.min(60, (state.best ? Object.keys(state.best).length : 0) * 20)); // 100
+  const streakPts = Math.min(120, (state.streak?.count || 0) * 12);
+  const outings = Math.min(60, (flights + talks) * 3 + Math.min(30, Math.floor((c.km || 0) / 20)));
+  const life = streakPts + outings;                                              // 180
+  const total = driving + licence + lessons + fleet + trials + life;             // 1000
+  const title = total >= 850 ? 'Living the dream' : total >= 700 ? 'Flying' : total >= 550 ? 'Confident' : total >= 400 ? 'On the road' : total >= 200 ? 'Learning' : 'Just starting';
+  const grade = total >= 850 ? 'A+' : total >= 750 ? 'A' : total >= 650 ? 'B' : total >= 550 ? 'C' : total >= 450 ? 'D' : 'F';
+  return {
+    total, grade, title,
+    parts: [
+      { k: 'Driving', v: driving, max: 300, hint: driver.score != null ? `${driver.score}/100 ${driver.grade}` : 'drive to be scored' },
+      { k: 'Licence', v: licence, max: 120, hint: uk.licence === 'full' ? 'Full' : uk.licence === 'auto' ? 'Automatic' : 'Provisional' },
+      { k: 'Lessons', v: lessons, max: 200, hint: `${lessonsPassed} of ${lessonsTotal} passed` },
+      { k: 'Fleet', v: fleet, max: 100, hint: `${owned} car${owned === 1 ? '' : 's'} · ${jets} jet${jets === 1 ? '' : 's'} bought` },
+      { k: 'Trials', v: trials, max: 100, hint: `${trialsCount} finished` },
+      { k: 'Life', v: life, max: 180, hint: `${state.streak?.count || 0}-day streak · ${flights} flight${flights === 1 ? '' : 's'} · ${talks} talk${talks === 1 ? '' : 's'}` },
+    ],
+  };
+}
+
 /** The driver rating: 0..100 and a letter. DVSA-flavoured but simple. */
 export function careerRating() {
   const c = state.career;

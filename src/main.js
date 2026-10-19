@@ -5,7 +5,7 @@ import { Car } from './vehicle.js';
 import { buildPlayer, buildJet } from './models.js';
 import { EngineAudio } from './audio.js';
 import { Hud } from './hud.js';
-import { state, save, recordDrive, careerRating } from './state.js';
+import { state, save, recordDrive, careerRating, lifeScore } from './state.js';
 import { JETS, CITIES, otherCities, fuelStop, flightTime, roadBetween, talkFee, LEARNER, CARS, RADIO_STATION } from './catalog.js';
 import { buildKent, setKentHooks } from './worlds/kent.js';
 import * as P from './progress.js';
@@ -655,8 +655,10 @@ function showDriveResult(r, title = 'Drive report') {
   $('res-medal').textContent = r.passed ? 'TEST PASSED' : (r.serious + r.dangerous > 0 ? 'TEST FAILED · SERIOUS FAULT' : 'TEST FAILED · TOO MANY FAULTS');
   $('res-medal').style.color = r.passed ? 'var(--green-soft)' : 'var(--red-soft)';
   $('res-time').textContent = `${r.minor}`;
+  const life = lifeScore({ ownedCars: state.owned.cars.length, ownedJets: state.owned.jets.length });
   const career = rating.score != null
-    ? `<div class="career">Driver rating <b>${rating.score}</b> · grade <b>${rating.grade}</b> · ${rating.passes} of ${rating.drives} drives passed · ${rating.km} km</div>`
+    ? `<div class="career">Driver rating <b>${rating.score}</b> · grade <b>${rating.grade}</b> · ${rating.passes} of ${rating.drives} drives passed · ${rating.km} km
+       <div class="life">Life Score <b>${life.total}</b> / 1000 · <b>${life.grade}</b> · ${life.title}</div></div>`
     : '';
   $('res-sub').innerHTML = `driving fault${r.minor === 1 ? '' : 's'} · ${r.serious} serious · ${r.dangerous} dangerous · ${(r.dist / 1000).toFixed(1)} km driven${career}`;
   $('res-retry').classList.add('hidden');
