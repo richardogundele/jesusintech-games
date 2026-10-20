@@ -81,8 +81,10 @@ export class KentTraffic {
    * userData.animate(speed, dt). onEvent(kind, car, e) is a test hook ('line' when a car's front
    * crosses an event line, 'spawn' / 'despawn').
    */
-  constructor({ net, scene, signals = null, maxCars = 45, maxPeds = 40, bodies = [], buildCar = null, buildPedestrian = null, rnd = Math.random, onEvent = null } = {}) {
+  constructor({ net, scene, signals = null, maxCars = 45, maxPeds = 40, bodies = [], buildCar = null, buildPedestrian = null, rnd = Math.random, onEvent = null, groundY = null, gradeAt = null } = {}) {
     this.net = net; this.scene = scene; this.signals = signals;
+    // on a region with hills the other traffic rides the slope too, or 45 cars hang in the air
+    this.groundY = groundY; this.gradeAt = gradeAt;
     this.maxCars = maxCars; this.maxPeds = maxPeds;
     this.bodies = bodies; this.buildCar = buildCar; this.buildPedestrian = buildPedestrian;
     this.rnd = rnd; this.onEvent = onEvent;
@@ -556,8 +558,13 @@ export class KentTraffic {
       const near = len(c.x - cam.x, c.z - cam.z) < HIDE;
       m.visible = near;
       if (!near) continue;
-      m.position.set(c.x, 0, c.z);
+      m.position.set(c.x, this.groundY ? this.groundY(c.x, c.z) : 0, c.z);
       m.rotation.y = c.heading;
+      if (this.gradeAt) {
+        // YXZ so pitch turns about the car's own (already yawed) axis: nose up on a climb
+        m.rotation.order = 'YXZ';
+        m.rotation.x = -Math.atan(this.gradeAt(c.x, c.z, c.heading));
+      }
       const { wheels, wheelR } = c.model;
       if (wheels) for (const w of wheels) w.spin.rotation.x += (w.spinSign ?? 1) * (c.v / (wheelR || 0.35)) * dt;
     }
@@ -566,7 +573,7 @@ export class KentTraffic {
       const near = len(p.x - cam.x, p.z - cam.z) < PED_HIDE;
       m.visible = near;
       if (!near) continue;
-      m.position.set(p.x, p.inRoad ? 0.02 : Y_PAVE, p.z);
+      m.position.set(p.x, (this.groundY ? this.groundY(p.x, p.z) : 0) + (p.inRoad ? 0.02 : Y_PAVE), p.z);
       m.rotation.y = p.heading;
       m.userData.animate?.(p.speed, dt);
     }

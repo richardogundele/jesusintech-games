@@ -57,11 +57,14 @@ export function buildRegion(renderer, { id, name, data, arena = false }) {
   };
   const mats = makeRoadMaterials({ pbr, decal, planting: (spots) => instanced('shrub_01', spots, { maxDist: 600 }) });
   const roads = makeRoadBuilder({ net, colliders, mats, groundY: terrain.has ? terrain.heightAt : null });
-  const signs = makeSignBuilder({ net, colliders });
+  const signs = makeSignBuilder({ net, colliders, groundY: terrain.has ? terrain.heightAt : null });
   tickers.push((t) => signs.tick(t)); // Belisha beacons blink
   const tiles = new TileManager({ net, scene, builders: [roads, scenery, signs], near: 1000, far: 2500, dropAt: 3200, budgetMs: 4 });
   const signals = new SignalSystem({ net, signsBuilder: signs });
-  const traffic = new KentTraffic({ net, scene, signals, bodies: TRAFFIC, buildCar, buildPedestrian });
+  const traffic = new KentTraffic({
+    net, scene, signals, bodies: TRAFFIC, buildCar, buildPedestrian,
+    groundY: terrain.has ? terrain.heightAt : null, gradeAt: terrain.has ? terrain.gradeAt : null,
+  });
 
   // the jet centre: the city's gateway, on the open land south of the real streets
   const bought = state.owned.jets.filter((jid) => !STARTER_JETS.includes(jid));

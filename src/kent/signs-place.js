@@ -102,7 +102,10 @@ const ASPECTS = { red: [1, 0, 0], amber: [0, 1, 0], green: [0, 0, 1], redamber: 
  * (signal group id, as net.lanePath events name it), node, kind, object, state, setState(state) }
  * with state 'red' | 'amber' | 'green' | 'redamber' | 'off'; they start green.
  */
-export function makeSignBuilder({ net, colliders = null } = {}) {
+export function makeSignBuilder({ net, colliders = null, groundY = null } = {}) {
+  // every post, sign face, bollard, beacon and signal head stands on the ground; on a flat world
+  // this is 0 and the maths below is unchanged
+  const gy = groundY || (() => 0);
   const view = netView(net);
   let plan = null;
   const heads = [];
@@ -770,7 +773,7 @@ function buildTile(tile, list, { clear, colliders, heads }) {
   const byType = {};
   let dropped = 0;
   const q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0), one = new THREE.Vector3(1, 1, 1);
-  const mat = (x, y, z, yaw) => new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), q.setFromAxisAngle(up, yaw), one);
+  const mat = (x, y, z, yaw) => new THREE.Matrix4().compose(new THREE.Vector3(x, y + gy(x, z), z), q.setFromAxisAngle(up, yaw), one);
   const addFace = (F, x, y, z, yaw) => {
     // signFace's front is the ShapeGeometry turned half round; its back sits 3 mm behind with the same turn
     const fx = x - 0.04 * Math.sin(yaw), fz = z - 0.04 * Math.cos(yaw);
@@ -849,10 +852,10 @@ function buildTile(tile, list, { clear, colliders, heads }) {
     m.userData.ownGeometry = true;
   }
   for (const c of headList) posts.push([c.x, c.z, 2.5, 0.11]); // signal poles share the post mesh
-  inst(S.post, S.postMat, posts.map(([x, z, h, d]) => new THREE.Matrix4().compose(new THREE.Vector3(x, 0, z), q.identity(), new THREE.Vector3(d, h, d))));
+  inst(S.post, S.postMat, posts.map(([x, z, h, d]) => new THREE.Matrix4().compose(new THREE.Vector3(x, gy(x, z), z), q.identity(), new THREE.Vector3(d, h, d))));
   inst(S.bollard, S.bollardMat, bollards.map((c) => mat(c.x, 0, c.z, c.yaw)));
   inst(S.bollardBand, S.bandMat, bollards.map((c) => mat(c.x, 0, c.z, c.yaw)));
-  inst(S.pole, S.poleMat, beacons.map((c) => new THREE.Matrix4().compose(new THREE.Vector3(c.x, 0, c.z), q.identity(), new THREE.Vector3(0.12, 2.6, 0.12))));
+  inst(S.pole, S.poleMat, beacons.map((c) => new THREE.Matrix4().compose(new THREE.Vector3(c.x, gy(c.x, c.z), c.z), q.identity(), new THREE.Vector3(0.12, 2.6, 0.12))));
   inst(S.globe, S.globeMat, beacons.map((c) => mat(c.x, 2.8, c.z, 0)), false);
 
   // ---- signal heads: pole, housing, and every lamp of the tile in one instanced mesh ----
@@ -874,10 +877,10 @@ function buildTile(tile, list, { clear, colliders, heads }) {
     };
     headList.forEach((c, k) => {
       const object = new THREE.Object3D();
-      object.position.set(c.x, 3.0, c.z); object.rotation.y = c.yaw;
+      object.position.set(c.x, 3.0 + gy(c.x, c.z), c.z); object.rotation.y = c.yaw;
       group.add(object);
       const h = {
-        x: c.x, z: c.z, y: 3.0, heading: c.yaw, group: c.group, node: c.node, kind: c.hkind, object, state: 'green',
+        x: c.x, z: c.z, y: 3.0 + gy(c.x, c.z), heading: c.yaw, group: c.group, node: c.node, kind: c.hkind, object, state: 'green',
         setState(state) { if (!ASPECTS[state] || state === h.state) return; h.state = state; setColours(k, state); },
       };
       setColours(k, 'green');
