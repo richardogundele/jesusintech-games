@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { facadeMaterial, waterMaterial } from '../materials.js';
+import { drapeGeometry } from '../worlds/terrain.js';
 import { PAVE_W, KERB_W } from './markings.js';
 
 // Kent scenery: everything in a tile that is not road, sign or traffic. Buildings from OSM
@@ -496,8 +497,11 @@ const FIELD = {
  * `builder.statics` yourself), `fieldY` (fields sit this far above the ground plane), `lampModel`
  * (a MODEL_NAMES entry to instance instead of the cheap procedural lamp).
  */
-export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene = null, fieldY = 0.004, lampModel = null, ground = false } = {}) {
+export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene = null, fieldY = 0.004, lampModel = null, ground = false, groundY = null } = {}) {
   const data = net?.data || {};
+  // ground-hugging sheets (landuse fields, railway ballast) are laid onto the hill like the roads;
+  // they are big flat polygons, so unlike the 6 m road ribbons they must be split first
+  const drapeGeo = (geo, maxEdge = 8) => (groundY ? drapeGeometry(geo, groundY, maxEdge) : geo);
   const WAYS = net?.ways instanceof Map ? [...net.ways.values()] : data.ways || [];
   const NODES = data.nodes || {};
   const bounds = data.bounds || { minX: -3200, maxX: 8000, minZ: -7300, maxZ: 6600 };
@@ -1027,6 +1031,17 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
   // ---- building pieces ----
   function buildBuildings(list, tile, lod, rng, M, out, cs) {
     const near = lod === 'near';
+    // On a hill a building is planted whole, never draped: per-vertex would shear its roof by a
+    // couple of metres across a 1-in-6 street. Its base is the LOWEST of its footprint corners, so
+    // no corner is ever left hanging in the air (the high side just sits a little into the slope).
+    const baseY = !groundY ? () => 0 : (b) => {
+      const o = b.obb, c = Math.cos(o.yaw), s = Math.sin(o.yaw), hw = o.w / 2, hd = o.d / 2;
+      let lo = Infinity;
+      for (const [ox, oz] of [[-hw, -hd], [hw, -hd], [hw, hd], [-hw, hd]]) {
+        lo = Math.min(lo, groundY(o.cx + ox * c + oz * s, o.cz - ox * s + oz * c));
+      }
+      return lo;
+    };
     const boxesBrick = [], boxesPlain = [], gables = [], chimneys = [], hedges = [];
     const walls = new GB({ uv: true, color: true });
     const roofs = new GB({ uv: false, color: true });
@@ -1035,46 +1050,47 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
     const counts = {};
     for (const b of list) {
       if (b.skip) continue;
+      const gy = baseY(b);
       if (b.proc) {
         counts.proc = (counts.proc || 0) + 1;
         // far tiles: the box only; near: roof, front, garden edge and drive go through the usual paths below
-        if (!near) { boxesBrick.push({ x: b.obb.cx, z: b.obb.cz, w: b.obb.w, d: b.obb.d, h: b.h, yaw: b.obb.yaw, col: b.col }); continue; }
+        if (!near) { boxesBrick.push({ x: b.obb.cx, y: gy, z: b.obb.cz, w: b.obb.w, d: b.obb.d, h: b.h, yaw: b.obb.yaw, col: b.col }); continue; }
         for (const e of b.extras) {
-          if (e.type === 'hedge') hedges.push({ x: e.x, z: e.z, len: e.w, h: e.h, wd: e.d, yaw: e.yaw + Math.PI / 2, t: hash2(e.x, e.z) });
-          else (e.type === 'wall' ? boxesBrick : boxesPlain).push({ x: e.x, z: e.z, w: e.w, d: e.d, h: e.h, yaw: e.yaw, col: e.col });
+          if (e.type === 'hedge') hedges.push({ x: e.x, y: gy, z: e.z, len: e.w, h: e.h, wd: e.d, yaw: e.yaw + Math.PI / 2, t: hash2(e.x, e.z) });
+          else (e.type === 'wall' ? boxesBrick : boxesPlain).push({ x: e.x, y: gy, z: e.z, w: e.w, d: e.d, h: e.h, yaw: e.yaw, col: e.col });
           if (e.type !== 'drive') cs.add(e.x, e.z, e.w, e.d, e.yaw);
         }
       } else counts[b.kind] = (counts[b.kind] || 0) + 1;
       const roofH = clamp(Math.min(b.obb.w, b.obb.d) * 0.45, 2.2, b.kind === 'church' ? 5 : 3.5);
       if (b.rect) {
         const o = b.obb;
-        (b.kind === 'flats' || b.kind === 'industrial' || (b.kind === 'other' && !b.pitched) ? boxesPlain : boxesBrick).push({ x: o.cx, z: o.cz, w: o.w, d: o.d, h: b.h, yaw: o.yaw, col: b.col });
+        (b.kind === 'flats' || b.kind === 'industrial' || (b.kind === 'other' && !b.pitched) ? boxesPlain : boxesBrick).push({ x: o.cx, y: gy, z: o.cz, w: o.w, d: o.d, h: b.h, yaw: o.yaw, col: b.col });
         if (b.pitched) {
           // ridge along the long side
           const long = o.w >= o.d;
-          gables.push({ x: o.cx, z: o.cz, y: b.h, w: (long ? o.d : o.w) + 0.5, d: (long ? o.w : o.d) + 0.4, h: roofH, yaw: o.yaw + (long ? Math.PI / 2 : 0), col: b.roofCol });
+          gables.push({ x: o.cx, z: o.cz, y: gy + b.h, w: (long ? o.d : o.w) + 0.5, d: (long ? o.w : o.d) + 0.4, h: roofH, yaw: o.yaw + (long ? Math.PI / 2 : 0), col: b.roofCol });
           if (near && b.kind !== 'church' && rng() < 0.6) {
             const L = (long ? o.w : o.d) / 2 - 0.8, c = Math.cos(o.yaw), s = Math.sin(o.yaw);
             const lx = long ? L * (rng() < 0.5 ? 1 : -1) : 0.4, lz = long ? 0.4 : L * (rng() < 0.5 ? 1 : -1);
-            chimneys.push({ x: o.cx + lx * c + lz * s, z: o.cz - lx * s + lz * c, y: b.h + roofH * 0.7, yaw: o.yaw });
+            chimneys.push({ x: o.cx + lx * c + lz * s, z: o.cz - lx * s + lz * c, y: gy + b.h + roofH * 0.7, yaw: o.yaw });
           }
           if (b.kind === 'church' && b.area > 150) {
             // a square tower at one end, twice the nave height
             const c = Math.cos(o.yaw), s = Math.sin(o.yaw), L = (long ? o.w : o.d) / 2 - 3;
             const lx = long ? -L : 0, lz = long ? 0 : -L;
-            boxesBrick.push({ x: o.cx + lx * c + lz * s, z: o.cz - lx * s + lz * c, w: 6, d: 6, h: b.h * 2.4, yaw: o.yaw, col: b.col });
+            boxesBrick.push({ x: o.cx + lx * c + lz * s, y: gy, z: o.cz - lx * s + lz * c, w: 6, d: 6, h: b.h * 2.4, yaw: o.yaw, col: b.col });
           }
         }
         if (near) cs.add(o.cx, o.cz, o.w, o.d, o.yaw);
       } else {
         col.set(b.col);
-        walls.walls(b.poly, 0, b.h, col);
-        if (b.pitched) roofs.hip(b.poly, b.h, roofH, clamp(Math.min(b.obb.w, b.obb.d) * 0.4, 1.2, 4), col.set(b.roofCol));
-        else walls.cap(b.poly, b.h, col);
+        walls.walls(b.poly, gy, gy + b.h, col);
+        if (b.pitched) roofs.hip(b.poly, gy + b.h, roofH, clamp(Math.min(b.obb.w, b.obb.d) * 0.4, 1.2, 4), col.set(b.roofCol));
+        else walls.cap(b.poly, gy + b.h, col);
         // the box round an L-shaped or rambling footprint can reach over a road: no invisible wall there
         if (near && !obbOnRoad(b.obb)) cs.add(b.obb.cx, b.obb.cz, b.obb.w, b.obb.d, b.obb.yaw);
       }
-      if (near && !b.sign && (b.kind === 'house' || b.kind === 'terrace' || b.kind === 'shop') && b.h <= 12) addFront(b, fronts, rng);
+      if (near && !b.sign && (b.kind === 'house' || b.kind === 'terrace' || b.kind === 'shop') && b.h <= 12) addFront(b, fronts, rng, gy);
       if (near && b.sign && hasDOM) addSign(b, out, M);
     }
     const inst = (items, geo, mat, { color = true, cast = true } = {}) => {
@@ -1106,7 +1122,7 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
     return { counts, hedges };
   }
   /** a canvas front on the face that looks at the nearest road */
-  function addFront(b, fronts, rng) {
+  function addFront(b, fronts, rng, gy = 0) {
     let face = b.front || null; // procedural houses know which face looks at their street
     const hit = face ? null : nearestRoad(b.cx, b.cz, 60);
     if (!face && !hit) return;
@@ -1144,7 +1160,7 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
       const cx = face.cx + ux * off + face.nx * 0.03, cz = face.cz + uz * off + face.nz * 0.03;
       const hw = unitW / 2;
       // seen from the road the texture must read left to right: left end is at -u
-      const a = [cx - ux * hw, 0, cz - uz * hw], bb = [cx + ux * hw, 0, cz + uz * hw], c = [cx + ux * hw, hgt, cz + uz * hw], d = [cx - ux * hw, hgt, cz - uz * hw];
+      const a = [cx - ux * hw, gy, cz - uz * hw], bb = [cx + ux * hw, gy, cz + uz * hw], c = [cx + ux * hw, gy + hgt, cz + uz * hw], d = [cx - ux * hw, gy + hgt, cz - uz * hw];
       fronts.quad(a, bb, c, d, white, [[u0, v0], [u0 + du, v0], [u0 + du, v0 + dv], [u0, v0 + dv]]);
     }
   }
@@ -1184,7 +1200,7 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
       n++;
     });
     if (!g.tris) return 0;
-    const m = new THREE.Mesh(g.build(), M.field);
+    const m = new THREE.Mesh(drapeGeo(g.build()), M.field);
     m.receiveShadow = true;
     m.geometry.userData.owned = true;
     out.add(m);
@@ -1207,7 +1223,7 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
       return false;
     };
     const inside = (x, z) => x >= tile.x0 && x < tile.x1 && z >= tile.z0 && z < tile.z1;
-    const add = (x, z, s) => { if (spots.length < cap && !excluded(x, z)) spots.push({ x, z, s, r: rng() * 6.28 }); };
+    const add = (x, z, s) => { if (spots.length < cap && !excluded(x, z)) spots.push({ x, y: groundY ? groundY(x, z) : 0, z, s, r: rng() * 6.28 }); };
     // woods: a jittered grid, both lods
     const sp = near ? 9 : 14;
     for (const lu of lus) {
@@ -1265,7 +1281,7 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
       spots.forEach((p, i) => {
         q.setFromAxisAngle(up, p.r);
         sc.setScalar(p.s);
-        m.compose(new THREE.Vector3(p.x, 0, p.z), q, sc);
+        m.compose(new THREE.Vector3(p.x, p.y || 0, p.z), q, sc);
         im.setMatrixAt(i, m);
         im.setColorAt(i, c.setHSL(0.27 + (rng() - 0.5) * 0.06, 0.1 + rng() * 0.1, 0.5 + (rng() - 0.5) * 0.16).multiplyScalar(1.9));
       });
@@ -1377,7 +1393,7 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
         sleeperSpots.push({ x, z, yaw: Math.atan2(b[0] - a[0], b[1] - a[1]) }); // local z along the track, the 2.5 m side across it
       }
     }
-    if (g.tris) { const m = new THREE.Mesh(g.build(), M.rail); m.receiveShadow = true; m.geometry.userData.owned = true; out.add(m); }
+    if (g.tris) { const m = new THREE.Mesh(drapeGeo(g.build()), M.rail); m.receiveShadow = true; m.geometry.userData.owned = true; out.add(m); }
     if (sleeperSpots.length) {
       const im = new THREE.InstancedMesh(M.geoSleeper, M.sleeper, sleeperSpots.length);
       const o = new THREE.Object3D();
@@ -1429,9 +1445,12 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
       const roadYaw = hit ? Math.atan2(hit.dir[0], hit.dir[1]) : 0;
       const toRoad = hit ? [hit.px - lm.x, hit.pz - lm.z] : [0, 1];
       if (lm.type === 'testCentre') {
-        // brick box with its long side along the road, the sign facing it, bays in front
-        g.box(lm.x, 0, lm.z, 26, 4.2, 12, roadYaw + Math.PI / 2, brick);
-        g.box(lm.x, 4.2, lm.z, 26.6, 0.3, 12.6, roadYaw + Math.PI / 2, dark);
+        // brick box with its long side along the road, the sign facing it, bays in front.
+        // The whole site (building, car park, bay lines) is planted at the ground height of its
+        // centre: it is the first thing you see in every city, so it must not float or sink.
+        const ly = groundY ? groundY(lm.x, lm.z) : 0;
+        g.box(lm.x, ly, lm.z, 26, 4.2, 12, roadYaw + Math.PI / 2, brick);
+        g.box(lm.x, ly + 4.2, lm.z, 26.6, 0.3, 12.6, roadYaw + Math.PI / 2, dark);
         cs.add(lm.x, lm.z, 26, 12, roadYaw + Math.PI / 2);
         const c = Math.cos(roadYaw + Math.PI / 2), s = Math.sin(roadYaw + Math.PI / 2);
         // which of the two long faces looks at the road
@@ -1449,10 +1468,10 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
         if (hit && hit.dist > 30) {
           // a small car park between the building and the road, 12 bays facing the building
           const lx = lm.x + nz[0] * sgn * 17.5, lz = lm.z + nz[1] * sgn * 17.5;
-          g.box(lx, 0.01, lz, 40, 0.006, 20, roadYaw + Math.PI / 2, new THREE.Color(0x55575a));
+          g.box(lx, ly + 0.01, lz, 40, 0.006, 20, roadYaw + Math.PI / 2, new THREE.Color(0x55575a));
           for (let i = 0; i < 12; i++) {
             const o = -14.3 + i * 2.6;
-            g.box(lx + c * o - nz[0] * sgn * 4, 0.02, lz - s * o - nz[1] * sgn * 4, 0.1, 0.01, 5, roadYaw + Math.PI / 2, white);
+            g.box(lx + c * o - nz[0] * sgn * 4, ly + 0.02, lz - s * o - nz[1] * sgn * 4, 0.1, 0.01, 5, roadYaw + Math.PI / 2, white);
           }
         }
       } else if (lm.type === 'cathedral') {
@@ -1523,28 +1542,30 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
         const fascia = new THREE.Color(bg);
         const yaw = roadYaw, c = Math.cos(yaw), s = Math.sin(yaw);
         const P = (lx, lz) => [lm.x + lx * c + lz * s, lm.z - lx * s + lz * c];
-        for (const [lx, lz] of [[-6, -3.5], [6, -3.5], [-6, 3.5], [6, 3.5]]) { const [x, z] = P(lx, lz); g.box(x, 0, z, 0.5, 4.6, 0.5, yaw, white); cs.add(x, z, 0.6, 0.6, yaw); }
-        g.box(lm.x, 4.6, lm.z, 17, 0.5, 10, yaw, white);
-        g.box(lm.x, 4.5, lm.z, 17.4, 0.7, 10.4, yaw, fascia, { top: false });
+        const fy = groundY ? groundY(lm.x, lm.z) : 0; // the forecourt is one flat slab on the hill
+        for (const [lx, lz] of [[-6, -3.5], [6, -3.5], [-6, 3.5], [6, 3.5]]) { const [x, z] = P(lx, lz); g.box(x, fy, z, 0.5, 4.6, 0.5, yaw, white); cs.add(x, z, 0.6, 0.6, yaw); }
+        g.box(lm.x, fy + 4.6, lm.z, 17, 0.5, 10, yaw, white);
+        g.box(lm.x, fy + 4.5, lm.z, 17.4, 0.7, 10.4, yaw, fascia, { top: false });
         for (const lz of [-2.2, 2.2]) {
           const [x, z] = P(0, lz);
-          g.box(x, 0, z, 9, 0.15, 1.4, yaw, new THREE.Color(0xd5d2cb));
-          for (const lx of [-2.5, 2.5]) { const [px, pz] = P(lx, lz); g.box(px, 0.15, pz, 0.9, 1.6, 0.6, yaw, new THREE.Color(0xe8e8e4)); cs.add(px, pz, 1.0, 0.8, yaw); }
+          g.box(x, fy, z, 9, 0.15, 1.4, yaw, new THREE.Color(0xd5d2cb));
+          for (const lx of [-2.5, 2.5]) { const [px, pz] = P(lx, lz); g.box(px, fy + 0.15, pz, 0.9, 1.6, 0.6, yaw, new THREE.Color(0xe8e8e4)); cs.add(px, pz, 1.0, 0.8, yaw); }
         }
         const [kx, kz] = P(0, -12);
-        g.box(kx, 0, kz, 11, 3.6, 7, yaw, new THREE.Color(0xd8d3c8));
-        g.box(kx, 3.6, kz, 11.4, 0.4, 7.4, yaw, fascia);
+        g.box(kx, fy, kz, 11, 3.6, 7, yaw, new THREE.Color(0xd8d3c8));
+        g.box(kx, fy + 3.6, kz, 11.4, 0.4, 7.4, yaw, fascia);
         cs.add(kx, kz, 11, 7, yaw);
       } else if (lm.type === 'supermarket') {
         const yaw = roadYaw;
-        g.box(lm.x, 0, lm.z, 44, 7, 30, yaw, new THREE.Color(0xd0c8b8));
+        const sy = groundY ? groundY(lm.x, lm.z) : 0;
+        g.box(lm.x, sy, lm.z, 44, 7, 30, yaw, new THREE.Color(0xd0c8b8));
         cs.add(lm.x, lm.z, 44, 30, yaw);
         if (near && hasDOM) {
           const { bg, ink } = brandColours(lm.name);
           const tex = fasciaTex(lm.name, bg, ink);
           const m = new THREE.Mesh(new THREE.PlaneGeometry(20, 3.75), new THREE.MeshStandardMaterial({ map: tex, roughness: 0.6 }));
           const nx = Math.sin(yaw) * (toRoad[0] * Math.sin(yaw) + toRoad[1] * Math.cos(yaw) >= 0 ? 1 : -1), nz = Math.cos(yaw) * (toRoad[0] * Math.sin(yaw) + toRoad[1] * Math.cos(yaw) >= 0 ? 1 : -1);
-          m.position.set(lm.x + nx * 15.1, 4.6, lm.z + nz * 15.1);
+          m.position.set(lm.x + nx * 15.1, sy + 4.6, lm.z + nz * 15.1);
           m.rotation.y = Math.atan2(nx, nz);
           m.geometry.userData.owned = true; m.material.userData.owned = true;
           out.add(m);

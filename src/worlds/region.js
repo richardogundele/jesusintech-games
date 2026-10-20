@@ -21,29 +21,7 @@ import { buildAirfield } from '../kent/airfield.js';
 import { SignalSystem } from '../kent/signals.js';
 import { KentTraffic } from '../kent/traffic.js';
 import { testCentreLayout } from '../kent/lesson-routes.js';
-
-/** heightAt/gradeAt from the baked EU-DEM 25 m grid (region.json terrain). Returns 0 outside the
- *  fetched streets square so the jet centre, which sits past it, stays flat. */
-function makeTerrain(data) {
-  const T = data.terrain;
-  if (!T) return { heightAt: () => 0, gradeAt: () => 0, range: 0 };
-  const { x0, z0, step, nx, nz, heights } = T;
-  const x1 = x0 + (nx - 1) * step, z1 = z0 + (nz - 1) * step;
-  const heightAt = (x, z) => {
-    if (x < x0 || x > x1 || z < z0 || z > z1) return 0;
-    const fx = (x - x0) / step, fz = (z - z0) / step;
-    const i = Math.max(0, Math.min(nx - 2, Math.floor(fx))), j = Math.max(0, Math.min(nz - 2, Math.floor(fz)));
-    const u = Math.max(0, Math.min(1, fx - i)), v = Math.max(0, Math.min(1, fz - j));
-    const h00 = heights[j * nx + i], h10 = heights[j * nx + (i + 1)], h01 = heights[(j + 1) * nx + i], h11 = heights[(j + 1) * nx + (i + 1)];
-    return (1 - u) * (1 - v) * h00 + u * (1 - v) * h10 + (1 - u) * v * h01 + u * v * h11;
-  };
-  /** rise per metre along `heading` — gravity along the road */
-  const gradeAt = (x, z, heading) => {
-    const dx = Math.sin(heading), dz = Math.cos(heading);
-    return (heightAt(x + dx, z + dz) - heightAt(x - dx, z - dz)) / 2;
-  };
-  return { heightAt, gradeAt, range: T.max - T.min };
-}
+import { makeTerrain } from './terrain.js';
 
 /** buildRegion(renderer, { id, name, data, arena }) — data is the baked region.json */
 export function buildRegion(renderer, { id, name, data, arena = false }) {
@@ -59,9 +37,14 @@ export function buildRegion(renderer, { id, name, data, arena = false }) {
   const tickers = [];
   const interactions = [];
 
-  // ground: the land plate; fields and parks sit just above it
-  const scenery = makeSceneryBuilder({ net, tickers, colliders, scene });
-  const land = new THREE.Mesh(scenery.landGeometry(-0.05), pbr('leafy_grass', { repeat: [1, 1], color: 0x6f9450 }));
+  // ground: on a region with hills this is the terrain grid's own triangles, built from the same
+  // planar interpolation heightAt uses, so the grass can never poke through the tarmac (the road
+  // surface sits only 2 cm up). Flat regions keep the old single plate.
+  const scenery = makeSceneryBuilder({ net, tickers, colliders, scene, groundY: terrain.has ? terrain.heightAt : null });
+  const land = new THREE.Mesh(
+    terrain.has ? terrain.landGeometry(0.12) : scenery.landGeometry(-0.05),
+    pbr('leafy_grass', { repeat: [1, 1], color: 0x6f9450 }),
+  );
   land.receiveShadow = true;
   scene.add(land);
 
@@ -73,12 +56,15 @@ export function buildRegion(renderer, { id, name, data, arena = false }) {
     return decals.get(key);
   };
   const mats = makeRoadMaterials({ pbr, decal, planting: (spots) => instanced('shrub_01', spots, { maxDist: 600 }) });
-  const roads = makeRoadBuilder({ net, colliders, mats });
-  const signs = makeSignBuilder({ net, colliders });
+  const roads = makeRoadBuilder({ net, colliders, mats, groundY: terrain.has ? terrain.heightAt : null });
+  const signs = makeSignBuilder({ net, colliders, groundY: terrain.has ? terrain.heightAt : null });
   tickers.push((t) => signs.tick(t)); // Belisha beacons blink
   const tiles = new TileManager({ net, scene, builders: [roads, scenery, signs], near: 1000, far: 2500, dropAt: 3200, budgetMs: 4 });
   const signals = new SignalSystem({ net, signsBuilder: signs });
-  const traffic = new KentTraffic({ net, scene, signals, bodies: TRAFFIC, buildCar, buildPedestrian });
+  const traffic = new KentTraffic({
+    net, scene, signals, bodies: TRAFFIC, buildCar, buildPedestrian,
+    groundY: terrain.has ? terrain.heightAt : null, gradeAt: terrain.has ? terrain.gradeAt : null,
+  });
 
   // the jet centre: the city's gateway, on the open land south of the real streets
   const bought = state.owned.jets.filter((jid) => !STARTER_JETS.includes(jid));
@@ -160,11 +146,10 @@ export function buildRegion(renderer, { id, name, data, arena = false }) {
     nslAt: (x, z) => net.nslAt(x, z),
     signalHeads: () => signals.heads, // live heads for the free-drive examiner
     laneAt: null,
-    // The baked EU-DEM hills are PAUSED (2026-10-20). They moved the car and the player onto the
-    // terrain while the roads, buildings and scenery stayed drawn at y=0, so you floated — 40 m up
-    // on a rooftop a mile from the test centre. The grid is still baked in region.json and `terrain`
-    // below still reads it; re-expose these three the moment the world is draped onto it
-    // (roads/scenery/signs tessellated and displaced, land rebuilt as a grid, traffic put on the slope).
+    // The real hills. The road surfaces are draped onto this same grid (makeRoadBuilder's groundY)
+    // and the land is built from its own triangles, so the car, the tarmac and the grass agree.
+    heightAt: terrain.heightAt, gradeAt: terrain.gradeAt,
+    floorY: (x, z) => terrain.heightAt(x, z),
     terrain,
     terrainRange: terrain.range,
     player,
