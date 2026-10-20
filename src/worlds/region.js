@@ -160,9 +160,12 @@ export function buildRegion(renderer, { id, name, data, arena = false }) {
     nslAt: (x, z) => net.nslAt(x, z),
     signalHeads: () => signals.heads, // live heads for the free-drive examiner
     laneAt: null,
-    // real hills from the baked EU-DEM grid: the vehicle feels gravity on sloped roads
-    heightAt: terrain.heightAt, gradeAt: terrain.gradeAt,
-    floorY: (x, z) => terrain.heightAt(x, z),
+    // The baked EU-DEM hills are PAUSED (2026-10-20). They moved the car and the player onto the
+    // terrain while the roads, buildings and scenery stayed drawn at y=0, so you floated — 40 m up
+    // on a rooftop a mile from the test centre. The grid is still baked in region.json and `terrain`
+    // below still reads it; re-expose these three the moment the world is draped onto it
+    // (roads/scenery/signs tessellated and displaced, land rebuilt as a grid, traffic put on the slope).
+    terrain,
     terrainRange: terrain.range,
     player,
   };
