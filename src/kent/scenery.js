@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { facadeMaterial, waterMaterial } from '../materials.js';
+import { drapeGeometry } from '../worlds/terrain.js';
 import { PAVE_W, KERB_W } from './markings.js';
 
 // Kent scenery: everything in a tile that is not road, sign or traffic. Buildings from OSM
@@ -498,6 +499,9 @@ const FIELD = {
  */
 export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene = null, fieldY = 0.004, lampModel = null, ground = false, groundY = null } = {}) {
   const data = net?.data || {};
+  // ground-hugging sheets (landuse fields, railway ballast) are laid onto the hill like the roads;
+  // they are big flat polygons, so unlike the 6 m road ribbons they must be split first
+  const drapeGeo = (geo, maxEdge = 8) => (groundY ? drapeGeometry(geo, groundY, maxEdge) : geo);
   const WAYS = net?.ways instanceof Map ? [...net.ways.values()] : data.ways || [];
   const NODES = data.nodes || {};
   const bounds = data.bounds || { minX: -3200, maxX: 8000, minZ: -7300, maxZ: 6600 };
@@ -1196,7 +1200,7 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
       n++;
     });
     if (!g.tris) return 0;
-    const m = new THREE.Mesh(g.build(), M.field);
+    const m = new THREE.Mesh(drapeGeo(g.build()), M.field);
     m.receiveShadow = true;
     m.geometry.userData.owned = true;
     out.add(m);
@@ -1389,7 +1393,7 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
         sleeperSpots.push({ x, z, yaw: Math.atan2(b[0] - a[0], b[1] - a[1]) }); // local z along the track, the 2.5 m side across it
       }
     }
-    if (g.tris) { const m = new THREE.Mesh(g.build(), M.rail); m.receiveShadow = true; m.geometry.userData.owned = true; out.add(m); }
+    if (g.tris) { const m = new THREE.Mesh(drapeGeo(g.build()), M.rail); m.receiveShadow = true; m.geometry.userData.owned = true; out.add(m); }
     if (sleeperSpots.length) {
       const im = new THREE.InstancedMesh(M.geoSleeper, M.sleeper, sleeperSpots.length);
       const o = new THREE.Object3D();
@@ -1441,9 +1445,12 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
       const roadYaw = hit ? Math.atan2(hit.dir[0], hit.dir[1]) : 0;
       const toRoad = hit ? [hit.px - lm.x, hit.pz - lm.z] : [0, 1];
       if (lm.type === 'testCentre') {
-        // brick box with its long side along the road, the sign facing it, bays in front
-        g.box(lm.x, 0, lm.z, 26, 4.2, 12, roadYaw + Math.PI / 2, brick);
-        g.box(lm.x, 4.2, lm.z, 26.6, 0.3, 12.6, roadYaw + Math.PI / 2, dark);
+        // brick box with its long side along the road, the sign facing it, bays in front.
+        // The whole site (building, car park, bay lines) is planted at the ground height of its
+        // centre: it is the first thing you see in every city, so it must not float or sink.
+        const ly = groundY ? groundY(lm.x, lm.z) : 0;
+        g.box(lm.x, ly, lm.z, 26, 4.2, 12, roadYaw + Math.PI / 2, brick);
+        g.box(lm.x, ly + 4.2, lm.z, 26.6, 0.3, 12.6, roadYaw + Math.PI / 2, dark);
         cs.add(lm.x, lm.z, 26, 12, roadYaw + Math.PI / 2);
         const c = Math.cos(roadYaw + Math.PI / 2), s = Math.sin(roadYaw + Math.PI / 2);
         // which of the two long faces looks at the road
@@ -1461,10 +1468,10 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
         if (hit && hit.dist > 30) {
           // a small car park between the building and the road, 12 bays facing the building
           const lx = lm.x + nz[0] * sgn * 17.5, lz = lm.z + nz[1] * sgn * 17.5;
-          g.box(lx, 0.01, lz, 40, 0.006, 20, roadYaw + Math.PI / 2, new THREE.Color(0x55575a));
+          g.box(lx, ly + 0.01, lz, 40, 0.006, 20, roadYaw + Math.PI / 2, new THREE.Color(0x55575a));
           for (let i = 0; i < 12; i++) {
             const o = -14.3 + i * 2.6;
-            g.box(lx + c * o - nz[0] * sgn * 4, 0.02, lz - s * o - nz[1] * sgn * 4, 0.1, 0.01, 5, roadYaw + Math.PI / 2, white);
+            g.box(lx + c * o - nz[0] * sgn * 4, ly + 0.02, lz - s * o - nz[1] * sgn * 4, 0.1, 0.01, 5, roadYaw + Math.PI / 2, white);
           }
         }
       } else if (lm.type === 'cathedral') {
@@ -1535,28 +1542,30 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
         const fascia = new THREE.Color(bg);
         const yaw = roadYaw, c = Math.cos(yaw), s = Math.sin(yaw);
         const P = (lx, lz) => [lm.x + lx * c + lz * s, lm.z - lx * s + lz * c];
-        for (const [lx, lz] of [[-6, -3.5], [6, -3.5], [-6, 3.5], [6, 3.5]]) { const [x, z] = P(lx, lz); g.box(x, 0, z, 0.5, 4.6, 0.5, yaw, white); cs.add(x, z, 0.6, 0.6, yaw); }
-        g.box(lm.x, 4.6, lm.z, 17, 0.5, 10, yaw, white);
-        g.box(lm.x, 4.5, lm.z, 17.4, 0.7, 10.4, yaw, fascia, { top: false });
+        const fy = groundY ? groundY(lm.x, lm.z) : 0; // the forecourt is one flat slab on the hill
+        for (const [lx, lz] of [[-6, -3.5], [6, -3.5], [-6, 3.5], [6, 3.5]]) { const [x, z] = P(lx, lz); g.box(x, fy, z, 0.5, 4.6, 0.5, yaw, white); cs.add(x, z, 0.6, 0.6, yaw); }
+        g.box(lm.x, fy + 4.6, lm.z, 17, 0.5, 10, yaw, white);
+        g.box(lm.x, fy + 4.5, lm.z, 17.4, 0.7, 10.4, yaw, fascia, { top: false });
         for (const lz of [-2.2, 2.2]) {
           const [x, z] = P(0, lz);
-          g.box(x, 0, z, 9, 0.15, 1.4, yaw, new THREE.Color(0xd5d2cb));
-          for (const lx of [-2.5, 2.5]) { const [px, pz] = P(lx, lz); g.box(px, 0.15, pz, 0.9, 1.6, 0.6, yaw, new THREE.Color(0xe8e8e4)); cs.add(px, pz, 1.0, 0.8, yaw); }
+          g.box(x, fy, z, 9, 0.15, 1.4, yaw, new THREE.Color(0xd5d2cb));
+          for (const lx of [-2.5, 2.5]) { const [px, pz] = P(lx, lz); g.box(px, fy + 0.15, pz, 0.9, 1.6, 0.6, yaw, new THREE.Color(0xe8e8e4)); cs.add(px, pz, 1.0, 0.8, yaw); }
         }
         const [kx, kz] = P(0, -12);
-        g.box(kx, 0, kz, 11, 3.6, 7, yaw, new THREE.Color(0xd8d3c8));
-        g.box(kx, 3.6, kz, 11.4, 0.4, 7.4, yaw, fascia);
+        g.box(kx, fy, kz, 11, 3.6, 7, yaw, new THREE.Color(0xd8d3c8));
+        g.box(kx, fy + 3.6, kz, 11.4, 0.4, 7.4, yaw, fascia);
         cs.add(kx, kz, 11, 7, yaw);
       } else if (lm.type === 'supermarket') {
         const yaw = roadYaw;
-        g.box(lm.x, 0, lm.z, 44, 7, 30, yaw, new THREE.Color(0xd0c8b8));
+        const sy = groundY ? groundY(lm.x, lm.z) : 0;
+        g.box(lm.x, sy, lm.z, 44, 7, 30, yaw, new THREE.Color(0xd0c8b8));
         cs.add(lm.x, lm.z, 44, 30, yaw);
         if (near && hasDOM) {
           const { bg, ink } = brandColours(lm.name);
           const tex = fasciaTex(lm.name, bg, ink);
           const m = new THREE.Mesh(new THREE.PlaneGeometry(20, 3.75), new THREE.MeshStandardMaterial({ map: tex, roughness: 0.6 }));
           const nx = Math.sin(yaw) * (toRoad[0] * Math.sin(yaw) + toRoad[1] * Math.cos(yaw) >= 0 ? 1 : -1), nz = Math.cos(yaw) * (toRoad[0] * Math.sin(yaw) + toRoad[1] * Math.cos(yaw) >= 0 ? 1 : -1);
-          m.position.set(lm.x + nx * 15.1, 4.6, lm.z + nz * 15.1);
+          m.position.set(lm.x + nx * 15.1, sy + 4.6, lm.z + nz * 15.1);
           m.rotation.y = Math.atan2(nx, nz);
           m.geometry.userData.owned = true; m.material.userData.owned = true;
           out.add(m);
