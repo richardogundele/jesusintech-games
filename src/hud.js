@@ -397,6 +397,19 @@ export class Hud {
   // ---------- the free-drive examiner's live tally and your overall driver rating ----------
   exam(counts, show, rating = null) {
     this.flag(this.examEl, 'hidden', !show);
+    // the strip along the foot of the radar, where GTA keeps health and armour: here it drains as
+    // you collect driving faults, and goes red the moment a serious one ends the test
+    const bar = this.faultBar || (this.faultBar = document.getElementById('faultbar'));
+    if (bar) {
+      this.flag(bar, 'hidden', !show);
+      if (show) {
+        const bad = counts.serious + counts.dangerous;
+        const left = bad ? 0 : Math.max(0, 1 - counts.minor / 16); // 16 driving faults fails a test
+        bar.firstElementChild.style.width = `${Math.round(left * 100)}%`;
+        this.flag(bar, 'warn', !bad && left < 0.5);
+        this.flag(bar, 'bad', bad > 0);
+      }
+    }
     if (!show) return;
     const bad = counts.serious + counts.dangerous;
     this.flag(this.examEl, 'bad', bad > 0);
@@ -471,32 +484,41 @@ export class Hud {
     this.toastTimer = setTimeout(() => conceal(this.toastEl), ms);
   }
 
-  /** Heading-up minimap centred on the player: a glass disc, thin roads, a crisp arrow, labels only where they help */
+  /** Heading-up radar centred on the player. GTA V's is a RECTANGLE (the round one was GTA IV),
+   *  so this draws into a wide rounded rect: thin roads, a crisp arrow, labels only where they help. */
   minimap(world, x, z, heading, cars, marks = [], path = null) {
     const cv = this.mapCanvas, ctx = this.map;
     if (!this.mapS) {
-      const css = cv.getBoundingClientRect().width;
-      if (!css) return; // not laid out yet
+      const r = cv.getBoundingClientRect();
+      if (!r.width || !r.height) return; // not laid out yet
       const dpr = Math.min(2, window.devicePixelRatio || 1);
-      this.mapS = css;
+      this.mapW = r.width; this.mapH = r.height;
+      this.mapS = r.width; // kept: other code reads mapS to know the map is measured
       this.mapDpr = dpr;
-      const px = Math.round(css * dpr);
-      if (cv.width !== px) { cv.width = px; cv.height = px; }
+      const pw = Math.round(r.width * dpr), ph = Math.round(r.height * dpr);
+      if (cv.width !== pw || cv.height !== ph) { cv.width = pw; cv.height = ph; }
     }
-    const S = this.mapS, half = S / 2, scale = 0.5 * (S / 200); // 400 m across whatever the size
+    const W = this.mapW, H = this.mapH, cx = W / 2, cy = H / 2;
+    const half = cy; // the arrow and the rim-clamping work off the short axis
+    const S = W;
+    const scale = 0.5 * (H / 200); // ~400 m top to bottom whatever the size
     ctx.setTransform(this.mapDpr, 0, 0, this.mapDpr, 0, 0);
-    ctx.clearRect(0, 0, S, S);
+    ctx.clearRect(0, 0, W, H);
     ctx.save();
     ctx.beginPath();
-    ctx.arc(half, half, half, 0, Math.PI * 2);
+    const rr = 2;
+    ctx.moveTo(rr, 0); ctx.lineTo(W - rr, 0); ctx.quadraticCurveTo(W, 0, W, rr);
+    ctx.lineTo(W, H - rr); ctx.quadraticCurveTo(W, H, W - rr, H);
+    ctx.lineTo(rr, H); ctx.quadraticCurveTo(0, H, 0, H - rr);
+    ctx.lineTo(0, rr); ctx.quadraticCurveTo(0, 0, rr, 0);
     ctx.clip();
     ctx.fillStyle = 'rgba(16,18,24,0.5)';
-    ctx.fillRect(0, 0, S, S);
+    ctx.fillRect(0, 0, W, H);
     // heading-up map: forward is always up, the driver's right is screen right
     const fx = Math.sin(heading), fz = Math.cos(heading);
     const rx = -Math.cos(heading), rz = Math.sin(heading);
-    const tx = (wx, wz) => half + ((wx - x) * rx + (wz - z) * rz) * scale;
-    const ty = (wx, wz) => half - ((wx - x) * fx + (wz - z) * fz) * scale;
+    const tx = (wx, wz) => cx + ((wx - x) * rx + (wz - z) * rz) * scale;
+    const ty = (wx, wz) => cy - ((wx - x) * fx + (wz - z) * fz) * scale;
     ctx.strokeStyle = 'rgba(255,255,255,0.5)';
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
@@ -528,10 +550,9 @@ export class Hud {
     ctx.font = `600 10px -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif`;
     ctx.textBaseline = 'middle';
     for (const l of [...world.landmarks, ...marks]) {
-      let px = tx(l.x, l.z) - half, py = ty(l.x, l.z) - half;
-      const len = Math.hypot(px, py), lim = half - 9;
-      if (len > lim) { px *= lim / len; py *= lim / len; }
-      px += half; py += half;
+      // clamp the blip inside the rectangle's edges rather than a circle's rim
+      let px = Math.max(9, Math.min(W - 9, tx(l.x, l.z)));
+      let py = Math.max(9, Math.min(H - 9, ty(l.x, l.z)));
       ctx.fillStyle = l.color;
       ctx.strokeStyle = 'rgba(10,12,16,0.7)';
       ctx.lineWidth = 1.5;
@@ -550,7 +571,7 @@ export class Hud {
       ctx.fillText(l.name, lx, py);
     }
     // the player: a crisp arrow
-    ctx.translate(half, half);
+    ctx.translate(cx, cy);
     ctx.beginPath();
     ctx.moveTo(0, -7.5);
     ctx.lineTo(5.5, 6);
@@ -564,9 +585,9 @@ export class Hud {
     ctx.fillStyle = '#e8c77a';
     ctx.fill();
     ctx.restore();
-    // a hairline rim inside the border
+    // a hairline rim just inside the border
     ctx.beginPath();
-    ctx.arc(half, half, half - 0.5, 0, Math.PI * 2);
+    ctx.rect(0.5, 0.5, W - 1, H - 1);
     ctx.strokeStyle = 'rgba(255,255,255,0.08)';
     ctx.lineWidth = 1;
     ctx.stroke();
