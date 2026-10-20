@@ -496,7 +496,7 @@ const FIELD = {
  * `builder.statics` yourself), `fieldY` (fields sit this far above the ground plane), `lampModel`
  * (a MODEL_NAMES entry to instance instead of the cheap procedural lamp).
  */
-export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene = null, fieldY = 0.004, lampModel = null, ground = false } = {}) {
+export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene = null, fieldY = 0.004, lampModel = null, ground = false, groundY = null } = {}) {
   const data = net?.data || {};
   const WAYS = net?.ways instanceof Map ? [...net.ways.values()] : data.ways || [];
   const NODES = data.nodes || {};
@@ -1027,6 +1027,17 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
   // ---- building pieces ----
   function buildBuildings(list, tile, lod, rng, M, out, cs) {
     const near = lod === 'near';
+    // On a hill a building is planted whole, never draped: per-vertex would shear its roof by a
+    // couple of metres across a 1-in-6 street. Its base is the LOWEST of its footprint corners, so
+    // no corner is ever left hanging in the air (the high side just sits a little into the slope).
+    const baseY = !groundY ? () => 0 : (b) => {
+      const o = b.obb, c = Math.cos(o.yaw), s = Math.sin(o.yaw), hw = o.w / 2, hd = o.d / 2;
+      let lo = Infinity;
+      for (const [ox, oz] of [[-hw, -hd], [hw, -hd], [hw, hd], [-hw, hd]]) {
+        lo = Math.min(lo, groundY(o.cx + ox * c + oz * s, o.cz - ox * s + oz * c));
+      }
+      return lo;
+    };
     const boxesBrick = [], boxesPlain = [], gables = [], chimneys = [], hedges = [];
     const walls = new GB({ uv: true, color: true });
     const roofs = new GB({ uv: false, color: true });
@@ -1035,46 +1046,47 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
     const counts = {};
     for (const b of list) {
       if (b.skip) continue;
+      const gy = baseY(b);
       if (b.proc) {
         counts.proc = (counts.proc || 0) + 1;
         // far tiles: the box only; near: roof, front, garden edge and drive go through the usual paths below
-        if (!near) { boxesBrick.push({ x: b.obb.cx, z: b.obb.cz, w: b.obb.w, d: b.obb.d, h: b.h, yaw: b.obb.yaw, col: b.col }); continue; }
+        if (!near) { boxesBrick.push({ x: b.obb.cx, y: gy, z: b.obb.cz, w: b.obb.w, d: b.obb.d, h: b.h, yaw: b.obb.yaw, col: b.col }); continue; }
         for (const e of b.extras) {
-          if (e.type === 'hedge') hedges.push({ x: e.x, z: e.z, len: e.w, h: e.h, wd: e.d, yaw: e.yaw + Math.PI / 2, t: hash2(e.x, e.z) });
-          else (e.type === 'wall' ? boxesBrick : boxesPlain).push({ x: e.x, z: e.z, w: e.w, d: e.d, h: e.h, yaw: e.yaw, col: e.col });
+          if (e.type === 'hedge') hedges.push({ x: e.x, y: gy, z: e.z, len: e.w, h: e.h, wd: e.d, yaw: e.yaw + Math.PI / 2, t: hash2(e.x, e.z) });
+          else (e.type === 'wall' ? boxesBrick : boxesPlain).push({ x: e.x, y: gy, z: e.z, w: e.w, d: e.d, h: e.h, yaw: e.yaw, col: e.col });
           if (e.type !== 'drive') cs.add(e.x, e.z, e.w, e.d, e.yaw);
         }
       } else counts[b.kind] = (counts[b.kind] || 0) + 1;
       const roofH = clamp(Math.min(b.obb.w, b.obb.d) * 0.45, 2.2, b.kind === 'church' ? 5 : 3.5);
       if (b.rect) {
         const o = b.obb;
-        (b.kind === 'flats' || b.kind === 'industrial' || (b.kind === 'other' && !b.pitched) ? boxesPlain : boxesBrick).push({ x: o.cx, z: o.cz, w: o.w, d: o.d, h: b.h, yaw: o.yaw, col: b.col });
+        (b.kind === 'flats' || b.kind === 'industrial' || (b.kind === 'other' && !b.pitched) ? boxesPlain : boxesBrick).push({ x: o.cx, y: gy, z: o.cz, w: o.w, d: o.d, h: b.h, yaw: o.yaw, col: b.col });
         if (b.pitched) {
           // ridge along the long side
           const long = o.w >= o.d;
-          gables.push({ x: o.cx, z: o.cz, y: b.h, w: (long ? o.d : o.w) + 0.5, d: (long ? o.w : o.d) + 0.4, h: roofH, yaw: o.yaw + (long ? Math.PI / 2 : 0), col: b.roofCol });
+          gables.push({ x: o.cx, z: o.cz, y: gy + b.h, w: (long ? o.d : o.w) + 0.5, d: (long ? o.w : o.d) + 0.4, h: roofH, yaw: o.yaw + (long ? Math.PI / 2 : 0), col: b.roofCol });
           if (near && b.kind !== 'church' && rng() < 0.6) {
             const L = (long ? o.w : o.d) / 2 - 0.8, c = Math.cos(o.yaw), s = Math.sin(o.yaw);
             const lx = long ? L * (rng() < 0.5 ? 1 : -1) : 0.4, lz = long ? 0.4 : L * (rng() < 0.5 ? 1 : -1);
-            chimneys.push({ x: o.cx + lx * c + lz * s, z: o.cz - lx * s + lz * c, y: b.h + roofH * 0.7, yaw: o.yaw });
+            chimneys.push({ x: o.cx + lx * c + lz * s, z: o.cz - lx * s + lz * c, y: gy + b.h + roofH * 0.7, yaw: o.yaw });
           }
           if (b.kind === 'church' && b.area > 150) {
             // a square tower at one end, twice the nave height
             const c = Math.cos(o.yaw), s = Math.sin(o.yaw), L = (long ? o.w : o.d) / 2 - 3;
             const lx = long ? -L : 0, lz = long ? 0 : -L;
-            boxesBrick.push({ x: o.cx + lx * c + lz * s, z: o.cz - lx * s + lz * c, w: 6, d: 6, h: b.h * 2.4, yaw: o.yaw, col: b.col });
+            boxesBrick.push({ x: o.cx + lx * c + lz * s, y: gy, z: o.cz - lx * s + lz * c, w: 6, d: 6, h: b.h * 2.4, yaw: o.yaw, col: b.col });
           }
         }
         if (near) cs.add(o.cx, o.cz, o.w, o.d, o.yaw);
       } else {
         col.set(b.col);
-        walls.walls(b.poly, 0, b.h, col);
-        if (b.pitched) roofs.hip(b.poly, b.h, roofH, clamp(Math.min(b.obb.w, b.obb.d) * 0.4, 1.2, 4), col.set(b.roofCol));
-        else walls.cap(b.poly, b.h, col);
+        walls.walls(b.poly, gy, gy + b.h, col);
+        if (b.pitched) roofs.hip(b.poly, gy + b.h, roofH, clamp(Math.min(b.obb.w, b.obb.d) * 0.4, 1.2, 4), col.set(b.roofCol));
+        else walls.cap(b.poly, gy + b.h, col);
         // the box round an L-shaped or rambling footprint can reach over a road: no invisible wall there
         if (near && !obbOnRoad(b.obb)) cs.add(b.obb.cx, b.obb.cz, b.obb.w, b.obb.d, b.obb.yaw);
       }
-      if (near && !b.sign && (b.kind === 'house' || b.kind === 'terrace' || b.kind === 'shop') && b.h <= 12) addFront(b, fronts, rng);
+      if (near && !b.sign && (b.kind === 'house' || b.kind === 'terrace' || b.kind === 'shop') && b.h <= 12) addFront(b, fronts, rng, gy);
       if (near && b.sign && hasDOM) addSign(b, out, M);
     }
     const inst = (items, geo, mat, { color = true, cast = true } = {}) => {
@@ -1106,7 +1118,7 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
     return { counts, hedges };
   }
   /** a canvas front on the face that looks at the nearest road */
-  function addFront(b, fronts, rng) {
+  function addFront(b, fronts, rng, gy = 0) {
     let face = b.front || null; // procedural houses know which face looks at their street
     const hit = face ? null : nearestRoad(b.cx, b.cz, 60);
     if (!face && !hit) return;
@@ -1144,7 +1156,7 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
       const cx = face.cx + ux * off + face.nx * 0.03, cz = face.cz + uz * off + face.nz * 0.03;
       const hw = unitW / 2;
       // seen from the road the texture must read left to right: left end is at -u
-      const a = [cx - ux * hw, 0, cz - uz * hw], bb = [cx + ux * hw, 0, cz + uz * hw], c = [cx + ux * hw, hgt, cz + uz * hw], d = [cx - ux * hw, hgt, cz - uz * hw];
+      const a = [cx - ux * hw, gy, cz - uz * hw], bb = [cx + ux * hw, gy, cz + uz * hw], c = [cx + ux * hw, gy + hgt, cz + uz * hw], d = [cx - ux * hw, gy + hgt, cz - uz * hw];
       fronts.quad(a, bb, c, d, white, [[u0, v0], [u0 + du, v0], [u0 + du, v0 + dv], [u0, v0 + dv]]);
     }
   }
@@ -1207,7 +1219,7 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
       return false;
     };
     const inside = (x, z) => x >= tile.x0 && x < tile.x1 && z >= tile.z0 && z < tile.z1;
-    const add = (x, z, s) => { if (spots.length < cap && !excluded(x, z)) spots.push({ x, z, s, r: rng() * 6.28 }); };
+    const add = (x, z, s) => { if (spots.length < cap && !excluded(x, z)) spots.push({ x, y: groundY ? groundY(x, z) : 0, z, s, r: rng() * 6.28 }); };
     // woods: a jittered grid, both lods
     const sp = near ? 9 : 14;
     for (const lu of lus) {
@@ -1265,7 +1277,7 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
       spots.forEach((p, i) => {
         q.setFromAxisAngle(up, p.r);
         sc.setScalar(p.s);
-        m.compose(new THREE.Vector3(p.x, 0, p.z), q, sc);
+        m.compose(new THREE.Vector3(p.x, p.y || 0, p.z), q, sc);
         im.setMatrixAt(i, m);
         im.setColorAt(i, c.setHSL(0.27 + (rng() - 0.5) * 0.06, 0.1 + rng() * 0.1, 0.5 + (rng() - 0.5) * 0.16).multiplyScalar(1.9));
       });

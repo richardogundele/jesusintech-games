@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { drapeGeometry } from '../worlds/terrain.js';
 import {
   LW, LW_RING_SMALL, PAVE_W, KERB_W, KERB_H, Y_ROAD, Y_MARK, Y_DECAL, Y_PAVE,
   PATTERNS, centrePattern, hazardPattern, lanePattern, edgeWidth, hazardReach, arrowLength, wordHeight,
@@ -633,7 +634,7 @@ export function flatRoadMaterials() {
  * colliders = [{ cx, cz, w, d, yaw, carOnly }] for Colliders.obb; roads = minimap polylines
  * [{ points: Vector3[], width, closed }] clipped to the tile; stats = { tris, byMat, ms }.
  */
-export function buildRoadTile(net, tile, { lod = 'near', mats, materials } = {}) {
+export function buildRoadTile(net, tile, { lod = 'near', mats, materials, groundY = null } = {}) {
   const t0 = (typeof performance !== 'undefined' ? performance : Date).now();
   mats = mats || materials || flatRoadMaterials();
   const view = netView(net);
@@ -938,6 +939,13 @@ export function buildRoadTile(net, tile, { lod = 'near', mats, materials } = {})
   }
 
   // ---- meshes ----
+  // On a region with real hills, every ground-hugging piece (tarmac, markings, kerbs, pavement,
+  // decals) is laid onto the terrain here. The ribbons are already sampled every 6 m along the way
+  // (see the densify step above), so they follow the slope without being tessellated first; the
+  // junction and roundabout caps are the only big flat spans, so they get split to 8 m edges.
+  const drape = groundY
+    ? (g) => drapeGeometry(g, groundY, Infinity)
+    : (g) => g;
   const group = new THREE.Group();
   group.name = `roads ${b.tx},${b.tz} ${lod}`;
   const geos = [];
@@ -946,7 +954,7 @@ export function buildRoadTile(net, tile, { lod = 'near', mats, materials } = {})
   for (const [k, gb] of Object.entries(B)) {
     if (gb.empty) continue;
     const mat = mats[k] || mats.asphalt;
-    const g = gb.geometry();
+    const g = drape(gb.geometry());
     geos.push(g);
     const m = new THREE.Mesh(g, mat);
     m.receiveShadow = true;
@@ -958,7 +966,7 @@ export function buildRoadTile(net, tile, { lod = 'near', mats, materials } = {})
   }
   for (const [mat, gb] of decals) {
     if (gb.empty) continue;
-    const g = gb.geometry();
+    const g = drape(gb.geometry());
     geos.push(g);
     const m = new THREE.Mesh(g, mat);
     m.receiveShadow = true;
@@ -990,7 +998,7 @@ export function roadsBuilder(net, mats) {
  * `mats` from makeRoadMaterials(). With `colliders` the builder registers its own oriented boxes
  * (and removes them on dispose), so the TileManager then needs no colliders of its own.
  */
-export function makeRoadBuilder({ net, colliders = null, mats = null, pbr = null, decal = null, planting = null } = {}) {
+export function makeRoadBuilder({ net, colliders = null, mats = null, pbr = null, decal = null, planting = null, groundY = null } = {}) {
   let m = mats;
   const materials = () => {
     if (m) return m;
@@ -1001,7 +1009,7 @@ export function makeRoadBuilder({ net, colliders = null, mats = null, pbr = null
     name: 'roads',
     get mats() { return materials(); },
     build(tile, lod) {
-      const part = buildRoadTile(net, tile, { lod, mats: materials() });
+      const part = buildRoadTile(net, tile, { lod, mats: materials(), groundY });
       if (!colliders) return part;
       const handles = part.colliders.map((c) => colliders.obb(c.cx, c.cz, c.w, c.d, c.yaw || 0, c.carOnly !== false));
       const inner = part.dispose;
