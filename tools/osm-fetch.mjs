@@ -105,7 +105,13 @@ for (const e of roadsJ.elements) {
   else if (lf || lb) { lanes_fwd = lf || Math.max(1, lanesTag - lb); lanes_bwd = lb || Math.max(1, lanesTag - lf); lanes_src = 'tag'; }
   else if (lanesTag) { lanes_fwd = Math.max(1, Math.round(lanesTag / 2)); lanes_bwd = Math.max(1, lanesTag - lanes_fwd); lanes_src = 'half'; }
   else { lanes_fwd = 1; lanes_bwd = 1; lanes_src = 'derived'; }
-  const ms = t.maxspeed, nsl = /national|none/i.test(ms || '') || /nsl/i.test(t['maxspeed:type'] || '');
+  // National speed limit. CAREFUL: GB:nsl_restricted means the OPPOSITE of this - it is the 30 mph
+  // default a road gets for having street lighting. A plain /nsl/ test matches that substring and
+  // turns every lit residential street into a 60 mph road, which is exactly what it used to do.
+  // Only GB:nsl, GB:nsl_single and GB:nsl_dual are the national speed limit.
+  const mt = t['maxspeed:type'] || t['source:maxspeed'] || '';
+  const ms = t.maxspeed;
+  const nsl = /national|^none$/i.test(ms || '') || /(^|:)nsl(_single|_dual)?$/i.test(mt);
   const maxspeed_mph = nsl ? null : mph(ms);
   const link = /_link$/.test(cls);
   const base = cls.replace(/_link$/, '');

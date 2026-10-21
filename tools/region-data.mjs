@@ -168,8 +168,14 @@ for (const w of roads.ways) {
     if (w.sidewalk) pave = w.sidewalk !== 'no';
     else if (w.lit === 'yes') pave = true; else if (w.lit === 'no') pave = false;
     else pave = ['residential', 'living_street'].includes(w.class) || (limitTag != null && limitTag <= 30 && w.class !== 'trunk');
-    const limit = limitTag ?? (pave ? 30 : 60);
-    const nsl = !!w.nsl || (limitTag == null && !pave);
+    // Default limit when OSM posts none. A service road is a close, a driveway or a car park aisle:
+    // it is never 60, and guessing 60 let you do 55 down a cul-de-sac with the examiner silent.
+    const slow = w.class === 'service' || w.class === 'living_street';
+    const limit = limitTag ?? (slow ? 20 : pave ? 30 : 60);
+    // The NSL sign replaces the number on the HUD, so it must never contradict it: a road only
+    // carries the national speed limit if the limit we actually use IS the national one. Tied to
+    // `limit` rather than the tags, the sign and the roundel can never disagree.
+    const nsl = (!!w.nsl || (limitTag == null && !pave && !slow)) && !slow && limit >= 60;
     let turnLanes = null;
     if (w.turn_lanes && (w.turn_lanes.all || w.turn_lanes.fwd)) turnLanes = (w.turn_lanes.all || w.turn_lanes.fwd).split('|').map((l) => l.split(';').map((t) => t.replace('slight_', '').replace('sharp_', '')));
     pieces.push({
@@ -513,6 +519,24 @@ const places = (feat.places || []).filter((p) => inBounds([p.x, p.z]) && !seenPl
 const BIG = /^(london|birmingham|manchester|kent|central london|city centre)$/i;
 const far = R.far.map(([name, x, z]) => ({ name, x, z, r: 0, rank: BIG.test(name) ? 1 : 2, far: true }));
 const testCentres = (feat.test_centres || []).map((t) => ({ name: t.name, x: r1(t.x), z: r1(t.z), address: t.address }));
+
+// ---------- 9b. built-up override: an untagged road inside a town is 30, not 60 ----------
+// OSM often leaves maxspeed off a minor road entirely. Falling back to 60 is right on a country
+// lane and badly wrong in a suburb, and in a learner's game wrong-fast is far more dangerous than
+// wrong-slow. Where a way with no posted limit sits inside a named place, treat it as a restricted
+// road: 30, and never the national speed limit.
+const builtUp = places.filter((p) => p.rank <= 3 && p.r > 0);
+const inTown = (x, z) => builtUp.some((p) => Math.hypot(x - p.x, z - p.z) <= p.r);
+let deRural = 0;
+for (const p of kept) {
+  if (p.limitTag != null || p.cls === 'motorway' || p.link) continue;
+  const mid = p.pts[Math.floor(p.pts.length / 2)];
+  if (!inTown(mid[0], mid[1])) continue;
+  if (p.limit > 30) { p.limit = 30; deRural++; }
+  p.nsl = false;
+  p.pave = true;
+  p.rural = false;
+}
 
 // ---------- 10. assemble, destinations, write ----------
 const waysOut = kept.map((p) => ({ id: p.id, name: p.name, ref: p.ref, cls: p.cls, limit: p.limit, nsl: p.nsl, oneway: p.oneway, lanesF: p.lanesF, lanesB: p.lanesB, lanesSrc: p.lanesSrc, rb: p.rb, dual: p.dual, link: p.link,
