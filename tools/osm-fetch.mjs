@@ -75,6 +75,10 @@ const linesQ = `(\n  way["railway"~"^(rail|light_rail|tram|subway|narrow_gauge)$
 // car parks to practise the manoeuvres in, plus the street furniture that earns a sign
 const parkQ = `(\n  way["amenity"="parking"];\n  way["leisure"="park"]["name"];\n);\nout geom;`;
 const furnitureQ = `(\n  node["highway"="bus_stop"];\n  node["amenity"="parking_entrance"];\n  node["highway"="street_lamp"]["ref"];\n);\nout body;`;
+// Traffic calming is a NODE tag, so it was never in the road ways. NOTE: this needs its own query
+// name - overpass() caches by name, so folding it into q2_features would silently return the old
+// cached answer with no humps in it.
+const calmingQ = `(\n  node["traffic_calming"];\n  way["traffic_calming"];\n);\nout geom;`;
 
 const roadsJ = await overpass('q1_roads', roadsQ);
 const featJ = await overpass('q2_features', featQ);
@@ -84,6 +88,11 @@ const luJ = await overpass('q5_landuse', landuseQ);
 const linesJ = await overpass('q6_lines', linesQ); // region-data.mjs reads raw/q5_landuse.json as the landuse file
 const parkJ = await overpass('q7_parking', parkQ);
 const furnJ = await overpass('q8_furniture', furnitureQ);
+// Optional: the public mirrors are flaky, and a missing hump list must not block a rebake of
+// everything else. An empty answer just means no calming in this region's features.json.
+let calmJ = { elements: [] };
+try { calmJ = await overpass('q9_calming', calmingQ); }
+catch (e) { console.log(`q9_calming: giving up, continuing without traffic calming (${String(e.message || e).slice(0, 80)})`); }
 
 // ---------- roads.json ----------
 const mph = (s) => { if (!s) return null; const m = String(s).match(/([\d.]+)\s*(mph)?/i); if (!m) return null; const v = parseFloat(m[1]); return m[2] ? v : Math.round(v / 1.609344); };
@@ -124,6 +133,7 @@ for (const e of roadsJ.elements) {
     dual: oneway && !rb && !link && ['trunk', 'primary', 'secondary'].includes(base) && t.oneway !== undefined, link,
     bridge: !!t.bridge && t.bridge !== 'no', tunnel: !!t.tunnel && t.tunnel !== 'no', layer: parseInt(t.layer, 10) || 0,
     width_m: parseFloat(t.width) > 2 ? parseFloat(t.width) : null,
+    surface: t.surface || null, // what the road is actually made of: setts, gravel, concrete...
   });
 }
 fs.writeFileSync(path.join(OUT, 'roads.json'), JSON.stringify({ osm_base: roadsJ.osm3s?.timestamp_osm_base || null, bbox: BBOX, ways }));
@@ -149,7 +159,7 @@ for (const [k, list] of rings) {
 fs.writeFileSync(path.join(OUT, 'roundabouts.json'), JSON.stringify({ roundabouts }));
 
 // ---------- features.json ----------
-const F = { signals: [], give_ways: [], stops: [], mini_roundabouts: [], level_crossings: [], crossings: [], railways: [], rivers: [], coastline: [], sea_polygon: [], landmarks: [], test_centres: [], places: [], parking: [], bus_stops: [] };
+const F = { signals: [], give_ways: [], stops: [], mini_roundabouts: [], level_crossings: [], crossings: [], railways: [], rivers: [], coastline: [], sea_polygon: [], landmarks: [], test_centres: [], places: [], parking: [], bus_stops: [], calming: [] };
 for (const e of featJ.elements) {
   if (e.type !== 'node') continue;
   const t = e.tags || {}, [x, z] = project(e.lat, e.lon).map(r1);
@@ -195,5 +205,21 @@ for (const e of furnJ.elements) {
   const t = e.tags || {}, [x, z] = project(e.lat, e.lon).map(r1);
   if (t.highway === 'bus_stop') F.bus_stops.push({ id: e.id, x, z, name: t.name || null, shelter: t.shelter === 'yes' });
 }
+// speed humps, cushions, tables and the rest: the thing you must actually slow down for
+const CALM = new Set(['hump', 'bump', 'table', 'cushion', 'rumble_strip', 'choker', 'chicane', 'island', 'dip']);
+for (const e of calmJ.elements) {
+  const t = e.tags || {};
+  const kind = (t.traffic_calming || '').split(';')[0];
+  if (!CALM.has(kind)) continue;
+  if (e.type === 'node' && e.lat != null) {
+    const [x, z] = project(e.lat, e.lon).map(r1);
+    F.calming.push({ id: e.id, x, z, kind, ways: nodeWays.get(e.id) || [] });
+  } else if (e.type === 'way' && e.geometry?.length) {
+    // a calmed stretch: take its midpoint
+    const m = e.geometry[Math.floor(e.geometry.length / 2)];
+    const [x, z] = project(m.lat, m.lon).map(r1);
+    F.calming.push({ id: e.id, x, z, kind, ways: [] });
+  }
+}
 fs.writeFileSync(path.join(OUT, 'features.json'), JSON.stringify(F));
-console.log(`\n${R.name}: ${ways.length} road ways, ${roundabouts.length} roundabouts, ${F.signals.length} signals, ${F.crossings.length} crossings, ${F.mini_roundabouts.length} minis, ${F.railways.length} railways, ${F.rivers.length} rivers, ${F.landmarks.length} landmarks, ${F.places.length} places, ${F.parking.length} car parks, ${F.bus_stops.length} bus stops, ${luJ.elements.length} landuse ways -> ${OUT}`);
+console.log(`\n${R.name}: ${ways.length} road ways, ${roundabouts.length} roundabouts, ${F.signals.length} signals, ${F.crossings.length} crossings, ${F.mini_roundabouts.length} minis, ${F.railways.length} railways, ${F.rivers.length} rivers, ${F.landmarks.length} landmarks, ${F.places.length} places, ${F.parking.length} car parks, ${F.bus_stops.length} bus stops, ${F.calming.length} traffic calming, ${luJ.elements.length} landuse ways -> ${OUT}`);

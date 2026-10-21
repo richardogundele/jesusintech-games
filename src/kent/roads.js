@@ -123,7 +123,7 @@ function descOf(view, way) {
     pave, rural: way.rural != null ? !!way.rural : !pave, rb, dual: !!way.dual && oneway && !way.link && !rb, link: !!way.link,
     bridge: !!way.bridge, tunnel: !!way.tunnel, layer: num(way.layer, 0), name: way.name || null, ref: way.ref || null,
     turnLanes: Array.isArray(way.turnLanes ?? way.turn_lanes) ? (way.turnLanes ?? way.turn_lanes) : null,
-    mat: cls === 'service' ? 'asphaltDark' : 'asphalt',
+    mat: roadSurface(way, cls, limit, pave),
     centreLine: !oneway && (rank >= 4 || width >= 6.5),
     edgeLines: !oneway && !pave && rank >= 3,
   };
@@ -598,6 +598,22 @@ function wayCuts(view, p) {
  * should return a material from src/signs.js's markingTexture (see decalQuad); `planting(spots)`
  * may return an Object3D of shrubs for big roundabout islands (assets.js instanced()).
  */
+/**
+ * Which surface a road is made of. OSM's `surface` tag wins where it exists; otherwise the class
+ * decides, because in Britain you can tell a motorway from a country lane by the tarmac alone.
+ * Everything used to come out as one grey asphalt, so every road looked like every other road.
+ */
+function roadSurface(way, cls, limit, pave) {
+  const s = (way.surface || '').toLowerCase();
+  if (s === 'sett' || s === 'cobblestone' || s === 'paving_stones') return 'settsTop';
+  if (s === 'gravel' || s === 'fine_gravel' || s === 'compacted' || s === 'unpaved' || s === 'dirt' || s === 'ground') return 'gravelTop';
+  if (s === 'concrete' || s === 'concrete:plates') return 'concreteTop';
+  if (cls === 'service') return 'asphaltDark';                 // closes, yards, car park aisles
+  if (cls === 'motorway' || cls === 'trunk' || cls === 'motorway_link' || cls === 'trunk_link') return 'trunkTop';
+  if (!pave && limit >= 50) return 'laneTop';                  // unlit road out of town: a country lane
+  return 'asphalt';
+}
+
 export function makeRoadMaterials({ pbr, decal = null, planting = null } = {}) {
   const tex = (name, color, extra = {}) => {
     const m = pbr(name, { repeat: [1, 1], color, roughness: 1, ...extra });
@@ -609,6 +625,13 @@ export function makeRoadMaterials({ pbr, decal = null, planting = null } = {}) {
   const asphaltDark = tex('clean_asphalt', 0x6f6e6c);
   return {
     asphalt, asphaltDark,
+    // A road's surface says what kind of road it is before you read a single sign. Everything used
+    // to be this one grey asphalt, so a country lane, a high street and a motorway looked identical.
+    trunkTop: tex('clean_asphalt', 0xa3a3a1),   // motorway and trunk: newer, lighter, better kept
+    laneTop: tex('clean_asphalt', 0x7c7a70),    // unlit country lane: weathered, warmer, dirtier
+    settsTop: tex('rectangular_paving', 0x9a8f84), // setts and cobbles
+    gravelTop: tex('leafy_grass', 0xa09076),    // gravel and unsurfaced tracks
+    concreteTop: tex('clean_asphalt', 0xb0ada6), // concrete carriageway
     paving: tex('rectangular_paving', 0xc9c4ba),
     grass: tex('leafy_grass', 0xa6c48a),
     white: flat(0xf2f2ee),
@@ -623,7 +646,9 @@ export function makeRoadMaterials({ pbr, decal = null, planting = null } = {}) {
 /** Plain-colour stand-ins so tiles build under node or before the PBR sets load. */
 export function flatRoadMaterials() {
   const m = (color, extra = {}) => new THREE.MeshStandardMaterial({ color, ...extra });
-  return { asphalt: m(0x555555), asphaltDark: m(0x444444), paving: m(0xbbb6ad), grass: m(0x6f9a52), white: m(0xf2f2ee), yellow: m(0xe8c23a), kerb: m(0xa9a59c), barrier: m(0xc4c8cc), concrete: m(0xb9b5ad), decal: null, planting: null };
+  return { asphalt: m(0x555555), asphaltDark: m(0x444444),
+    trunkTop: m(0x6a6a68), laneTop: m(0x4a4740), settsTop: m(0x6e665c), gravelTop: m(0x7a6e58), concreteTop: m(0x7d7a74),
+    paving: m(0xbbb6ad), grass: m(0x6f9a52), white: m(0xf2f2ee), yellow: m(0xe8c23a), kerb: m(0xa9a59c), barrier: m(0xc4c8cc), concrete: m(0xb9b5ad), decal: null, planting: null };
 }
 
 // ---------- the tile builder ----------

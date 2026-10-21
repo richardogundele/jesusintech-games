@@ -181,7 +181,7 @@ for (const w of roads.ways) {
     pieces.push({
       id: k === 0 ? w.id : -(w.id * 10 + k), osm: w.id, name: w.name || null, ref: w.ref || null, cls: w.class, limit, nsl, oneway: !!w.oneway || !!w.roundabout,
       lanesF, lanesB, lanesSrc: ['tag', 'half', 'oneway'].includes(w.lanes_src) ? 'tag' : 'derived', rb: null, dual: !!w.dual, link: !!w.link || /_link$/.test(w.class),
-      bridge: !!w.bridge, tunnel: !!w.tunnel, layer: w.layer || 0, width: r1(WIDTH(w, limit, lanesF, lanesB)), pave, rural: !pave, turnLanes,
+      bridge: !!w.bridge, tunnel: !!w.tunnel, layer: w.layer || 0, width: r1(WIDTH(w, limit, lanesF, lanesB)), pave, rural: !pave, turnLanes, surface: w.surface || null,
       pts: part.pts, nodes: part.nodes, roundabout: !!w.roundabout, limitTag, rawLen: 0,
     });
   });
@@ -540,7 +540,8 @@ for (const p of kept) {
 
 // ---------- 10. assemble, destinations, write ----------
 const waysOut = kept.map((p) => ({ id: p.id, name: p.name, ref: p.ref, cls: p.cls, limit: p.limit, nsl: p.nsl, oneway: p.oneway, lanesF: p.lanesF, lanesB: p.lanesB, lanesSrc: p.lanesSrc, rb: p.rb, dual: p.dual, link: p.link,
-  bridge: p.bridge, tunnel: p.tunnel, layer: p.layer, width: p.width, pave: p.pave, rural: p.rural, turnLanes: p.turnLanes, ...(p.synthetic ? { synthetic: true } : {}), pts: p.pts, nodes: p.nodes }));
+  bridge: p.bridge, tunnel: p.tunnel, layer: p.layer, width: p.width, pave: p.pave, rural: p.rural, turnLanes: p.turnLanes,
+  ...(p.surface ? { surface: p.surface } : {}), ...(p.synthetic ? { synthetic: true } : {}), pts: p.pts, nodes: p.nodes }));
 const region = {
   attribution: ATTR, osm_base: roads.osm_base, region: R.id, name: R.name, idNote: 'node ids are small integers assigned by tools/region-data.mjs, not OSM ids; way ids are OSM way ids (negative = a way cut at the region edge, or a synthetic ring arc)',
   origin: ORIGIN, bounds: B, ways: waysOut, nodes: nodesOut, roundabouts, minis, signals, crossings, levelCrossings, railways, rivers, coastline, sea, buildings, landuse, landmarks, places: [...places, ...far], testCentres, home: HOME, airfield: AIRFIELD,
