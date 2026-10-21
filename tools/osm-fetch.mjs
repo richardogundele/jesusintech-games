@@ -72,6 +72,9 @@ const landQ = `(\n  node["name"]["amenity"~"^(place_of_worship|school|college|un
 const buildQ = `way["building"];\nout geom;`;
 const landuseQ = `(\n  way["landuse"];\n  way["leisure"~"^(park|pitch|garden|golf_course|playground|nature_reserve|common|recreation_ground)$"];\n  way["natural"~"^(water|wood|scrub|heath|grassland|beach)$"];\n);\nout geom;`;
 const linesQ = `(\n  way["railway"~"^(rail|light_rail|tram|subway|narrow_gauge)$"]["service"!~"."];\n  way["waterway"~"^(river|canal|stream)$"];\n);\nout geom;`;
+// car parks to practise the manoeuvres in, plus the street furniture that earns a sign
+const parkQ = `(\n  way["amenity"="parking"];\n  way["leisure"="park"]["name"];\n);\nout geom;`;
+const furnitureQ = `(\n  node["highway"="bus_stop"];\n  node["amenity"="parking_entrance"];\n  node["highway"="street_lamp"]["ref"];\n);\nout body;`;
 
 const roadsJ = await overpass('q1_roads', roadsQ);
 const featJ = await overpass('q2_features', featQ);
@@ -79,6 +82,8 @@ const landJ = await overpass('q3_landmarks', landQ);
 await overpass('q4_buildings', buildQ);
 const luJ = await overpass('q5_landuse', landuseQ);
 const linesJ = await overpass('q6_lines', linesQ); // region-data.mjs reads raw/q5_landuse.json as the landuse file
+const parkJ = await overpass('q7_parking', parkQ);
+const furnJ = await overpass('q8_furniture', furnitureQ);
 
 // ---------- roads.json ----------
 const mph = (s) => { if (!s) return null; const m = String(s).match(/([\d.]+)\s*(mph)?/i); if (!m) return null; const v = parseFloat(m[1]); return m[2] ? v : Math.round(v / 1.609344); };
@@ -138,7 +143,7 @@ for (const [k, list] of rings) {
 fs.writeFileSync(path.join(OUT, 'roundabouts.json'), JSON.stringify({ roundabouts }));
 
 // ---------- features.json ----------
-const F = { signals: [], give_ways: [], stops: [], mini_roundabouts: [], level_crossings: [], crossings: [], railways: [], rivers: [], coastline: [], sea_polygon: [], landmarks: [], test_centres: [], places: [] };
+const F = { signals: [], give_ways: [], stops: [], mini_roundabouts: [], level_crossings: [], crossings: [], railways: [], rivers: [], coastline: [], sea_polygon: [], landmarks: [], test_centres: [], places: [], parking: [], bus_stops: [] };
 for (const e of featJ.elements) {
   if (e.type !== 'node') continue;
   const t = e.tags || {}, [x, z] = project(e.lat, e.lon).map(r1);
@@ -167,5 +172,22 @@ for (const e of landJ.elements) {
   const tc = R.testCentre, [x, z] = project(tc.lat, tc.lon).map(r1);
   F.test_centres.push({ name: tc.name, x, z, address: tc.address });
 }
+// car parks: the polygon plus the tags that decide whether we can lay bays in it
+for (const e of parkJ.elements) {
+  if (e.type !== 'way' || !e.geometry || e.geometry.length < 4) continue;
+  const t = e.tags || {};
+  if (t.amenity !== 'parking') continue;
+  if (t.parking === 'multi-storey' || t.parking === 'underground') continue; // we only build surface lots
+  if (t.access === 'private' || t.access === 'no') continue;
+  let pts = e.geometry.map((gg) => project(gg.lat, gg.lon).map(r1));
+  if (pts.length > 1 && Math.hypot(pts[0][0] - pts.at(-1)[0], pts[0][1] - pts.at(-1)[1]) < 0.01) pts = pts.slice(0, -1);
+  if (pts.length < 3) continue;
+  F.parking.push({ name: t.name || null, pts, surface: t.surface || null, capacity: parseInt(t.capacity, 10) || null, fee: t.fee === 'yes' });
+}
+for (const e of furnJ.elements) {
+  if (e.type !== 'node') continue;
+  const t = e.tags || {}, [x, z] = project(e.lat, e.lon).map(r1);
+  if (t.highway === 'bus_stop') F.bus_stops.push({ id: e.id, x, z, name: t.name || null, shelter: t.shelter === 'yes' });
+}
 fs.writeFileSync(path.join(OUT, 'features.json'), JSON.stringify(F));
-console.log(`\n${R.name}: ${ways.length} road ways, ${roundabouts.length} roundabouts, ${F.signals.length} signals, ${F.crossings.length} crossings, ${F.mini_roundabouts.length} minis, ${F.railways.length} railways, ${F.rivers.length} rivers, ${F.landmarks.length} landmarks, ${F.places.length} places, ${luJ.elements.length} landuse ways -> ${OUT}`);
+console.log(`\n${R.name}: ${ways.length} road ways, ${roundabouts.length} roundabouts, ${F.signals.length} signals, ${F.crossings.length} crossings, ${F.mini_roundabouts.length} minis, ${F.railways.length} railways, ${F.rivers.length} rivers, ${F.landmarks.length} landmarks, ${F.places.length} places, ${F.parking.length} car parks, ${F.bus_stops.length} bus stops, ${luJ.elements.length} landuse ways -> ${OUT}`);
