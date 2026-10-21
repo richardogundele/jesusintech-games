@@ -5,6 +5,10 @@
 
 import { gearFor } from './pedals.js';
 
+// the streets signs-place.js puts a one-way plate and a No Entry on; keep the two in step, or the
+// examiner marks a street the game never signed
+const ONE_WAY_CLS = new Set(['residential', 'living_street', 'unclassified', 'tertiary', 'secondary', 'primary']);
+
 const SEV = { minor: 'Driving fault', serious: 'Serious fault', dangerous: 'Dangerous fault' };
 const MPH = 1 / 1.609344;
 
@@ -24,6 +28,7 @@ export class FreeExam {
     this.movedOffAt = -99;
     this.taughtMirror = false;  // only mark a mirrors fault once you have been told the routine
     this.jnAt = -99; this.jn = null; // the junction ahead, looked up on a throttle
+    this.wrongDist = 0; this.taughtOneWay = false; // metres driven against a one-way street
   }
 
   get counts() {
@@ -182,6 +187,31 @@ export class FreeExam {
       this.taughtMirror = true;
       return this.tip('Check your mirror before you slow down — someone may be close behind.', 'msmslow', 12);
     }
+
+    // ---- the wrong way down a one-way street ----
+    // Only on the streets signs-place.js actually signs, and only once you have clearly committed:
+    // 15 m of driving with the nose pointed against the flow. Without that a crossroads can snap
+    // nearest() to the one-way road you are crossing at right angles and mark you for crossing it.
+    const net = world && world.net;
+    if (net && net.nearest && Math.abs(v) > 2) {
+      const h = net.nearest(car.pos.x, car.pos.z, 12);
+      const w2 = h && h.way;
+      const signed = w2 && w2.oneway && !w2.rb && !w2.link && !w2.dual && !w2.nsl
+        && w2.limit <= 40 && ONE_WAY_CLS.has(w2.cls) && w2.len >= 25;
+      // the dot is against the way's own direction; the sign of vF handles driving in reverse
+      const facing = signed ? (h.dir[0] * Math.sin(car.heading) + h.dir[1] * Math.cos(car.heading)) * Math.sign(v) : 0;
+      if (signed && facing < -0.7) {
+        this.wrongDist += Math.abs(v) * dt;
+        if (this.wrongDist > 15) {
+          this.wrongDist = 0;
+          if (!this.taughtOneWay) {
+            this.taughtOneWay = true;
+            return this.tip('This is a one-way street and you are going against it. Turn around as soon as it is safe — look for the No Entry sign at the far end.', 'oneway', 25);
+          }
+          this.fault('serious', 'Response to signs: traffic signs (wrong way along a one-way street)', 'wrongway', 20);
+        }
+      } else this.wrongDist = 0;
+    } else this.wrongDist = 0;
 
     // ---- MSPSL: approaching a junction ----
     const j = this.junctionAhead(car, world);
