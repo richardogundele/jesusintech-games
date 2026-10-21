@@ -142,6 +142,8 @@ export function buildRegion(renderer, { id, name, data, arena = false }) {
       if (Math.hypot(x - tc.x, z - tc.z) < 60) return tc.name.replace(/\s*\(.*\)/, '') + ' test centre';
       return net.placeAt(x, z);
     },
+    /** the real postal address nearest a point, straight from OpenStreetMap */
+    addressAt: (x, z) => net.addressAt(x, z),
     speedLimitAt: (x, z) => net.limitAt(x, z),
     nslAt: (x, z) => net.nslAt(x, z),
     signalHeads: () => signals.heads, // live heads for the free-drive examiner

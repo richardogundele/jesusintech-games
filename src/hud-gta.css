@@ -66,12 +66,22 @@
 #faultbar.bad i { background: var(--gta-red); }
 #ctl-tip { margin-top: 2px; }
 
-/* ---------- bottom right: street and area, over the dashboard ---------- */
+/* ---------- bottom right: street and area, over the dashboard ----------
+   The stack sits above the dashboard and stays put whether or not you are in a car, so the street
+   name is there on foot too. The dashboard's own height is reserved below it. */
+.loc-stack { bottom: calc(var(--gta-edge) + 86px) !important; align-items: flex-end; }
 .hud-bottom-right .loc { text-align: right; margin-bottom: 6px; padding: 0 !important; }
 #loc-place {
   font-size: clamp(19px, 2.3vh, 27px) !important; font-weight: 700 !important;
   color: var(--gta-white) !important; letter-spacing: 0.01em; line-height: 1.1 !important; margin: 0 !important;
 }
+/* the real postal address of the building beside you, under the street name */
+#loc-addr {
+  font-size: clamp(11px, 1.35vh, 15px); font-weight: 500;
+  color: var(--gta-white); opacity: 0.82; line-height: 1.25; margin-top: 1px;
+  text-shadow: var(--gta-shadow);
+}
+#loc-addr.hidden { display: none; }
 #loc-city {
   font-size: clamp(10px, 1.2vh, 13px) !important; font-weight: 600 !important;
   letter-spacing: 0.22em !important; text-transform: uppercase;

@@ -277,6 +277,25 @@ export class RoadNet {
   }
   buildingsNear(x, z, r) { return this.buildingGrid.near(x, z, r); }
 
+  /**
+   * The real postal address of the nearest building that has one, e.g. "157 Colindeep Lane, NW9 6DB".
+   * Straight off OpenStreetMap's addr:housenumber / addr:street / addr:postcode, so these are the
+   * actual house numbers and postcodes of the streets you are driving.
+   */
+  addressAt(x, z, r = 32) {
+    let best = null, bd = r * r;
+    for (const b of this.buildingGrid.near(x, z, r)) {
+      if (!b.nr && !b.pc) continue;
+      const bx = b.box, cx = Math.max(bx[0], Math.min(x, bx[2])), cz = Math.max(bx[1], Math.min(z, bx[3]));
+      const d = (x - cx) ** 2 + (z - cz) ** 2;
+      if (d < bd) { bd = d; best = b; }
+    }
+    if (!best) return null;
+    const line = [best.nr, best.st].filter(Boolean).join(' ');
+    return { line: line || null, postcode: best.pc || null, name: best.name || null,
+      text: [line || best.name, best.pc].filter(Boolean).join(', ') || null };
+  }
+
   // ---------- roundabout policy ----------
   rbSense(rb) { return (typeof rb === 'string' ? this.roundabouts.get(rb) : rb).sense; }
   /** arms in circulation order starting just after `from` (an arm object or index) */

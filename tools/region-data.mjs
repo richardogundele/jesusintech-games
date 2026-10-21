@@ -500,7 +500,10 @@ for (const b of buildingsById.values()) {
   const t = b.tags, kind = KIND(t);
   const hTag = parseFloat(String(t.height || '').replace(/[^0-9.]/g, '')), levels = parseFloat(t['building:levels']);
   const h = hTag > 0 ? hTag : levels > 0 ? levels * 3.2 : b.h && t.building !== 'yes' ? b.h : ['house', 'terrace', 'flats'].includes(kind) ? (kind === 'flats' ? 9.6 : 6.5) : kind === 'shop' || kind === 'industrial' ? 9 : kind === 'church' ? 12 : t.building === 'garage' || t.building === 'garages' || t.building === 'shed' ? 2.8 : 6.5;
-  buildings.push({ pts: out, h: r1(h), kind, name: t.name || null });
+  // the real address off the building, where OSM has one: "157 Colindeep Lane, NW9 6DB"
+  const hn = t['addr:housenumber'] || null, st = t['addr:street'] || null, pc = t['addr:postcode'] || null;
+  buildings.push({ pts: out, h: r1(h), kind, name: t.name || null,
+    ...(hn ? { nr: hn } : {}), ...(st ? { st } : {}), ...(pc ? { pc } : {}) });
 }
 
 // ---------- 8b. landuse (optional: the cross-check agent's x2_landuse.json, Overpass JSON) ----------

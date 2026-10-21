@@ -78,6 +78,7 @@ export class Hud {
     this.el = $('hud');
     this.city = $('loc-city');
     this.place = $('loc-place');
+    this.addr = $('loc-addr');
     this.money = $('money');
     this.prompt = $('prompt');
     this.hintEl = $('hint');
@@ -155,7 +156,12 @@ export class Hud {
     this.mode = mode;
     this.renderDock({ car, mode, trans });
     this.set('city', this.city, world.name);
+    // the street, and under it the real postal address of the building you are beside, straight
+    // from OpenStreetMap: "157 Colindeep Lane, NW9 6DB"
     this.set('place', this.place, world.place(x, z));
+    const addr = world.addressAt ? world.addressAt(x, z) : null;
+    this.set('addr', this.addr, addr && addr.text ? addr.text : '');
+    this.flag(this.addr, 'hidden', !(addr && addr.text));
     this.set('money', this.money, formatMoney(balance));
     if (prompt) reveal(this.prompt, prompt); else conceal(this.prompt);
     this.flag(this.speedo, 'hidden', !car);

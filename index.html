@@ -66,12 +66,18 @@
         <div id="ctl-tip" class="capsule hidden"><kbd>H</kbd>Controls</div>
       </div>
 
-      <!-- bottom right: where you are (GTA's street / area corner) over the dashboard -->
-      <div class="hud-bottom-right" id="speedo">
+      <!-- bottom right: where you are (GTA's street / area corner). Deliberately OUTSIDE #speedo,
+           which is hidden whenever you are on foot - the street name should not vanish with it. -->
+      <div class="hud-bottom-right loc-stack">
         <div class="loc">
           <div id="loc-place">Port Hercule</div>
+          <div id="loc-addr" class="hidden"></div>
           <div id="loc-city">MONACO</div>
         </div>
+      </div>
+
+      <!-- the dashboard, under it -->
+      <div class="hud-bottom-right" id="speedo">
         <div id="indicators" class="hidden" aria-hidden="true">
           <span class="ind l"><svg viewBox="0 0 24 24"><path d="M3 12l8-7v4.5h10v5H11V19z"/></svg></span>
           <span class="ind r"><svg viewBox="0 0 24 24"><path d="M21 12l-8-7v4.5H3v5h10V19z"/></svg></span>
