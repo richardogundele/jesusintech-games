@@ -84,6 +84,7 @@ export class RoadNet {
     this.ways = new Map(); this.nodes = new Map(); this.roundabouts = new Map();
     this.grid = new GridIndex(100);
     this.crossingsByWay = new Map();
+    this.calmingByWay = new Map();
     this.#buildWays(); this.#buildNodes(); this.#buildRoundabouts(); this.#buildLinks(); this.#buildExtras();
   }
 
@@ -170,6 +171,8 @@ export class RoadNet {
   }
   #buildExtras() {
     for (const c of this.data.crossings || []) { let a = this.crossingsByWay.get(c.way); if (!a) this.crossingsByWay.set(c.way, (a = [])); a.push(c); }
+    // speed humps, cushions and tables, by way, so the coach can see one coming
+    for (const c of this.data.calming || []) { let a = this.calmingByWay.get(c.way); if (!a) this.calmingByWay.set(c.way, (a = [])); a.push(c); }
     this.signalGroup = new Map(); for (const s of this.data.signals || []) this.signalGroup.set(s.node, s.junction);
     this.buildingGrid = new GridIndex(100);
     for (const b of this.data.buildings || []) {

@@ -428,6 +428,29 @@ for (const c of feat.crossings) {
     crossings.push({ node: 0, x: r1(h.px), z: r1(h.pz), type, way: h.way.id, s: r1(h.s) }); crossProjected++;
   }
 }
+// ---------- traffic calming: humps, cushions, tables ----------
+// Same trick as the crossings above: a hump sits on a mid-way vertex, and simplify/renumber drops
+// untagged mid-way nodes, so most of them have no node id by now. Project each onto the nearest
+// carriageway instead and record how far along it sits, which is what the road builder needs.
+const HUMP_KIND = { hump: 'hump', bump: 'hump', table: 'table', cushion: 'cushion', rumble_strip: 'rumble', dip: 'hump' };
+const calming = [];
+let calmProjected = 0, calmDropped = 0;
+for (const c of feat.calming || []) {
+  const kind = HUMP_KIND[c.kind];
+  if (!kind || !inBounds([c.x, c.z])) continue;
+  const n = osmToNode(c.id);
+  if (n && nodesOut[n]) {
+    const wid = nodesOut[n].ways.find((w) => (c.ways || []).includes(wayById.get(w).osm)) ?? nodesOut[n].ways[0];
+    const p = wayById.get(wid), cum = cumOf(p), i = p.nodes.indexOf(n);
+    calming.push({ x: nodesOut[n].x, z: nodesOut[n].z, kind, way: wid, s: r1(cum[i]) });
+  } else {
+    const h = tmpNet.nearest(c.x, c.z, 15);
+    if (!h) { calmDropped++; continue; }
+    calming.push({ x: r1(h.px), z: r1(h.pz), kind, way: h.way.id, s: r1(h.s) });
+    calmProjected++;
+  }
+}
+
 const levelCrossings = [];
 for (const c of feat.level_crossings) {
   if (c.type !== 'level_crossing') continue; const n = osmToNode(c.id); if (!n) continue;
@@ -544,7 +567,7 @@ const waysOut = kept.map((p) => ({ id: p.id, name: p.name, ref: p.ref, cls: p.cl
   ...(p.surface ? { surface: p.surface } : {}), ...(p.synthetic ? { synthetic: true } : {}), pts: p.pts, nodes: p.nodes }));
 const region = {
   attribution: ATTR, osm_base: roads.osm_base, region: R.id, name: R.name, idNote: 'node ids are small integers assigned by tools/region-data.mjs, not OSM ids; way ids are OSM way ids (negative = a way cut at the region edge, or a synthetic ring arc)',
-  origin: ORIGIN, bounds: B, ways: waysOut, nodes: nodesOut, roundabouts, minis, signals, crossings, levelCrossings, railways, rivers, coastline, sea, buildings, landuse, landmarks, places: [...places, ...far], testCentres, home: HOME, airfield: AIRFIELD,
+  origin: ORIGIN, bounds: B, ways: waysOut, nodes: nodesOut, roundabouts, minis, signals, crossings, calming, levelCrossings, railways, rivers, coastline, sea, buildings, landuse, landmarks, places: [...places, ...far], testCentres, home: HOME, airfield: AIRFIELD,
 };
 const net = new RoadNet(region);
 for (const rb of roundabouts) for (const arm of rb.arms) {
@@ -626,7 +649,7 @@ if (CHECK) {
   const km = {}; let total = 0;
   for (const w of net.ways.values()) { km[w.cls] = (km[w.cls] || 0) + w.len / 1000; total += w.len / 1000; }
   console.log('\n== counts');
-  console.log(`ways ${waysOut.length} (${dropped.length} island ways dropped, ${droppedKm.toFixed(2)} km; ${skippedRb.length} roundabouts outside the region), nodes ${Object.keys(nodesOut).length} (junctions ${[...net.nodes.values()].filter((n) => n.kind === 'junction').length}, ends ${[...net.nodes.values()].filter((n) => n.kind === 'end').length}), roundabouts ${roundabouts.length}, minis ${minis.length}, signals ${signals.length} in ${new Set(signals.map((s) => s.junction)).size} groups, crossings ${crossings.length} (${crossProjected} projected from footways, ${crossDropped} dropped), level crossings ${levelCrossings.length}, railways ${railways.length}, rivers ${rivers.length}, coastline ${coastline.length} pts, sea ${sea.length} pts, buildings ${buildings.length} (${tinySkipped} tiny skipped, ${clearedHome} cleared at home, ${clearedField} cleared on the airfield), landuse ${landuse.length} (${Object.entries(landuse.reduce((m, l) => (m[l.kind] = (m[l.kind] || 0) + 1, m), {})).map(([k, v]) => k + ' ' + v).join(', ')}), landmarks ${landmarks.length} (${landmarks.filter((l) => l.brand).length} with brand), places ${places.length} + ${far.length} far, test centres ${testCentres.length}`);
+  console.log(`ways ${waysOut.length} (${dropped.length} island ways dropped, ${droppedKm.toFixed(2)} km; ${skippedRb.length} roundabouts outside the region), nodes ${Object.keys(nodesOut).length} (junctions ${[...net.nodes.values()].filter((n) => n.kind === 'junction').length}, ends ${[...net.nodes.values()].filter((n) => n.kind === 'end').length}), roundabouts ${roundabouts.length}, minis ${minis.length}, signals ${signals.length} in ${new Set(signals.map((s) => s.junction)).size} groups, crossings ${crossings.length} (${crossProjected} projected from footways, ${crossDropped} dropped), calming ${calming.length} (${calmProjected} projected, ${calmDropped} dropped), level crossings ${levelCrossings.length}, railways ${railways.length}, rivers ${rivers.length}, coastline ${coastline.length} pts, sea ${sea.length} pts, buildings ${buildings.length} (${tinySkipped} tiny skipped, ${clearedHome} cleared at home, ${clearedField} cleared on the airfield), landuse ${landuse.length} (${Object.entries(landuse.reduce((m, l) => (m[l.kind] = (m[l.kind] || 0) + 1, m), {})).map(([k, v]) => k + ' ' + v).join(', ')}), landmarks ${landmarks.length} (${landmarks.filter((l) => l.brand).length} with brand), places ${places.length} + ${far.length} far, test centres ${testCentres.length}`);
   if (synthNotes.length) console.log('synthetic roads: ' + synthNotes.join('; '));
   console.log(`points ${waysOut.reduce((s, w) => s + w.pts.length, 0)}; total ${total.toFixed(1)} km; by class: ` + Object.entries(km).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${v.toFixed(1)}`).join(', '));
   console.log('\n== 12 biggest roundabouts (lanes, then radius)');

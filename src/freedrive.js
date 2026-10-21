@@ -213,6 +213,25 @@ export class FreeExam {
       } else this.wrongDist = 0;
     } else this.wrongDist = 0;
 
+    // ---- a speed hump coming up ----
+    // Humps are on the residential streets where most of the driving happens, so this is the tip a
+    // learner meets most often. Only speaks if you are still carrying speed at it.
+    if (net && net.calmingByWay && net.calmingByWay.size && mph > 22) {
+      const h = net.nearest(car.pos.x, car.pos.z, 14);
+      const list = h && net.calmingByWay.get(h.way.id);
+      if (list) {
+        const fwd = h.dir[0] * Math.sin(car.heading) + h.dir[1] * Math.cos(car.heading) >= 0 ? 1 : -1;
+        for (const cm of list) {
+          const ahead = (cm.s - h.s) * fwd;
+          if (ahead > 4 && ahead < 45) {
+            return this.tip(cm.kind === 'cushion'
+              ? 'Speed cushions ahead — ease off and straddle them, you do not need to brake hard.'
+              : 'Speed hump ahead — slow down before it, not on it.', 'hump', 14);
+          }
+        }
+      }
+    }
+
     // ---- MSPSL: approaching a junction ----
     const j = this.junctionAhead(car, world);
     if (j && mph > 6 && j.dist < 55) {

@@ -88,6 +88,7 @@ export function netView(net) {
   const view = {
     net, data, ways, nodes, rbs, ringWayRb, ringNodeRb,
     minis: pick('minis'), crossings: pick('crossings'), signals: pick('signals'), places: pick('places'),
+    calming: pick('calming'), // speed humps, cushions and tables, each pinned to a way at arc length s
     bounds: net.bounds ?? data.bounds ?? null,
     desc: new Map(), prep: new Map(), info: new Map(), index: new Map(),
   };
@@ -483,7 +484,7 @@ function ringArm(view, rb, way, nid) {
 function wayCuts(view, p) {
   if (p.cuts) return p.cuts;
   const { d, nodeS, frames, len } = p;
-  const c = { asphalt: [], centre: [], edge: { 1: [], '-1': [] }, pave: { 1: [], '-1': [] }, kerb: { 1: [], '-1': [] }, yellow: [], hazards: [], lines: [], caps: [] };
+  const c = { asphalt: [], centre: [], edge: { 1: [], '-1': [] }, pave: { 1: [], '-1': [] }, kerb: { 1: [], '-1': [] }, yellow: [], hazards: [], lines: [], caps: [], humps: [] };
   const span = (s, dir, t) => (dir > 0 ? [s, s + t] : [s - t, s]);
   for (const [nid, s] of nodeS) {
     if (view.ringNodeRb.has(nid)) {
@@ -534,6 +535,16 @@ function wayCuts(view, p) {
       c.yellow.push([s - Rm - 4, s + Rm + 4]);
       c.hazards.push({ s, reach: hazardReach(d.limit) });
     }
+  }
+  // speed humps on this way: a raised band of darker tarmac with a white chevron either side, the
+  // way British humps are marked. Drawn here so the terrain drape carries them over the hills.
+  for (const cm of view.calming) {
+    if (cm.way !== p.way.id) continue;
+    const s = num(cm.s, null) != null ? num(cm.s, 0) : sNearest(p, cm.x, cm.z).s;
+    if (s < 1 || s > p.way.len - 1) continue;
+    cm.__s = s;
+    c.humps.push({ s, kind: cm.kind });
+    c.hazards.push({ s, reach: hazardReach(d.limit) });
   }
   // crossings on this way
   for (const cr of view.crossings) {
@@ -761,6 +772,18 @@ export function buildRoadTile(net, tile, { lod = 'near', mats, materials, ground
     const W = batch('white');
     const keepS = inBoxS(frames);
     const hazardIntervals = union(cuts.hazards.map((h) => [h.s - h.reach, h.s + h.reach]));
+    // ---- speed humps: a raised band of darker tarmac, chevroned white at each edge ----
+    // The band is laid 7 cm proud of the carriageway. Because the whole tile is draped onto the
+    // terrain afterwards, that 7 cm rides the hills with everything else.
+    for (const h of cuts.humps) {
+      if (!keepS(h.s)) continue;
+      const halfLen = h.kind === 'table' ? 3.2 : 1.6;    // a table is a long flat-topped one
+      const top = h.kind === 'cushion' ? 0.06 : 0.07;
+      const hw = h.kind === 'cushion' ? Math.min(d.hw, 0.9) : d.hw;  // cushions leave a gap each side
+      ribbonRuns(batch('concreteTop'), frames, -hw, hw, Y_ROAD + top, [[h.s - halfLen, h.s + halfLen]]);
+      // the white chevrons that warn you it is there
+      for (const e of [-1, 1]) transverse(W, frames, h.s + e * halfLen * 0.72, -hw, hw, 0.36, Y_ROAD + top + 0.004);
+    }
     // centre line: hazard pattern near junctions / crossings / bends, else the normal broken line
     if (d.centreLine && !d.rb) {
       const wide = d.width >= 10 || d.lanesF + d.lanesB >= 3;
