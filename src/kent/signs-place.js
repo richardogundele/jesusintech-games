@@ -122,7 +122,7 @@ export function makeSignBuilder({ net, colliders = null, groundY = null } = {}) 
     build(tile, lod) {
       if (lod !== 'near') return { group: new THREE.Group(), dispose() {}, stats: { signs: 0 } };
       if (!plan) plan = safePlan();
-      return buildTile(tile, plan.byTile.get(tileKey(tile.tx, tile.tz)) || [], { clear: plan.clear, colliders, heads });
+      return buildTile(tile, plan.byTile.get(tileKey(tile.tx, tile.tz)) || [], { clear: plan.clear, colliders, heads, gy });
     },
     /** blink the Belisha globes (call from a world ticker with seconds) */
     tick(t) { if (shared) shared.globeMat.emissiveIntensity = Math.sin(t * Math.PI * 1.2) > 0 ? 2.4 : 0.15; },
@@ -428,6 +428,7 @@ function makePlan(net, view) {
       if (rb.r >= 12 && ra) {
         add('give_way', 10, site(way, way.cum[idx] + dir * (ra.trim + 2.5), -dir, 1), [face(1, { sign: 'give_way', band: b })], { tag: 'give_way' });
       }
+      // (one-way signs are placed below, once per street, not per roundabout arm)
       // keep-left bollard on the splitter island's approach nose, where roads.js ends the island
       if (ra && ra.splitter && (arm.entryLanes || ra.entryLanes) >= 2) {
         const F = P(way).frames, f = frameAt(F, ra.sN + dir * (ra.trim + 0.6 + ra.Ls * 0.72 - 0.35));
@@ -512,6 +513,24 @@ function makePlan(net, view) {
         }
       }
     }
+  }
+
+  // ---------- one-way streets: the sign at the mouth, No Entry at the far end ----------
+  // The artwork for both existed but neither was ever erected, so a one-way street looked exactly
+  // like any other. Without these a learner has no way to know, and nothing should be marked for
+  // driving the wrong way down a street the game never signed.
+  const ONE_WAY_CLS = new Set(['residential', 'living_street', 'unclassified', 'tertiary', 'secondary', 'primary']);
+  for (const way of view.ways.values()) {
+    if (!way.oneway || way.rb || way.link) continue;          // rings and slip roads sign themselves
+    if (way.len < 25) continue;                               // not stubs
+    // A motorway or dual carriageway is one-way per carriageway by its nature, not a one-way
+    // STREET, and signing the M1 with No Entry would be nonsense. Town streets only.
+    if (!ONE_WAY_CLS.has(way.cls) || way.dual || way.nsl || way.limit > 40) continue;
+    const b = bandW(way);
+    // entering the legal way: the one-way plate, on the left, facing the driver
+    add('one_way', 8, site(way, 6, 1, 1), [face(1, { sign: 'one_way', band: b })], { tag: 'one_way' });
+    // the far end, turned to face anyone about to drive in against the flow
+    add('no_entry', 10, site(way, way.len - 6, -1, 1), [face(1, { sign: 'no_entry', band: b })], { tag: 'no_entry' });
   }
 
   // ---------- crossings: Belisha beacons and signal heads ----------
@@ -761,7 +780,7 @@ function texFor(f) {
   return { tex: signTexture(f.sign, opts), sizeMm: f.size || signSize(f.sign, f.band || '30', opts) };
 }
 
-function buildTile(tile, list, { clear, colliders, heads }) {
+function buildTile(tile, list, { clear, colliders, heads, gy = () => 0 }) {
   const S = sharedParts();
   const group = new THREE.Group();
   group.name = `signs ${tile.key || tileKey(tile.tx, tile.tz)}`;
