@@ -15,6 +15,15 @@ export class FreeExam {
     this.lightAlong = new Map(); // signal head -> last distance to its stop line (to catch the crossing)
     this.lane = null; this.lastSignal = { dir: null, t: -99 };
     this.rollBack = 0; this.rollMarked = 0; // metres rolled back on a hill since you last moved off
+    // the routines an instructor drills: MSM, MSPSL and POM. Everything here keys off when you
+    // last actually looked (Q), so the order you do things in is what gets coached.
+    this.mirrorAt = -99;        // when you last checked your mirrors
+    this.indOn = null;          // the indicator as of last frame, to catch the moment it comes on
+    this.indSeeded = false;     // an indicator already on when a drive starts is not a fresh signal
+    this.wasStopped = true;
+    this.movedOffAt = -99;
+    this.taughtMirror = false;  // only mark a mirrors fault once you have been told the routine
+    this.jnAt = -99; this.jn = null; // the junction ahead, looked up on a throttle
   }
 
   get counts() {
@@ -30,10 +39,11 @@ export class FreeExam {
   }
   held(key, cond, dt, secs) { this.timers[key] = cond ? (this.timers[key] || 0) + dt : 0; return this.timers[key] > secs; }
 
-  /** call every frame while free-driving a car (mode 'car', no lesson running); ctx: { indicator } */
+  /** call every frame while free-driving a car (mode 'car', no lesson running); ctx: { indicator, mirrorPressed } */
   update(dt, car, world, res, ctx = {}) {
     this.t += dt;
     this.dist += Math.abs(car.vF) * dt;
+    if (ctx.mirrorPressed) this.mirrorAt = this.t;
     this.redLights(car, world);
     this.laneDiscipline(car, world, ctx.indicator);
     // hill starts: rolling back on an upslope. A little is a driving fault, a lot is serious.
@@ -100,10 +110,94 @@ export class FreeExam {
     this.ccool[key] = this.t + cooldown;
     this.hooks.tip?.(text);
   }
+  /**
+   * The next junction you will reach along the road you are on, if it is close.
+   * Cheap: one nearest() plus a walk of that way's own node list, throttled to 4 Hz.
+   */
+  junctionAhead(car, world) {
+    if (this.t - this.jnAt < 0.25) return this.jn;
+    this.jnAt = this.t;
+    this.jn = null;
+    const net = world && world.net;
+    if (!net || !net.nearest) return null;
+    const h = net.nearest(car.pos.x, car.pos.z, 18);
+    if (!h) return null;
+    const w = h.way;
+    // travelling with the way's direction, or against it?
+    const fx = Math.sin(car.heading), fz = Math.cos(car.heading);
+    const along = h.dir[0] * fx + h.dir[1] * fz >= 0 ? 1 : -1;
+    for (let k = 0; k < w.nodes.length; k++) {
+      const i = along > 0 ? k : w.nodes.length - 1 - k;
+      const nid = w.nodes[i];
+      if (!nid) continue;
+      const ds = (w.cum[i] - h.s) * along;
+      if (ds <= 3) continue;
+      if (ds > 80) break;
+      const node = net.nodes.get(nid);
+      if (node && (node.kind === 'junction' || node.rb)) { this.jn = { dist: ds, node, rb: !!node.rb }; break; }
+    }
+    return this.jn;
+  }
+
+  /**
+   * The routines, drilled the way an instructor drills them. These are tips, not marks, with one
+   * exception: signalling without looking first is a real DL25 line (Mirrors: signalling), and it
+   * is only ever marked AFTER you have been told the routine at least once.
+   *   MSM    mirror, signal, manoeuvre        - every change of speed or direction
+   *   MSPSL  mirror, signal, position, speed, look - approaching a junction
+   *   POM    prepare, observe, move           - moving off
+   */
+  routines(dt, car, world, ctx = {}) {
+    const mph = car.speedKmh * MPH, v = car.vF;
+    const sinceMirror = this.t - this.mirrorAt;
+    const fresh = sinceMirror < 4; // a check still counts as "just looked" for four seconds
+
+    // ---- POM: moving off ----
+    const stopped = Math.abs(v) < 0.4;
+    if (this.wasStopped && v > 1.2) {
+      this.wasStopped = false;
+      this.movedOffAt = this.t;
+      if (!fresh) {
+        this.taughtMirror = true;
+        this.tip('Moving off: mirrors, signal, then a blind spot check over your shoulder before you go. Q checks your mirrors.', 'pom', 14);
+      }
+    } else if (stopped) this.wasStopped = true;
+
+    // ---- MSM: the mirror comes before the signal ----
+    // Seed on the first frame: an indicator that was already on when the drive began (or when the
+    // examiner reset) is not you signalling, and must not be marked as one.
+    const ind = ctx.indicator || null;
+    if (!this.indSeeded) { this.indSeeded = true; this.indOn = ind; }
+    else if (ind && ind !== this.indOn) {
+      if (!fresh) {
+        if (this.taughtMirror) this.fault('minor', 'Mirrors: signalling (signalled without checking first)', 'mirrorsig', 10);
+        this.taughtMirror = true;
+        this.tip('Mirror first, then signal — mirror, signal, manoeuvre, every time.', 'msm', 10);
+      }
+    }
+    this.indOn = ind;
+
+    // ---- MSM: the mirror comes before slowing down ----
+    if (this.cHeld('slowing', v > 4 && car.accelSmoothed < -2.2 && !fresh, dt, 0.5)) {
+      this.taughtMirror = true;
+      return this.tip('Check your mirror before you slow down — someone may be close behind.', 'msmslow', 12);
+    }
+
+    // ---- MSPSL: approaching a junction ----
+    const j = this.junctionAhead(car, world);
+    if (j && mph > 6 && j.dist < 55) {
+      if (j.rb) return this.tip('Roundabout coming up: mirror, signal for your exit, get into the right lane, and slow enough to give way to the right.', 'mspsl', 16);
+      return this.tip('Junction ahead: Mirror, Signal, Position, Speed, Look. Look is the last thing you do, and the most important.', 'mspsl', 16);
+    }
+    return undefined;
+  }
+
   /** call every frame while free-driving a manual: gentle guidance on gears and the engine */
-  coach(dt, car) {
+  coach(dt, car, world = null, ctx = {}) {
     const d = car.drive;
     if (!d || !d.engineOn) return;
+    // the routines come first: they apply in an automatic too
+    if (world && this.routines(dt, car, world, ctx)) return;
     // stopped facing uphill: the hill-start routine (handbrake, bite, then release as it pulls)
     if (this.cHeld('hill', (car.grade || 0) > 0.03 && Math.abs(car.vF) < 0.3, dt, 1.2)) {
       return this.tip(d.kind === 'manual'

@@ -1314,7 +1314,12 @@ function step(dt) {
       crashCooldown = Math.max(0, crashCooldown - dt);
       if (res.impact > 3.5 && crashCooldown <= 0) { audio.sfx('crash'); camShake = Math.min(1.1, res.impact * 0.11); crashCooldown = 0.4; }
       // free-driving is always a test: mark the faults that don't need a route and keep the tally live
-      if (!lesson) { freeExam.update(dt, car, world, res, { indicator: drive.indicator }); freeExam.coach(dt, car); hud.exam(freeExam.counts, true, careerRating()); }
+      if (!lesson) {
+        const ectx = { indicator: drive.indicator, mirrorPressed: drive.mirrorPressed };
+        freeExam.update(dt, car, world, res, ectx);
+        freeExam.coach(dt, car, world, ectx);
+        hud.exam(freeExam.counts, true, careerRating());
+      }
       // the motorway leg ends at the exit for your destination
       if (roadTrip && world.id === 'motorway' && car.pos.z > world.exitZ) arriveByRoad();
       if (lesson) {
