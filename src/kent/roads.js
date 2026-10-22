@@ -751,11 +751,22 @@ export function buildRoadTile(net, tile, { lod = 'near', mats, materials, ground
     decalQuad(id, { text, lines: [text], height: h * 1000 }, x, z, fx, fz, Math.max(1.2, 0.55 * text.length), h);
   };
 
+  // ---- flyovers: who drew which vertices ----
+  // Every batch is a flat list of vertices in the order they were pushed, so a marker at the head
+  // of each way's (or junction's) drawing says which way owns the vertices from here to the next
+  // marker. Once the tile is drawn, each owner's vertices are lifted by its deck height - a bridge
+  // way to its deck, an approach road up its ramp, the road beneath not at all. Done by ownership
+  // rather than by position because at the crossing itself both carriageways contain the point.
+  const marks = [];
+  const snapshot = () => { const m = new Map(); for (const gb of Object.values(B)) m.set(gb, gb.n); for (const gb of decals.values()) m.set(gb, gb.n); return m; };
+  const mark = (owner) => marks.push({ owner, at: snapshot() });
+
   // ---- ways: ribbons, lines, pavements, kerbs ----
   const wayPreps = [];
   for (const way of cell.ways) {
     if (!way.pts || way.pts.length < 2) continue;
     const p = prepWay(view, way);
+    mark({ p });
     const { d, frames } = p;
     if (d.rb || way.synthetic && d.rb) continue; // the circulatory carriageway comes from the roundabout record
     wayPreps.push(p);
@@ -876,8 +887,10 @@ export function buildRoadTile(net, tile, { lod = 'near', mats, materials, ground
   }
 
   // ---- junction nodes: patch, fillets, give-way / stop lines, minis, dead ends ----
+  mark(null);
   for (const nid of cell.nodes) {
     const info = nodeInfo(view, nid);
+    mark({ nid });
     if (info.ring) continue;
     const J = batch(info.matKey);
     if (info.kind === 'junction' || info.kind === 'step') {
@@ -930,7 +943,9 @@ export function buildRoadTile(net, tile, { lod = 'near', mats, materials, ground
     if (info.node.mini) drawMini(view, info, batch, laneArrow, wordDecal, uvWorld);
   }
   // signal stop lines on 'via' nodes (the node sits on the line, before the junction)
+  mark(null);
   if (near) for (const p of wayPreps) {
+    mark({ p });
     const cuts = wayCuts(view, p);
     for (const ln of cuts.lines) {
       if (!ln.signalVia) continue;
@@ -955,10 +970,12 @@ export function buildRoadTile(net, tile, { lod = 'near', mats, materials, ground
   }
 
   // ---- roundabouts whose centre is in this tile ----
+  mark(null);
   for (const rb of cell.rbs) drawRoundabout(view, rb, { batch, near, obb, laneArrow, wordDecal, uvWorld, mats, extraObjects, roads });
 
   // ---- dual carriageway reservations + barriers ----
   for (const p of wayPreps) {
+    mark({ p });
     if (!p.d.dual) continue;
     const partner = findPartner(view, cell, p);
     if (!partner || partner.way.id < p.way.id) continue;
@@ -988,6 +1005,31 @@ export function buildRoadTile(net, tile, { lod = 'near', mats, materials, ground
     const c = colliders[i];
     if (c.src && crossesOtherWay(c)) colliders.splice(i, 1);
     else delete c.src;
+  }
+
+  // ---- flyovers: lift each owner's vertices to its deck ----
+  mark(null);
+  const nodeDeck = view.net?.nodeDeck;
+  for (let k = 0; k < marks.length - 1; k++) {
+    const { owner, at } = marks[k], next = marks[k + 1].at;
+    if (!owner) continue;
+    const p = owner.p, nd = owner.nid != null && nodeDeck ? nodeDeck.get(owner.nid) || 0 : 0;
+    if (p && !p.way.hasDeck) continue;
+    if (!p && !nd) continue;
+    for (const [gb, from] of at) {
+      const to = next.get(gb) ?? gb.n;
+      for (let i = from; i < to; i++) {
+        const x = gb.pos[i * 3], z = gb.pos[i * 3 + 2];
+        gb.pos[i * 3 + 1] += p ? view.net.deckAt(p.way, sNearest(p, x, z).s) : nd;
+      }
+    }
+    // batches born after this marker belong wholly to it until the next marker
+    for (const [gb, to] of next) if (!at.has(gb)) {
+      for (let i = 0; i < to; i++) {
+        const x = gb.pos[i * 3], z = gb.pos[i * 3 + 2];
+        gb.pos[i * 3 + 1] += p ? view.net.deckAt(p.way, sNearest(p, x, z).s) : nd;
+      }
+    }
   }
 
   // ---- meshes ----

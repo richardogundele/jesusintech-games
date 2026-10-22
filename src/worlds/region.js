@@ -28,6 +28,12 @@ export function buildRegion(renderer, { id, name, data, arena = false }) {
   if (!data) throw new Error(`${name} region data missing (public/assets/${id}/region.json)`);
   const net = new RoadNet(data);
   const terrain = makeTerrain(data);
+  // the ground plus the deck of a flyover under the point (see net.deckNear for how prevY decides)
+  const heightAt = (x, z, prevY = null) => { const t = terrain.heightAt(x, z); return t + net.deckNear(x, z, prevY, t); };
+  const gradeAt = (x, z, heading, prevY = null) => {
+    const dx = Math.sin(heading), dz = Math.cos(heading);
+    return (heightAt(x + dx, z + dz, prevY) - heightAt(x - dx, z - dz, prevY)) / 2;
+  };
   const scene = new THREE.Scene();
   const env = setupSky(scene, renderer, {
     hdri: hdri('monaco'), sunAzimuth: 330, exposure: 0.95, envIntensity: 0.9,
@@ -63,7 +69,7 @@ export function buildRegion(renderer, { id, name, data, arena = false }) {
   const signals = new SignalSystem({ net, signsBuilder: signs });
   const traffic = new KentTraffic({
     net, scene, signals, bodies: TRAFFIC, buildCar, buildPedestrian,
-    groundY: terrain.has ? terrain.heightAt : null, gradeAt: terrain.has ? terrain.gradeAt : null,
+    groundY: heightAt, gradeAt, // deck-aware: traffic rides the flyovers too
   });
 
   // the jet centre: the city's gateway, on the open land south of the real streets
@@ -150,8 +156,9 @@ export function buildRegion(renderer, { id, name, data, arena = false }) {
     laneAt: null,
     // The real hills. The road surfaces are draped onto this same grid (makeRoadBuilder's groundY)
     // and the land is built from its own triangles, so the car, the tarmac and the grass agree.
-    heightAt: terrain.heightAt, gradeAt: terrain.gradeAt,
-    floorY: (x, z) => terrain.heightAt(x, z),
+    // hills plus flyover decks; prevY tells a flyover from the road beneath (net.deckNear)
+    heightAt, gradeAt,
+    floorY: (x, z, yPrev) => heightAt(x, z, yPrev),
     terrain,
     terrainRange: terrain.range,
     player,

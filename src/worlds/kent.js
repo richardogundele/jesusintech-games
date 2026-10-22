@@ -62,7 +62,10 @@ export function buildKent(renderer) {
   // every set of lights in the region keeps time; the heads the sign tiles build show it
   const signals = new SignalSystem({ net, signsBuilder: signs });
   // live traffic: main.js picks this up as world.traffic (update / collide like the other worlds')
-  const traffic = new KentTraffic({ net, scene, signals, bodies: TRAFFIC, buildCar, buildPedestrian });
+  // Kent is flat, but its A299 and the slip roads over it are bridges: the deck is the only height
+  const heightAt = (x, z, prevY = null) => net.deckNear(x, z, prevY, 0);
+  const gradeAt = (x, z, heading, prevY = null) => { const dx = Math.sin(heading), dz = Math.cos(heading); return (heightAt(x + dx, z + dz, prevY) - heightAt(x - dx, z - dz, prevY)) / 2; };
+  const traffic = new KentTraffic({ net, scene, signals, bodies: TRAFFIC, buildCar, buildPedestrian, groundY: heightAt, gradeAt });
 
   // home on the cliff top and the jet centre at Maypole
   const house = buildKentHouse({ scene, colliders, tickers, origin: data.home, interactions, hooks, materials: { pbr }, driveEnd: 44 }); // the synthetic "Home Drive" road takes over at the gate
@@ -112,7 +115,8 @@ export function buildKent(renderer) {
     landmarks,
     place(x, z, y = 0) { return house.place(x, z, y) || air.place(x, z) || net.placeAt(x, z); },
     indoors: (x, z) => house.indoors(x, z),
-    floorY: (x, z, yPrev) => house.floorY(x, z, yPrev),
+    floorY: (x, z, yPrev) => house.indoors(x, z) ? house.floorY(x, z, yPrev) : heightAt(x, z, yPrev),
+    heightAt, gradeAt, // the flyovers' decks (Kent has no hills)
     speedLimitAt: (x, z) => net.limitAt(x, z),
     nslAt: (x, z) => net.nslAt(x, z),
     signalHeads: () => signals.heads, // live heads ({x, z, heading, state}) for the free-drive examiner

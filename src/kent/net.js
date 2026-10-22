@@ -169,7 +169,57 @@ export class RoadNet {
       }
     }
   }
+  // ---------- bridges: a deck height per way, and ramps on the roads that run up to one ----------
+  // OSM says which ways are bridges and on which layer; it says nothing about height, so a layer is
+  // DECK metres up (6 m clears a double-decker). A bridge way is flat at its deck for its whole
+  // length; any other way that ends on a bridge's node climbs to that node's height over its last
+  // RAMP metres, so the approach embankment is the road itself, not a cliff. A road that merely
+  // passes beneath shares no node with the bridge and stays on the ground: that is the whole point.
+  #buildDecks() {
+    const DECK = 6, RAMP = 90;
+    this.nodeDeck = new Map();
+    for (const w of this.ways.values()) {
+      w.deckH = w.bridge && !w.tunnel && (w.layer || 0) > 0 ? DECK * Math.min(3, w.layer) : 0;
+      if (!w.deckH) continue;
+      for (const nid of w.nodes) if (nid) this.nodeDeck.set(nid, Math.max(this.nodeDeck.get(nid) || 0, w.deckH));
+    }
+    const smooth = (t) => (t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t));
+    for (const w of this.ways.values()) {
+      const a = this.nodeDeck.get(w.nodes[0]) || 0, b = this.nodeDeck.get(w.nodes[w.nodes.length - 1]) || 0;
+      if (w.deckH) { w.deck = () => w.deckH; w.hasDeck = true; continue; }
+      if (!a && !b) { w.deck = null; w.hasDeck = false; continue; }
+      const L = w.len;
+      // short link: it may never reach ground between two decks; interpolate rather than dip
+      w.deck = (s) => Math.max(a * (1 - smooth(s / Math.min(RAMP, L))), b * (1 - smooth((L - s) / Math.min(RAMP, L))));
+      w.hasDeck = true;
+    }
+  }
+  /** deck height (0 on the ground) at arc length s along a way */
+  deckAt(way, s) { return way.deck ? way.deck(Math.max(0, Math.min(way.len, s))) : 0; }
+  /**
+   * The deck under a world point. Where a bridge crosses another road both carriageways contain
+   * the point, so the caller passes its current height and the deck that keeps it closest wins:
+   * a car on the flyover stays up, a car passing beneath stays down. With no prevY, the ground.
+   */
+  deckNear(x, z, prevY = null, terrainY = 0) {
+    let best = 0, bestD = Infinity;
+    // every road here competes, the ground-level ones at 0: a car on the M1 under the slip road
+    // keeps its height because the M1 (deck 0) scores nearer its previous y than the deck does
+    for (const { way, i } of this.grid.near(x, z, 12)) {
+      const a = way.pts[i], b = way.pts[i + 1];
+      const [t, px, pz] = projSeg(a[0], a[1], b[0], b[1], x, z);
+      if (hypot(x - px, z - pz) > way.halfW + 1.5) continue;
+      const d = way.hasDeck ? this.deckAt(way, way.cum[i] + t * hypot(b[0] - a[0], b[1] - a[1])) : 0;
+      const score = prevY == null ? d : Math.abs(terrainY + d - prevY);
+      if (score < bestD) { bestD = score; best = d; }
+    }
+    // with no previous height prefer the ground, so static things placed by position stay beneath
+    if (prevY == null) return 0;
+    // ...but if nothing decked is here at all, best stays 0
+    return best;
+  }
   #buildExtras() {
+    this.#buildDecks();
     for (const c of this.data.crossings || []) { let a = this.crossingsByWay.get(c.way); if (!a) this.crossingsByWay.set(c.way, (a = [])); a.push(c); }
     // speed humps, cushions and tables, by way, so the coach can see one coming
     for (const c of this.data.calming || []) { let a = this.calmingByWay.get(c.way); if (!a) this.calmingByWay.set(c.way, (a = [])); a.push(c); }

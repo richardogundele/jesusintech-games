@@ -58,6 +58,7 @@ for (const p of picks) {
   // probe points that are NOT vertices: walk each way at an offset from the sampling step
   let hits = 0, tileWorst = 0;
   for (const w of net.ways.values()) {
+    if (w.hasDeck) continue; // a flyover or its ramp sits above the ground on purpose
     for (let i = 0; i < w.pts.length - 1; i++) {
       const a = w.pts[i], b = w.pts[i + 1];
       for (const f of [0.37, 0.63]) { // deliberately off the 6 m frame spacing

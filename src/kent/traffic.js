@@ -558,12 +558,13 @@ export class KentTraffic {
       const near = len(c.x - cam.x, c.z - cam.z) < HIDE;
       m.visible = near;
       if (!near) continue;
-      m.position.set(c.x, this.groundY ? this.groundY(c.x, c.z) : 0, c.z);
+      // its own last height goes in, so a car on a flyover stays up and one beneath stays down
+      m.position.set(c.x, this.groundY ? this.groundY(c.x, c.z, m.position.y) : 0, c.z);
       m.rotation.y = c.heading;
       if (this.gradeAt) {
         // YXZ so pitch turns about the car's own (already yawed) axis: nose up on a climb
         m.rotation.order = 'YXZ';
-        m.rotation.x = -Math.atan(this.gradeAt(c.x, c.z, c.heading));
+        m.rotation.x = -Math.atan(this.gradeAt(c.x, c.z, c.heading, m.position.y));
       }
       const { wheels, wheelR } = c.model;
       if (wheels) for (const w of wheels) w.spin.rotation.x += (w.spinSign ?? 1) * (c.v / (wheelR || 0.35)) * dt;
@@ -573,7 +574,7 @@ export class KentTraffic {
       const near = len(p.x - cam.x, p.z - cam.z) < PED_HIDE;
       m.visible = near;
       if (!near) continue;
-      m.position.set(p.x, (this.groundY ? this.groundY(p.x, p.z) : 0) + (p.inRoad ? 0.02 : Y_PAVE), p.z);
+      m.position.set(p.x, (this.groundY ? this.groundY(p.x, p.z, m.position.y) : 0) + (p.inRoad ? 0.02 : Y_PAVE), p.z);
       m.rotation.y = p.heading;
       m.userData.animate?.(p.speed, dt);
     }

@@ -227,7 +227,8 @@ export class Car {
     const prevVF = vF;
     const drift = !this.drive && input.brake; // the learner car's Space is its parking brake
     // the slope under the car along its heading (rise per metre); hills are where hill starts happen
-    const grade = world.gradeAt ? world.gradeAt(this.pos.x, this.pos.z, this.heading) : 0;
+    // the car's own height is passed so a flyover and the road beneath it can be told apart
+    const grade = world.gradeAt ? world.gradeAt(this.pos.x, this.pos.z, this.heading, this.pos.y) : 0;
     this.grade = grade;
 
     if (this.drive) vF = this.drive.step(dt, input, vF, grade);
@@ -313,7 +314,7 @@ export class Car {
     const accel = (this.vF - prevVF) / Math.max(dt, 1e-4);
     this.accelSmoothed += (accel - this.accelSmoothed) * Math.min(1, dt * 6);
     this.slip = Math.abs(vR);
-    this.pos.y = world.heightAt ? world.heightAt(this.pos.x, this.pos.z) : 0; // sit on the ground, hills included
+    this.pos.y = world.heightAt ? world.heightAt(this.pos.x, this.pos.z, this.pos.y) : 0; // sit on the road: hills, and a flyover's deck
     this.sync(dt);
     return { hit, impact };
   }
