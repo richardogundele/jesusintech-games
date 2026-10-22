@@ -5,6 +5,7 @@ import { CARS } from './catalog.js';
 const fwd = new THREE.Vector2();
 const right = new THREE.Vector2();
 const probe = new THREE.Vector3();
+const DAMAGE_GREY = new THREE.Color(0x1a1b1e); // paint fades toward this as a car takes crash damage
 
 // ---------- the learner car's gearbox ----------
 // Only a car whose spec has `trans` ('manual' | 'auto') gets one: every other car keeps the arcade
@@ -198,8 +199,30 @@ export class Car {
     this.sync(0);
   }
 
-  /** set the car's condition (0-100): a badly knocked car holds the road a little worse */
-  setCondition(pct) { this.condition = Math.max(0, Math.min(100, pct)); }
+  /** set the car's condition (0-100): a badly knocked car holds the road a little worse and looks it */
+  setCondition(pct) {
+    this.condition = Math.max(0, Math.min(100, pct));
+    // darken the paint toward a scuffed grey as damage mounts (clone the material once so a shared
+    // gltf material is never touched)
+    if (this._paint === undefined) {
+      this._paint = null;
+      // the paint material is the loft body's white tint (its colour lives in vertex colours) or a
+      // gltf material recoloured to this car's paint colour — match either, and clone it before use
+      const targetHex = new THREE.Color(this.spec.color ?? 0xffffff).getHexString();
+      this.model.root.traverse((o) => {
+        if (this._paint || !o.isMesh || !o.material) return;
+        const arr = Array.isArray(o.material) ? o.material : [o.material];
+        const i = arr.findIndex((m) => m && m.color && (m.isMeshPhysicalMaterial || m.isMeshStandardMaterial)
+          && ((m.vertexColors && m.color.getHex() === 0xffffff) || m.color.getHexString() === targetHex));
+        if (i < 0) return;
+        const c = arr[i].clone();
+        this._base = c.color.clone();
+        this._paint = c;
+        if (Array.isArray(o.material)) o.material[i] = c; else o.material = c;
+      });
+    }
+    if (this._paint) this._paint.color.copy(this._base).lerp(DAMAGE_GREY, (1 - this.condition / 100) * 0.55);
+  }
 
   get name() { return `${this.spec.maker} ${this.spec.model}`; }
   get speedKmh() { return Math.abs(this.vF) * 3.6; }

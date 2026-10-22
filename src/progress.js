@@ -182,8 +182,10 @@ export function damageCar(id, sev) {
   const was = state.cars.condition[id] ?? 100;
   const condition = Math.max(0, was - Math.round(sev * 4.5));
   const writeOff = sev >= WRITEOFF || condition <= 0;
-  const cost = Math.round(price * (writeOff ? 1 : Math.min(0.15, Math.max(0.02, sev / 30))));
-  addFunds(-Math.min(cost, Math.max(0, state.balance)), writeOff ? `Wrote off ${c.maker} ${c.model}` : `Crash repairs: ${c.maker} ${c.model}`);
+  // a write-off's real cost is losing the car (you re-buy it); on top of that just a tow fee, not the
+  // whole value again. A repair is a share of the value by how hard you hit.
+  const cost = Math.round(price * (writeOff ? 0.05 : Math.min(0.15, Math.max(0.02, sev / 30))));
+  addFunds(-Math.min(cost, Math.max(0, state.balance)), writeOff ? `Wrote off ${c.maker} ${c.model} (tow)` : `Crash repairs: ${c.maker} ${c.model}`);
   if (writeOff) { state.cars.condition[id] = 0; if (!state.cars.writtenOff.includes(id)) state.cars.writtenOff.push(id); }
   else state.cars.condition[id] = condition;
   save();

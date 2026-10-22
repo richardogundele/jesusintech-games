@@ -720,7 +720,8 @@ function addAutoBadge(c) {
 }
 /** the car you learn in: your chosen car's looks, with calm learner handling so a test is still a test */
 function lessonSpecFor(id) {
-  if (!id || id === 'learner' || !CARS[id]) return LEARNER;
+  if (!id || id === 'learner' || !CARS[id] || P.isWrittenOff(id)) return LEARNER; // a written-off car can't be the lesson car
+
   const base = CARS[id];
   return { ...base, topSpeed: LEARNER.topSpeed, accel: LEARNER.accel, grip: LEARNER.grip, steer: LEARNER.steer };
 }
@@ -1152,7 +1153,7 @@ function applyCrash(sev) {
   if (r.insured) { audio.sfx('spend'); hud.toast(`Crash — insurance excess ${P.shortMoney(r.cost)}`, 3200); return; }
   if (r.writeOff) {
     audio.sfx('crash');
-    hud.toast(`Your ${r.car} is a write-off — ${P.shortMoney(r.cost)} gone. Buy a replacement at the Dealer.`, 6500);
+    hud.toast(`Your ${r.car} is written off — buy a replacement at the Dealer.`, 6500);
     writeOffCurrentCar();
   } else {
     audio.sfx('spend');
