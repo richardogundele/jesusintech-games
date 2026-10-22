@@ -194,8 +194,12 @@ export class Car {
     this.accelSmoothed = 0;
     this.wheelbase = this.model.length * 0.6;
     this.drive = spec.trans ? (spec.trans === 'manual' ? new Manual() : new Auto()) : null;
+    this.condition = 100; // crash damage: 100 fresh, 0 wrecked; bleeds a little grip when low
     this.sync(0);
   }
+
+  /** set the car's condition (0-100): a badly knocked car holds the road a little worse */
+  setCondition(pct) { this.condition = Math.max(0, Math.min(100, pct)); }
 
   get name() { return `${this.spec.maker} ${this.spec.model}`; }
   get speedKmh() { return Math.abs(this.vF) * 3.6; }
@@ -266,8 +270,8 @@ export class Car {
     }
     this.steer += (target - this.steer) * Math.min(1, dt * rate);
 
-    // lateral grip
-    const grip = drift ? s.grip * 0.12 : s.grip;
+    // lateral grip (a knocked car holds the road a little worse: 100% at full condition, 80% wrecked)
+    const grip = (drift ? s.grip * 0.12 : s.grip) * (0.8 + 0.2 * (this.condition / 100));
     vR *= Math.exp(-grip * dt);
 
     this.vel.set(fwd.x * vF + right.x * vR, fwd.y * vF + right.y * vR);

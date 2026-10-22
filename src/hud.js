@@ -368,7 +368,8 @@ export class Hud {
     // engine state lives in the caption under the speed
     const off = !d.engineOn;
     this.flag(this.speedo, 'eng-off', off);
-    this.set('dt-badge', D.badge, d.crank > 0 ? 'Starting…' : off ? 'Engine off' : manual ? 'Manual' : 'Auto');
+    const cond = car && car.condition < 100 ? ` · ${Math.round(car.condition)}%` : ''; // crash damage, when the car is knocked
+    this.set('dt-badge', D.badge, (d.crank > 0 ? 'Starting…' : off ? 'Engine off' : manual ? 'Manual' : 'Auto') + cond);
     this.flag(D.pb, 'hidden', !d.parkingBrake);
     // the rev line (manual only)
     this.flag(D.revBox, 'hidden', !manual);

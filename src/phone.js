@@ -30,7 +30,9 @@ export class Phone {
       if (act === 'car') {
         const home = this.hooks.homeId();
         if (P.buyCar(id, home)) { this.hooks.sfx('spend'); this.hooks.onCarBought(id, home); }
+        this.render();
       }
+      if (act === 'repair') { if (P.repairCar(id)) { this.hooks.sfx('spend'); this.hooks.onCarRepaired?.(id); } this.render(); }
       if (act === 'jet' && P.buyJet(id)) { this.hooks.sfx('spend'); this.hooks.onJetBought(id); }
       if (act === 'give' && P.give(id)) this.hooks.sfx('level');
       // these leave the phone: close it first so the game mode is restored before travelling
@@ -209,15 +211,23 @@ export class Phone {
   }
 
   dealer() {
-    const home = this.hooks.homeId();
     const rows = Object.entries(CARS).map(([id, c]) => {
-      const owned = P.ownsCar(id);
-      const btn = owned ? '<span class="owned">In your garage</span>'
-        : `<button class="buy" data-act="car" data-id="${id}" ${state.balance < c.price ? 'disabled' : ''}>${P.shortMoney(c.price)}</button>`;
+      const owned = P.ownsCar(id), off = P.isWrittenOff(id), cond = P.carCondition(id);
+      const repairCost = Math.max(1, Math.round(c.price * ((100 - cond) / 100) * 0.4));
+      let btn;
+      if (owned) {
+        btn = cond < 100
+          ? `<button class="buy ghost" data-act="repair" data-id="${id}">Repair · ${P.shortMoney(repairCost)}</button>`
+          : '<span class="owned">In your garage</span>';
+      } else {
+        btn = `<button class="buy" data-act="car" data-id="${id}" ${state.balance < c.price ? 'disabled' : ''}>${off ? 'Replace · ' : ''}${P.shortMoney(c.price)}</button>`;
+      }
+      const sub = off ? '<div class="s" style="color:#e2574c">Written off</div>'
+        : owned && cond < 100 ? `<div class="s">Condition ${cond}%</div>` : `<div class="s">${c.topSpeed} km/h</div>`;
       return `<div class="row"><div class="swatch" style="background:#${c.color.toString(16).padStart(6, '0')}"></div>
-        <div class="grow"><div class="m">${c.maker}</div><div class="t">${c.model}</div><div class="s">${c.topSpeed} km/h</div></div>${btn}</div>`;
+        <div class="grow"><div class="m">${c.maker}</div><div class="t">${c.model}</div>${sub}</div>${btn}</div>`;
     }).join('');
-    return `<p class="note">Delivered to your Kent home.</p>${rows}`;
+    return `<p class="note">Crash a car and it takes real damage: a knock costs repairs, a hard hit writes it off. Buy or replace one here — it's delivered to you.</p>${rows}`;
   }
 
   hangar() {

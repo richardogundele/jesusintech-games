@@ -100,12 +100,12 @@ function getWorld(id) {
       w.cars.push(c);
       return c;
     };
-    w.garage.forEach((g) => addLearnerCar(w, g.id, g));
+    w.garage.forEach((g) => { if (!P.isWrittenOff(g.id)) addLearnerCar(w, g.id, g); }); // a written-off car isn't in the garage
     if (w.learnerAt) rebuildLearner(w);
     if (w.parked) addEyesightCar(w, { x: w.parked.x, z: w.parked.z, heading: 0 });
     for (const spot of w.eyesight || []) addEyesightCar(w, spot); // Kent: one at each test centre
     // cars bought from the phone fill the extra bays at this home
-    P.boughtCarsIn(id).forEach((carId, i) => w.slots?.[i] && addLearnerCar(w, carId, w.slots[i]));
+    P.boughtCarsIn(id).forEach((carId, i) => { if (!P.isWrittenOff(carId) && w.slots?.[i]) addLearnerCar(w, carId, w.slots[i]); });
     w.traffic = w.trafficSystem || new Traffic(w.scene, w.life || {});
     if (!w.trafficSystem && w.signalHeads) w.traffic.heads = w.signalHeads; // the cities' lights: traffic stops on red
     w.interactions = w.interactions || [];
@@ -127,6 +127,7 @@ let mode = 'menu'; // menu | foot | car | jets | cutscene
 let car = null;
 let camMode = 0;
 let camShake = 0, crashCooldown = 0; // a jolt + a short mute so one bump doesn't spam the crash sound
+let damageCooldown = 0; // one crash bills the repairs once, not every overlapping frame
 let cutscene = null;
 let controlsOpen = false; // the H card: the world waits while it's open
 
@@ -216,6 +217,7 @@ function readInput() {
 function nearestCar(maxDist) {
   let best = null, bd = maxDist;
   for (const c of world.cars) {
+    if (c.id && P.isWrittenOff(c.id)) continue; // a written-off wreck can't be driven
     const d = c.pos.distanceTo(player.pos);
     if (d < bd) { bd = d; best = c; }
   }
@@ -258,8 +260,9 @@ function interact() {
       player.mesh.visible = false;
       camMode = 0;
       snapCamera();
+      c.setCondition?.(P.carCondition(c.id)); // pick the car up in the state the last crash left it
       if (c.drive) learnerHello(c);
-      else hud.toast(`${c.spec.maker} ${c.spec.model} · ${c.spec.topSpeed} km/h top speed`, 2600);
+      else { const cond = P.carCondition(c.id); hud.toast(`${c.spec.maker} ${c.spec.model} · ${c.spec.topSpeed} km/h top speed${cond < 100 ? ` · condition ${cond}%` : ''}`, 2600); }
       freeExam.reset(); // every drive is a fresh test
     }
   } else if (mode === 'car') {
@@ -589,8 +592,17 @@ const phone = new Phone({
   onCarBought(carId, home) {
     const w = worlds[home];
     if (!w) return;
-    const i = P.boughtCarsIn(home).length - 1;
-    if (w.slots?.[i]) addLearnerCar(w, carId, w.slots[i]);
+    // deliver it right where you're standing (so a replacement after a write-off is at hand); a car
+    // bought for a home you're not in waits in its garage bay
+    const at = w === world
+      ? { x: player.pos.x + 3, z: player.pos.z, heading: player.heading || 0 }
+      : w.slots?.[P.boughtCarsIn(home).length - 1];
+    if (at) addLearnerCar(w, carId, at);
+    if (w === world) hud.toast(`${CARS[carId]?.model || 'Your car'} delivered — press E to drive`, 3500);
+  },
+  onCarRepaired(carId) {
+    if (car?.id === carId) car.setCondition?.(100);
+    for (const c of world.cars) if (c.id === carId) c.setCondition?.(100);
   },
   onJetBought(jetId) { for (const id of ['kent', 'london', 'birmingham', 'manchester']) worlds[id]?.addJet?.(jetId); },
   setLook: (l) => { player.mesh.userData.setLook?.(l); save(); },
@@ -1133,6 +1145,38 @@ function driveFeedback(c) {
   hud.drivetrain(c);
 }
 
+// ---------- crash damage ----------
+/** Bill the repairs for a crash of severity `sev` (m/s); a hard hit writes the car off. */
+function applyCrash(sev) {
+  const r = P.damageCar(car.id, sev);
+  if (r.insured) { audio.sfx('spend'); hud.toast(`Crash — insurance excess ${P.shortMoney(r.cost)}`, 3200); return; }
+  if (r.writeOff) {
+    audio.sfx('crash');
+    hud.toast(`Your ${r.car} is a write-off — ${P.shortMoney(r.cost)} gone. Buy a replacement at the Dealer.`, 6500);
+    writeOffCurrentCar();
+  } else {
+    audio.sfx('spend');
+    hud.toast(`Crash — repairs ${P.shortMoney(r.cost)} · the car is at ${r.condition}%`, 3200);
+    if (car.setCondition) car.setCondition(r.condition); // show the knocks
+  }
+}
+/** Eject the player, tow the wreck away, and open the Dealer so a replacement can be bought. */
+function writeOffCurrentCar() {
+  const c = car;
+  const side = new THREE.Vector3(Math.cos(c.heading), 0, -Math.sin(c.heading)); // step out on the driver's side
+  player.pos.copy(c.pos).addScaledVector(side, (c.model.width || 2) / 2 + 1.1);
+  player.heading = c.heading; player.speed = 0; player.mesh.visible = true;
+  c.park?.();
+  const i = world.cars.indexOf(c);
+  if (i >= 0) { world.scene.remove(c.model.root); world.cars.splice(i, 1); } // the wreck is towed away
+  if (lesson) { lesson.cancel?.(); lesson = null; }
+  car = null; mode = 'foot';
+  hud.exam(null, false);
+  snapCamera();
+  phone.tab = 'dealer';
+  togglePhone(); // straight to the showroom
+}
+
 // ---------- sound ----------
 let musicKey = '';
 function updateSoundscape() {
@@ -1358,7 +1402,18 @@ function step(dt) {
       P.emit('km', (Math.abs(car.vF) * dt) / 1000);
       P.emit('speed', car.speedKmh);
       // a traffic car that drives into the learner is its driver's fault, not a fault on the lesson
-      if (world.traffic?.collide(car)) { car.sync(0); drive.trafficHit = world.traffic.lastHit?.blame !== 'other'; }
+      const preSpeed = Math.abs(car.vF || 0); // speed going into a hit, for the repair bill
+      const hitCar = world.traffic?.collide(car);
+      if (hitCar) { car.sync(0); drive.trafficHit = world.traffic.lastHit?.blame !== 'other'; }
+      // crash damage: a hit you cause into a car, or a hard hit into something solid, costs you money
+      // (and totals the car above ~25 mph). Billed once per crash with a 1.5 s cooldown.
+      damageCooldown = Math.max(0, damageCooldown - dt);
+      if (damageCooldown <= 0) {
+        const atFault = hitCar && world.traffic.lastHit?.blame === 'player';
+        const sev = Math.max(atFault ? preSpeed : 0, res.impact > 8 ? res.impact : 0);
+        if (sev > 5) { applyCrash(sev); damageCooldown = 1.5; }
+      }
+      if (!car) { updateCamera(dt); return; } // the car was just written off: it's gone, you're on foot
       audio.update(car, car.drive ? car.drive.throttle : input.up ? 1 : 0);
       if (car.drive) driveFeedback(car); else hud.drivetrain(null);
     } else {

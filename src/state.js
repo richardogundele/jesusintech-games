@@ -20,6 +20,8 @@ const DEFAULTS = () => ({
   uk: { lessons: {}, licence: false, tests: 0, trans: 'manual', lessonCar: null, history: [], hints: {} },
   // career: every finished drive banks into this, for the overall driver rating (see careerRating)
   career: { drives: 0, passes: 0, fails: 0, minor: 0, serious: 0, dangerous: 0, km: 0, cleanDrives: 0, last10: [] },
+  // crash damage: condition 0-100 per car id, and the car ids you wrote off (undrivable until re-bought)
+  cars: { condition: {}, writtenOff: [] },
   look: { outfit: 'Realistic soldier', camo: 'Woodland', top: 'Royal blue', jeans: 'Dark denim', skin: 'Brown' }, // what you're wearing
   lookV: 2, // bump to move existing saves onto a new default outfit once
   homeV: 1, // bump to move existing saves to a new home once
@@ -31,9 +33,11 @@ function load() {
   let saved = {};
   try { saved = JSON.parse(localStorage.getItem(KEY) || '{}') || {}; } catch { /* corrupt: start fresh */ }
   const out = { ...d, ...saved };
-  for (const k of ['owned', 'stats', 'best', 'daily', 'streak', 'wins', 'uk', 'look', 'songs', 'career']) {
+  for (const k of ['owned', 'stats', 'best', 'daily', 'streak', 'wins', 'uk', 'look', 'songs', 'career', 'cars']) {
     out[k] = { ...d[k], ...(saved[k] && typeof saved[k] === 'object' ? saved[k] : {}) };
   }
+  out.cars.condition = out.cars.condition && typeof out.cars.condition === 'object' ? out.cars.condition : {};
+  out.cars.writtenOff = Array.isArray(out.cars.writtenOff) ? out.cars.writtenOff : [];
   out.career.last10 = Array.isArray(out.career.last10) ? out.career.last10.slice(-10) : [];
   out.owned.cars = Array.isArray(out.owned.cars) ? out.owned.cars : [];
   out.owned.jets = Array.isArray(out.owned.jets) ? out.owned.jets : [];
