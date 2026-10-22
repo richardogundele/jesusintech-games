@@ -14,8 +14,18 @@ export const CAMO = {
   Multicam: [0xa39573, 0x7c7a55, 0x6b5c45, 0xc8bc9a],
   Urban: [0x9a9c9e, 0x6d7073, 0x3d3f42, 0xd2d3d4],
 };
+// Everyday clothes: Microsoft Rocketbox adult avatars (MIT licence, public/assets/character/<id>/).
+// The same six people walk the pavements as pedestrians; the wardrobe lets you be any of them.
+export const CIVILIANS = [
+  { id: 'Male_Adult_01', name: 'Polo & shorts', swatch: 0xd8c9a0 },
+  { id: 'Male_Adult_05', name: 'Gilet & chinos', swatch: 0xc9ac78 },
+  { id: 'Male_Adult_10', name: 'Tracksuit', swatch: 0x8d1f26 },
+  { id: 'Female_Adult_01', name: 'Pink shirt & jeans', swatch: 0xe3799f },
+  { id: 'Female_Adult_05', name: 'Blazer & jeans', swatch: 0xf2a9b7 },
+  { id: 'Female_Adult_15', name: 'Blouse & skirt', swatch: 0x5d6fb4 },
+];
 export const LOOKS = {
-  outfit: { 'Realistic soldier': 0x8b9184, 'Military uniform': 0x4a5a2e, 'Jeans & sweatshirt': 0x2d5fb0 },
+  outfit: { 'Realistic soldier': 0x8b9184, ...Object.fromEntries(CIVILIANS.map((c) => [c.name, c.swatch])), 'Military uniform': 0x4a5a2e, 'Jeans & sweatshirt': 0x2d5fb0 },
   camo: Object.fromEntries(Object.entries(CAMO).map(([k, v]) => [k, v[1]])),
   top: { 'Royal blue': 0x2d5fb0, Navy: 0x1d2b4a, 'Sky blue': 0x6d9fd6, Black: 0x17181b, Grey: 0x8a8d92, White: 0xeceae4, Burgundy: 0x6e1f2c },
   jeans: { 'Dark denim': 0x24395c, 'Mid denim': 0x355a8a, 'Light denim': 0x7d9cc0, Black: 0x1c1d21 },

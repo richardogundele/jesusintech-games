@@ -5,7 +5,7 @@ import * as P from './progress.js';
 import { fmtTime } from './trials.js';
 import { LESSONS, lessonsFor } from './lessons.js';
 import { DL25_ROWS } from './dl25.js';
-import { LOOKS } from './character.js';
+import { LOOKS, CIVILIANS } from './character.js';
 
 const $ = (id) => document.getElementById(id);
 const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -273,6 +273,7 @@ export class Phone {
     const o = state.look.outfit ?? 'Realistic soldier';
     const extra = o === 'Realistic soldier'
       ? '<p class="note">A realistic soldier in army digital camouflage (Microsoft Rocketbox avatar, MIT licence). Pick the beret uniform to choose your own camouflage and skin tone.</p>'
+      : CIVILIANS.some((c) => c.name === o) ? '<p class="note">Everyday clothes on a Microsoft Rocketbox avatar (MIT licence), the same people you pass on the pavement.</p>'
       : (o === 'Military uniform' ? row('camo', 'Camouflage') : row('top', 'Sweatshirt') + row('jeans', 'Jeans')) + row('skin', 'Skin tone');
     return `<p class="note">What you're wearing around Kent, London, Birmingham and Manchester.</p>` + row('outfit', 'Outfit') + extra;
   }

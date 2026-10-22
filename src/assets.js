@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { CIVILIANS } from './character.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { RGBELoader } from 'three/examples/jsm/loaders/RGBELoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
@@ -230,6 +231,20 @@ async function loadRocketbox(manager, texLoader) {
     loader.loadAsync(`${base}/rb_sprint.fbx`),
     Promise.all(['body_color', 'body_normal', 'head_color', 'head_normal'].map((n) => texLoader.loadAsync(`${base}/${n}.jpg`))),
   ]);
+  // the civilians share the Bip01 rig, so the soldier's clips drive them too
+  const civilians = (await Promise.all(CIVILIANS.map(async (c) => {
+    const dir = `${base}/${c.id}`;
+    try {
+      const [cm, bodyC, bodyN, headC, headN, hair] = await Promise.all([
+        loader.loadAsync(`${dir}/avatar.fbx`),
+        ...['body_color', 'body_normal', 'head_color', 'head_normal'].map((n) => texLoader.loadAsync(`${dir}/${n}.jpg`)),
+        texLoader.loadAsync(`${dir}/opacity.png`), // hair cards and eyelashes, alpha in the png
+      ]);
+      bodyC.colorSpace = headC.colorSpace = hair.colorSpace = THREE.SRGBColorSpace;
+      for (const t of [bodyC, bodyN, headC, headN, hair]) t.anisotropy = 8;
+      return { ...c, model: cm, tex: { bodyC, bodyN, headC, headN, hair } };
+    } catch (e) { console.warn(`civilian ${c.id} missing`, e); return null; }
+  }))).filter(Boolean);
   manager.setURLModifier(undefined);
   const clips = {};
   for (const [k, src] of Object.entries({ idle, walk, run, sprint })) {
@@ -250,4 +265,5 @@ async function loadRocketbox(manager, texLoader) {
   bodyC.colorSpace = headC.colorSpace = THREE.SRGBColorSpace;
   for (const t of tex) t.anisotropy = 8;
   store.misc.rocketbox = { model, clips, tex: { bodyC, bodyN, headC, headN } };
+  store.misc.civilians = civilians;
 }

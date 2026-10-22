@@ -3,7 +3,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { M } from './materials.js';
 import { gltf as loadGltf, misc, pbr } from './assets.js';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
-import { buildCasualBody, DEFAULT_LOOK } from './character.js';
+import { buildCasualBody, DEFAULT_LOOK, CIVILIANS } from './character.js';
 
 // ---------- helpers ----------
 
@@ -1121,6 +1121,53 @@ function buildRocketboxSoldier() {
 }
 
 /**
+ * A civilian (Microsoft Rocketbox adult, MIT): the soldier's clips on a shared rig, textures assigned by
+ * material name (body / head / the hair's alpha cards). sel: an index (pedestrians cycle through the six)
+ * or an outfit name / folder id from character.js CIVILIANS. Null until the avatars have loaded.
+ */
+const civMats = new Map();
+function civilianMaterials(c) {
+  let m = civMats.get(c.id);
+  if (!m) {
+    m = {
+      body: new THREE.MeshStandardMaterial({ map: c.tex.bodyC, normalMap: c.tex.bodyN, roughness: 0.85, metalness: 0 }),
+      head: new THREE.MeshStandardMaterial({ map: c.tex.headC, normalMap: c.tex.headN, roughness: 0.55, metalness: 0 }),
+      hair: new THREE.MeshStandardMaterial({ map: c.tex.hair, transparent: true, alphaTest: 0.45, side: THREE.DoubleSide, roughness: 0.7, metalness: 0 }),
+    };
+    civMats.set(c.id, m);
+  }
+  return m;
+}
+export function buildCivilian(sel = 0) {
+  const list = misc('civilians'), rb = misc('rocketbox');
+  if (!list?.length || !rb) return null;
+  const c = typeof sel === 'number' ? list[((sel % list.length) + list.length) % list.length] : list.find((x) => x.name === sel || x.id === sel);
+  if (!c) return null;
+  const scene = cloneSkinned(c.model);
+  scene.scale.setScalar(0.01); // centimetres -> metres
+  const m = civilianMaterials(c);
+  scene.traverse((o) => {
+    if (!o.isMesh) return;
+    o.castShadow = true;
+    o.receiveShadow = true;
+    o.frustumCulled = false;
+    // one skinned mesh per avatar ("<id>_hipoly_81_bones_opacity") with three material groups: body, head, opacity (the hair cards)
+    const pick = (mat) => (/opacity/i.test(mat.name || '') ? m.hair : /head/i.test(mat.name || '') ? m.head : m.body);
+    o.material = Array.isArray(o.material) ? o.material.map(pick) : pick(o.material);
+  });
+  const k = rb.clips;
+  const g = new THREE.Group();
+  g.add(scene);
+  g.userData.animate = locomotion(scene, [
+    { clip: k.idle, speed: 0 },
+    { clip: k.walk, speed: k.walk?.userData?.speed || 1.4 },
+    { clip: k.run, speed: k.run?.userData?.speed || 3.07 },
+    { clip: k.sprint, speed: k.sprint?.userData?.speed || 5.84 },
+  ]);
+  return g;
+}
+
+/**
  * The built-in body (character.js) on the Soldier's skeleton and Idle/Walk/Run clips, the armour hidden.
  */
 export function buildCasual(look = DEFAULT_LOOK) {
@@ -1157,24 +1204,38 @@ export function buildPlayer(look = DEFAULT_LOOK) {
   if (real) root.add(real);
   root.add(built);
   root.add(blobShadow(0.9, 0.9, 0.45));
+  const civs = new Map(); // everyday outfits (civilian avatars), each built the first time it's worn
   let active = built;
   root.userData.setLook = (l) => {
-    const useReal = !!real && (l.outfit ?? DEFAULT_LOOK.outfit) === 'Realistic soldier';
+    const o = l.outfit ?? DEFAULT_LOOK.outfit;
+    let civ = null;
+    if (CIVILIANS.some((c) => c.name === o)) {
+      civ = civs.get(o) || null;
+      if (!civ && (civ = buildCivilian(o))) { civs.set(o, civ); root.add(civ); }
+    }
+    for (const c of civs.values()) c.visible = c === civ;
+    const useReal = !civ && !!real && o === 'Realistic soldier';
     if (real) real.visible = useReal;
-    built.visible = !useReal;
-    active = useReal ? real : built;
-    if (!useReal) built.userData.setLook(l);
+    built.visible = !civ && !useReal;
+    active = civ || (useReal ? real : built);
+    if (active === built) built.userData.setLook(l);
   };
   root.userData.animate = (speed, dt) => active.userData.animate(speed, dt);
   root.userData.setLook(look);
   return root;
 }
 
-// ---------- pedestrians (Khronos "Cesium Man", CC-BY 4.0) ----------
+// ---------- pedestrians: the Rocketbox civilians, or Khronos "Cesium Man" (CC-BY 4.0) if they failed to load ----------
 
 const PED_TINTS = [0x1f2a40, 0xcbbd9f, 0xeeeeea, 0x1a1a1c, 0x6d727a, 0x7a3b32, 0x3e5a4a, 0xb9a48a];
 const pedMats = new Map();
 export function buildPedestrian(i = 0) {
+  const civ = buildCivilian(i);
+  if (civ) {
+    civ.add(blobShadow(0.8, 0.8, 0.4));
+    civ.userData.animate(1.3, 0.3 + Math.random() * 1.2); // start mid-stride, so a crowd never marches in step
+    return civ;
+  }
   const { scene, animations } = loadGltf('cesiumman');
   const root = new THREE.Group();
   const holder = new THREE.Group();

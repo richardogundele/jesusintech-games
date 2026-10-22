@@ -19,3 +19,11 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+---
+
+Avatars from github.com/microsoft/Microsoft-Rocketbox used in this game (textures resized to 1024 px):
+
+- Military_Male_06 (rocketbox.fbx + body/head maps, idle / walk / run / sprint clips): the player's "Realistic soldier"
+- Male_Adult_01, Male_Adult_05, Male_Adult_10, Female_Adult_01, Female_Adult_05, Female_Adult_15
+  (<id>/avatar.fbx + body/head maps + hair alpha): pedestrians, and the wardrobe's everyday outfits
