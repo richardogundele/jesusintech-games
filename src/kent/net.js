@@ -75,6 +75,14 @@ function projSeg(ax, az, bx, bz, x, z) {
   return [t, ax + dx * t, az + dz * t];
 }
 
+/** do segments a-b and c-d properly cross (strict straddle; shared endpoints do NOT count)? */
+function segCross(ax, az, bx, bz, cx, cz, dx, dz) {
+  const o = (px, pz, qx, qz, rx, rz) => (rz - pz) * (qx - px) - (rx - px) * (qz - pz);
+  const d1 = o(ax, az, bx, bz, cx, cz), d2 = o(ax, az, bx, bz, dx, dz);
+  const d3 = o(cx, cz, dx, dz, ax, az), d4 = o(cx, cz, dx, dz, bx, bz);
+  return ((d1 > 0) !== (d2 > 0)) && ((d3 > 0) !== (d4 > 0));
+}
+
 export class RoadNet {
   constructor(data) {
     this.data = data;
@@ -176,21 +184,77 @@ export class RoadNet {
   // RAMP metres, so the approach embankment is the road itself, not a cliff. A road that merely
   // passes beneath shares no node with the bridge and stays on the ground: that is the whole point.
   #buildDecks() {
-    const DECK = 6, RAMP = 90;
+    const DECK = 6;
+    // A real flyover rises to cross over another road. A bridge over a river, rail or canal does
+    // NOT (most OSM "bridge" ways are these, and on a flat map they would otherwise become 6 m
+    // walls — the thing that made the roads feel un-smooth). So a bridge gets a deck ONLY where one
+    // of its segments actually crosses a drivable way on a lower layer.
+    const crossesLower = (w) => {
+      const L = w.layer || 0;
+      for (let i = 0; i < w.pts.length - 1; i++) {
+        const a = w.pts[i], b = w.pts[i + 1];
+        const cands = this.grid.query(Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[0], b[0]), Math.max(a[1], b[1]));
+        for (const { way: o, i: j } of cands) {
+          if (o === w || (o.layer || 0) >= L || (o.bridge && !o.tunnel)) continue; // the road beneath must be at grade
+          const c = o.pts[j], d = o.pts[j + 1];
+          if (segCross(a[0], a[1], b[0], b[1], c[0], c[1], d[0], d[1])) return true;
+        }
+      }
+      return false;
+    };
     this.nodeDeck = new Map();
+    // ramp length by class: a motorway or trunk climbs to the deck gently, a side street more steeply
+    const rampLen = (w) => (/^(motorway|trunk)(_link)?$/.test(w.cls) ? 220 : /^(primary|secondary)(_link)?$/.test(w.cls) ? 160 : 110);
+    // only a major road builds a real flyover deck: motorways, trunk and primary A-roads and their
+    // slip roads. A minor road tagged `bridge` is a little span over a river, rail or canal that in
+    // life is near-flat — decking it just put a 6 m hump on an ordinary street.
+    const DECKS = /^(motorway|trunk|primary)(_link)?$/;
+    const seeds = []; // the deck nodes: where the road surface is already up on a flyover
     for (const w of this.ways.values()) {
-      w.deckH = w.bridge && !w.tunnel && (w.layer || 0) > 0 ? DECK * Math.min(3, w.layer) : 0;
+      w.deckH = DECKS.test(w.cls) && w.bridge && !w.tunnel && (w.layer || 0) > 0 && crossesLower(w) ? DECK * Math.min(3, w.layer) : 0;
       if (!w.deckH) continue;
-      for (const nid of w.nodes) if (nid) this.nodeDeck.set(nid, Math.max(this.nodeDeck.get(nid) || 0, w.deckH));
+      for (const nid of w.nodes) if (nid) {
+        this.nodeDeck.set(nid, Math.max(this.nodeDeck.get(nid) || 0, w.deckH));
+        seeds.push({ nid, h: w.deckH, ramp: rampLen(w) });
+      }
     }
-    const smooth = (t) => (t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t));
+    // Spread each deck's height out along the road graph so the rise reaches the ground over a real
+    // run of tarmac (rampLen), however many short ways the approach is split into. nodeH(node) is the
+    // greatest height any deck can still give it; it falls linearly to 0 at rampLen metres away.
+    const adj = new Map();
+    const link2 = (nid, to, len) => { let a = adj.get(nid); if (!a) adj.set(nid, (a = [])); a.push({ to, len }); };
+    for (const l of this.links) if (l.a && l.b) { link2(l.a, l.b, l.len); link2(l.b, l.a, l.len); }
+    const nodeH = new Map();
+    const heap = new Heap();
+    for (const s of seeds) heap.push(0, s); // ordered by distance from the deck
+    while (heap.size) {
+      const [dist, s] = heap.pop();
+      const h = s.h * (1 - dist / s.ramp);
+      if (h <= (nodeH.get(s.nid) || 0)) continue;
+      nodeH.set(s.nid, h);
+      for (const e of adj.get(s.nid) || []) {
+        const nd = dist + e.len, nh = s.h * (1 - nd / s.ramp);
+        if (nh > 0 && nh > (nodeH.get(e.to) || 0)) heap.push(nd, { nid: e.to, h: s.h, ramp: s.ramp });
+      }
+    }
+    // each way's deck height is nodeH sampled at its own graph nodes, linear by arc length between
+    // them: deck ways read a flat 6 m, approach ways a gentle slope, and a boundary node agrees for
+    // both ways that meet there, so there are no steps.
+    const interp = (samples, s) => {
+      if (s <= samples[0][0]) return samples[0][1];
+      const last = samples[samples.length - 1];
+      if (s >= last[0]) return last[1];
+      for (let k = 1; k < samples.length; k++) if (s <= samples[k][0]) {
+        const [s0, h0] = samples[k - 1], [s1, h1] = samples[k];
+        return s1 === s0 ? h1 : h0 + (h1 - h0) * ((s - s0) / (s1 - s0));
+      }
+      return last[1];
+    };
     for (const w of this.ways.values()) {
-      const a = this.nodeDeck.get(w.nodes[0]) || 0, b = this.nodeDeck.get(w.nodes[w.nodes.length - 1]) || 0;
-      if (w.deckH) { w.deck = () => w.deckH; w.hasDeck = true; continue; }
-      if (!a && !b) { w.deck = null; w.hasDeck = false; continue; }
-      const L = w.len;
-      // short link: it may never reach ground between two decks; interpolate rather than dip
-      w.deck = (s) => Math.max(a * (1 - smooth(s / Math.min(RAMP, L))), b * (1 - smooth((L - s) / Math.min(RAMP, L))));
+      const samples = [];
+      for (let i = 0; i < w.nodes.length; i++) { const nid = w.nodes[i]; if (nid) samples.push([w.cum[i], w.deckH || nodeH.get(nid) || 0]); }
+      if (!samples.length || samples.every((s) => s[1] <= 0)) { w.deck = null; w.hasDeck = false; continue; }
+      w.deck = (s) => interp(samples, s);
       w.hasDeck = true;
     }
   }
@@ -202,16 +266,20 @@ export class RoadNet {
    * a car on the flyover stays up, a car passing beneath stays down. With no prevY, the ground.
    */
   deckNear(x, z, prevY = null, terrainY = 0) {
-    let best = 0, bestD = Infinity;
-    // every road here competes, the ground-level ones at 0: a car on the M1 under the slip road
-    // keeps its height because the M1 (deck 0) scores nearer its previous y than the deck does
+    let best = 0, bestScore = Infinity;
+    // Follow the road you are actually ON: score mostly by how near its centreline is (lateral
+    // metres), so the car tracks its own carriageway's deck and never latches onto a parallel one.
+    // Height-continuity only breaks ties between decks that overlap the SAME point — a stacked
+    // junction, where the M1 beneath and the slip road over it share (x,z): the car that came up
+    // onto the slip stays up, the one underneath stays down.
     for (const { way, i } of this.grid.near(x, z, 12)) {
       const a = way.pts[i], b = way.pts[i + 1];
       const [t, px, pz] = projSeg(a[0], a[1], b[0], b[1], x, z);
-      if (hypot(x - px, z - pz) > way.halfW + 1.5) continue;
+      const lat = hypot(x - px, z - pz);
+      if (lat > way.halfW + 1.5) continue;
       const d = way.hasDeck ? this.deckAt(way, way.cum[i] + t * hypot(b[0] - a[0], b[1] - a[1])) : 0;
-      const score = prevY == null ? d : Math.abs(terrainY + d - prevY);
-      if (score < bestD) { bestD = score; best = d; }
+      const score = lat + (prevY == null ? 0 : 0.3 * Math.abs(terrainY + d - prevY));
+      if (score < bestScore) { bestScore = score; best = d; }
     }
     // with no previous height prefer the ground, so static things placed by position stay beneath
     if (prevY == null) return 0;
