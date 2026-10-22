@@ -20,7 +20,8 @@ export const CENTRES = {
   herne: { name: 'Herne Bay', match: /herne/i },
   canterbury: { name: 'Canterbury', match: /canterbury/i },
 };
-export function centreOf(net, key) { return net.testCentres.find((t) => CENTRES[key].match.test(t.name)) || net.testCentres[0]; }
+/** the test centre for a key: Kent's two by name, anything else (a city region's auto pool) the region's one */
+export function centreOf(net, key) { const c = CENTRES[key]; return (c && net.testCentres.find((t) => c.match.test(t.name))) || net.testCentres[0]; }
 
 /**
  * The test centre as scenery.js builds it: a 26 x 12 m brick box with its long side along the

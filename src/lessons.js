@@ -174,7 +174,7 @@ export const LESSONS = [...KENT, ...WHITMORE];
 export function testDef(gen) {
   const m = gen.meta;
   return {
-    id: `test-${m.centre}`, world: 'kent', title: `Driving test: ${m.centreName}`, mock: true, checks: true, centre: m.centre,
+    id: `test-${m.centre}`, world: m.world || 'kent', title: `Driving test: ${m.centreName}`, mock: true, checks: true, centre: m.centre,
     blurb: '15 minutes on a route made for this test.', generated: m, spec: gen.spec, seed: m.seed, indepSpec: m.indep, estop: 1 / 7, showMe: 0.55,
     intro: DT1_START, signs: gen.signs || null,
   };

@@ -20,6 +20,7 @@ import { LESSONS, LessonRun, carefulDriver, TELL_ME, randomPlate, plateOptions, 
 import { FreeExam } from './freedrive.js';
 import { KENT_ROUTES } from './kent/lesson-routes.js';
 import { generateTest, signsOnRoute } from './kent/test-routes.js';
+import { autoPool } from './kent/auto-pool.js';
 import { signQuestion } from './sign-quiz.js';
 import { buildCar } from './models.js';
 import { TRAFFIC } from './catalog.js';
@@ -895,7 +896,7 @@ const lessonHooks = {
     if (r.mock && !r.practice && r.sheet) {
       const rows = {};
       for (const R of r.sheet.rows) if (R.d || R.s || R.x) rows[R.key] = [R.d, R.s, R.x];
-      uk.history.push({ at: new Date().toISOString(), id: r.id, title: r.title, kind: r.generated ? 'test15' : 'mock', centre: r.generated?.centre || (r.id === 'mock-canterbury' ? 'canterbury' : 'herne'),
+      uk.history.push({ at: new Date().toISOString(), id: r.id, title: r.title, kind: r.generated ? 'test15' : 'mock', centre: r.generated?.centre || (r.id === 'mock-canterbury' ? 'canterbury' : 'herne'), centreName: r.generated?.centreName || null,
         trans: r.trans, seed: r.generated?.seed ?? null, passed: r.passed, minor: r.counts.minor, serious: r.counts.serious, dangerous: r.counts.dangerous, rows, main: r.brief?.main || '', minutes: +(r.time / 60).toFixed(1) });
       if (uk.history.length > 60) uk.history.splice(0, uk.history.length - 60);
     }
@@ -1016,20 +1017,38 @@ async function goKent() {
  * A 15-minute driving test from a test centre ('herne' | 'canterbury' | 'any') on a route made from a
  * seed (a new one each time, or the seed of a test you want to retry).
  */
-function startTest(centre = 'any', seed = null) {
+async function startTest(centre = 'any', seed = null) {
   if (centre === 'any') centre = Math.random() < 0.5 ? 'herne' : 'canterbury';
-  const w = getWorld('kent');
+  // Kent's two centres have hand-authored route pools; a city's is read off its map on the spot
+  const city = REGION_WORLDS.includes(centre);
+  if (city) await ensureWorldData(centre);
+  const w = getWorld(city ? centre : 'kent');
+  const pool = city ? autoPool(w.net, w.testCentre, { key: centre, world: centre }) : centre;
   seed = seed ?? (Math.floor(Math.random() * 1e9) >>> 0);
   let gen;
-  try { gen = generateTest(w.net, centre, seed); } catch (err) { hud.toast(`Couldn't plan a test route there (${err.message}). Try again.`, 4000); return; }
+  try { gen = generateTest(w.net, pool, seed); } catch (err) { hud.toast(`Couldn't plan a test route there (${err.message}). Try again.`, 4000); return; }
   gen.signs = signsOnRoute(w.net, gen.route);
   return startLesson(testDef(gen));
 }
+/** to a city for its test: like goKent, with the region's map loaded first */
+async function goCity(id) {
+  mode = 'cutscene';
+  if (car) { car.park(); car = null; }
+  hud.show(false);
+  await fade(1);
+  await ensureWorldData(id);
+  enterWorld(id);
+  renderer.compile(world.scene, camera);
+  hud.show(true);
+  await fade(0);
+}
 async function startLesson(id) {
   const def = typeof id === 'object' ? id : LESSONS.find((l) => l.id === id);
-  // Kent lessons start at their test centre; the Whitmore ones are practice in the made-up town
-  const where = def.world === 'kent' ? 'kent' : 'uk';
-  if (world.id !== where) await (where === 'kent' ? goKent() : goUK());
+  // Kent lessons start at their test centre; the Whitmore ones are practice in the made-up town; a
+  // city's test starts at that city's centre
+  const where = def.world === 'kent' ? 'kent' : REGION_WORLDS.includes(def.world) ? def.world : 'uk';
+  if (world.id !== where) await (where === 'kent' ? goKent() : where === 'uk' ? goUK() : goCity(where));
+  const tiled = where !== 'uk'; // Kent and the cities stream tiles: warm them behind a fade
   if (lesson) lesson.cancel();
   hud.exam(null, false); // a set lesson marks its own route; hide the free-drive tally
   const learner = world.cars.find((c) => c.id === 'learner') || rebuildLearner(world);
@@ -1044,9 +1063,9 @@ async function startLesson(id) {
   // the gearbox you're learning in (the clutch and gears lessons are always in the manual)
   learner.setTrans(def.trans || state.uk.trans);
   if (learner.autoBadge) learner.autoBadge.visible = learner.trans === 'auto';
-  if (kent && !window.__game?.autoQuiz) { hud.show(false); await fade(1); }
+  if (tiled && !window.__game?.autoQuiz) { hud.show(false); await fade(1); }
   const pre = [];
-  if (def.checks) {
+  if (def.checks && kent) { // the eyesight car is parked at Kent's centres only (a city test skips it for now)
     // the real test opens with an eyesight check (read a number plate about 20 m away) and a tell me question
     const spot = kent ? world.eyesight.find((e) => e.centre === centre) : { x: world.parked.x, z: world.parked.z, heading: 0 };
     world.setPlate?.(randomPlate(), centre);
@@ -1057,11 +1076,11 @@ async function startLesson(id) {
     const fx = Math.sin(spot.heading), fz = Math.cos(spot.heading), lx = Math.cos(spot.heading), lz = -Math.sin(spot.heading);
     player.pos.set(spot.x - fx * 22 + lx, 0, spot.z - fz * 22 + lz);
     player.heading = spot.heading;
-    if (kent) await warmTiles(player.pos.x, player.pos.z, window.__game?.autoQuiz ? 0 : 1500); // the player is there now, so the frame loop streams the same tiles
+    if (tiled) await warmTiles(player.pos.x, player.pos.z, window.__game?.autoQuiz ? 0 : 1500); // the player is there now, so the frame loop streams the same tiles
     snapCamera();
     camera.position.set(spot.x - fx * 21 + lx, 1.7, spot.z - fz * 21 + lz);
     camera.lookAt(spot.x, 0.6, spot.z);
-    if (kent) { hud.show(true); await fade(0); }
+    if (tiled) { hud.show(true); await fade(0); }
     draw();
     const eyes = await quiz({ title: 'Eyesight check', q: `Read the number plate on the dark blue car ${centre === 'canterbury' ? 'parked in front of the test centre' : 'in the bay ahead'} (about 20 metres away). Which is it?`, a: plateOptions(world.plate), plate: true });
     if (!eyes) {
@@ -1077,7 +1096,7 @@ async function startLesson(id) {
     }
     const tm = TELL_ME[Math.floor(Math.random() * TELL_ME.length)];
     if (!(await quiz({ title: 'Tell me', ...tm }))) pre.push('Show me/tell me: tell me question');
-    if (kent && !window.__game?.autoQuiz) { hud.show(false); await fade(1); }
+    if (tiled && !window.__game?.autoQuiz) { hud.show(false); await fade(1); }
     car = learner;
     mode = 'car';
     player.mesh.visible = false;
@@ -1090,12 +1109,13 @@ async function startLesson(id) {
   car.park();
   car.prepare({ engineOn: !def.engineOff, parkingBrake: true }); // handbrake on, out of gear (the clutch lessons start with the engine off)
   snapCamera();
-  if (kent) {
+  if (tiled) {
     lesson.waiting = true; // the lesson clock doesn't run while the tiles fill in behind the fade
     await warmTiles(st.x, st.z, window.__game?.autoQuiz ? 0 : 1500);
     lesson.waiting = false;
     if (!window.__game?.autoQuiz) { hud.show(true); await fade(0); }
-    hud.toast(`${centre === 'canterbury' ? 'Canterbury' : 'Herne Bay'} driving test centre · ${car.trans === 'manual' ? 'manual' : 'automatic'}. Z and X are the indicators, Q checks your mirrors.`, 4000);
+    const centreName = def.generated?.centreName || (centre === 'canterbury' ? 'Canterbury' : 'Herne Bay');
+    hud.toast(`${centreName} driving test centre · ${car.trans === 'manual' ? 'manual' : 'automatic'}. Z and X are the indicators, Q checks your mirrors.`, 4000);
   }
 }
 

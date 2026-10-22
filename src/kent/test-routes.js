@@ -134,7 +134,7 @@ export function estimateMinutes(route) {
 }
 
 /** the reasons a route isn't a fair test (empty = fine) */
-export function validateRoute(net, route, { minMin = 14, maxMin = 16, timeK = 1 } = {}) {
+export function validateRoute(net, route, { minMin = 14, maxMin = 16, timeK = 1, relaxRb = false } = {}) {
   const bad = [], pts = route.pts, ev = route.events;
   // U-turns: the same road back the way it came, or the path doubling back on itself (not round a ring)
   const ws = route.route.ways;
@@ -167,9 +167,17 @@ export function validateRoute(net, route, { minMin = 14, maxMin = 16, timeK = 1 
   if (ups.some((p, i) => ups.some((q, j) => j > i && Math.hypot(p.x - q.x, p.z - q.z) < 60))) bad.push('two pull-ups in one place');
   // across a roundabout's island
   for (const p of pts) { const rb = p.rb ? net.roundabouts.get(p.rb) : null; if (rb && rb.island && Math.hypot(p.x - rb.x, p.z - rb.z) < rb.island - 0.3) { bad.push(`crosses the island of ${rb.name}`); break; } }
-  const rbs = ev.filter((e) => e.kind === 'rb');
-  if (rbs.length < 2) bad.push('fewer than two roundabouts');
-  if (!rbs.some((e) => (net.roundabouts.get(e.rb)?.lanes || 1) >= 2)) bad.push('no multi-lane roundabout');
+  // Roundabouts "where available" (DT1): Kent has them, so a Kent test needs two with one multi-lane.
+  // A centre with no multi-lane ring in reach (West Didsbury) is judged on its lights instead: at
+  // least one roundabout or mini, and two signalled junctions.
+  const rbs = ev.filter((e) => e.kind === 'rb'), minis = ev.filter((e) => e.kind === 'mini');
+  if (relaxRb) {
+    if (rbs.length + minis.length < 1) bad.push('no roundabout or mini');
+    if (ev.filter((e) => e.kind === 'lights' && !e.crossing).length < 2) bad.push('fewer than two sets of lights');
+  } else {
+    if (rbs.length < 2) bad.push('fewer than two roundabouts');
+    if (!rbs.some((e) => (net.roundabouts.get(e.rb)?.lanes || 1) >= 2)) bad.push('no multi-lane roundabout');
+  }
   if (!pts.some((p) => p.road?.dual || p.road?.limit >= 40)) bad.push('no dual carriageway or 40+ road');
   const turns = ev.filter((e) => e.kind === 'turn' || e.kind === 'emerge');
   if (!turns.some((e) => e.dir === 'left')) bad.push('no left turn');
@@ -302,10 +310,16 @@ function quickMinutes(r, [a, b, c]) {
   return a * t / 60 + b * r.nodes.length + c;
 }
 /** what the bare route already shows it lacks (validateRoute checks it all again on the lane path) */
-function bareMissing(net, r) {
+function bareMissing(net, r, relaxRb = false) {
   const rbs = new Set(r.ways.filter((w) => w.way.rb).map((w) => w.way.rb)), out = [];
-  if (rbs.size < 2) out.push('fewer than two roundabouts');
-  if (![...rbs].some((id) => (net.roundabouts.get(id)?.lanes || 1) >= 2)) out.push('no multi-lane roundabout');
+  if (relaxRb) {
+    const minis = r.nodes.filter((n) => net.nodes.get(n)?.mini).length;
+    if (rbs.size + minis < 1) out.push('no roundabout or mini');
+    if (r.nodes.filter((n) => net.nodes.get(n)?.signals).length < 2) out.push('fewer than two sets of lights');
+  } else {
+    if (rbs.size < 2) out.push('fewer than two roundabouts');
+    if (![...rbs].some((id) => (net.roundabouts.get(id)?.lanes || 1) >= 2)) out.push('no multi-lane roundabout');
+  }
   if (!r.ways.some((w) => w.way.dual || w.way.limit >= 40)) out.push('no dual carriageway or 40+ road');
   const LIT = /zebra|pelican|puffin|toucan|signals/;
   if (!r.nodes.some((n) => net.nodes.get(n)?.signals) && !r.ways.some((w) => (net.crossingsByWay.get(w.way.id) || []).some((c) => LIT.test(c.type) && c.s >= Math.min(w.s0, w.s1) && c.s <= Math.max(w.s0, w.s1)))) out.push('no crossing or lights');
@@ -325,9 +339,12 @@ function bareMissing(net, r) {
  * up about as often as any other, rather than the easiest to fit winning most tests.
  */
 export function generateTest(net, centreKey, seed, opts = {}) {
-  const pool = POOLS[centreKey]; if (!pool) throw new Error(`no test centre ${centreKey}`);
+  // a POOLS key (Kent, hand-authored) or a pool object from auto-pool.js (any centre, read off the map)
+  const pool = typeof centreKey === 'string' ? POOLS[centreKey] : centreKey;
+  if (!pool) throw new Error(`no test centre ${centreKey}`);
+  if (typeof centreKey !== 'string') centreKey = pool.key || 'auto';
   const rnd = seeded(seed * 7919 + 17);
-  const layout = testCentreLayout(net, centreOf(net, centreKey)), lot = !!layout.lot;
+  const layout = testCentreLayout(net, pool.tc || centreOf(net, centreKey)), lot = !!layout.lot;
   const P = prepare(net, pool);
   const pickOne = (a) => a[Math.floor(rnd() * a.length)];
   const main0 = P.mains.length ? pickOne(P.mains) : null, anchor0 = pickOne(P.loops), home0 = P.homes.length ? pickOne(P.homes) : null;
@@ -364,13 +381,13 @@ export function generateTest(net, centreKey, seed, opts = {}) {
     const quick = r0 ? quickMinutes(r0, pool.quick) * pool.timeK : null;
     let bad = [], route = null, mins = quick ?? 0;
     if (!r0) bad = ['no route'];
-    else if ((bad = bareMissing(net, r0)).length) { /* missing a roundabout, the lights or a fast road */ }
+    else if ((bad = bareMissing(net, r0, !!pool.relaxRb)).length) { /* missing a roundabout, the lights or a fast road */ }
     else if (mins < minMin - pad || mins > maxMin + pad) { bad = [`about ${mins.toFixed(1)} min`]; lean = Math.max(-2, Math.min(2, lean + (mins < minMin ? 1 : -1))); }
     else {
       builds++;
       try { route = buildKentRoute(net, { ...spec, id: 'test15' }, { rnd: seeded(seed), legs }); } catch (err) { bad = [String(err.message || err)]; }
       if (route) {
-        bad = validateRoute(net, route, { timeK: pool.timeK, ...opts, minMin, maxMin });
+        bad = validateRoute(net, route, { timeK: pool.timeK, ...opts, minMin, maxMin, relaxRb: !!pool.relaxRb });
         if (!route.events.some((e) => e.kind === 'stop')) bad.push('no pull-up');
         // pulling up on the right is for a quiet road, not an A road
         const pr = route.events.find((e) => e.kind === 'pullright'), prWay = pr && net.ways.get(route.pts[idxAtS(route.pts, pr.s)].way);
@@ -386,7 +403,7 @@ export function generateTest(net, centreKey, seed, opts = {}) {
     // DVSA uses traffic signs on roughly one test in five; where the route has no signed stretch, the sat nav
     const signs = rnd() < (opts.signsRate ?? 0.3) ? signsStretch(net, route, s0, s1, pool.name) : null;
     const indep = signs ? { mode: 'signs', target: signs.target, s0, s1: signs.s1 } : { mode: 'satnav', s0, s1 };
-    return { spec, route, meta: { seed, centre: centreKey, centreName: pool.name, stretches: parts.map((c) => c.part.name), manoeuvre: man, stops, indep, minutes: +mins.toFixed(1), attempts: attempt + 1, length: Math.round(route.length) } };
+    return { spec, route, meta: { seed, centre: centreKey, centreName: pool.name, world: pool.world || 'kent', stretches: parts.map((c) => c.part.name), manoeuvre: man, stops, indep, minutes: +mins.toFixed(1), attempts: attempt + 1, length: Math.round(route.length) } };
   }
   throw new Error(`no fair test route from ${pool.name} for seed ${seed} (last: ${last})`);
 }

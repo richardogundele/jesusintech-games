@@ -175,7 +175,8 @@ export class Phone {
       <h3>Lessons · Herne Bay</h3>${rows}
       <h3>Driving test · 15 minutes</h3>
       <p class="note">A new route every time from the test centre you pick: roundabouts, a dual carriageway or 40 road, junctions, a crossing, independent driving (sat nav, or following signs about one test in five), one manoeuvre, pull-ups and sometimes an emergency stop. Marked on the DVSA DL25.</p>
-      <div class="seg"><button data-act="test15" data-id="herne">Herne Bay</button><button data-act="test15" data-id="canterbury">Canterbury</button><button data-act="test15" data-id="any">Surprise me</button></div>
+      <div class="seg" style="flex-wrap:wrap"><button data-act="test15" data-id="herne">Herne Bay</button><button data-act="test15" data-id="canterbury">Canterbury</button><button data-act="test15" data-id="london">Mill Hill</button><button data-act="test15" data-id="birmingham">Kings Heath</button><button data-act="test15" data-id="manchester">West Didsbury</button><button data-act="test15" data-id="any">Surprise me</button></div>
+      <p class="note">Kent's routes were written by hand; the city ones are planned off the real map around the centre the moment you press the button.</p>
       ${this.testHistory()}
       <h3>Full-length mock tests</h3>${tests}
       <h3>Study</h3><div class="row"><div class="grow"><div class="t">Road signs</div><div class="s">Name ten Highway Code signs. Not marked: just practice.</div></div><button class="buy" data-act="signs">Start</button></div>
@@ -200,7 +201,7 @@ export class Phone {
     const rows = last.map((t) => {
       const d = new Date(t.at), when = `${d.getDate()}/${d.getMonth() + 1} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
       return `<div class="row"><div class="tick">${t.passed ? '✓' : '✕'}</div>
-        <div class="grow"><div class="t">${t.centre === 'canterbury' ? 'Canterbury' : 'Herne Bay'} · ${t.kind === 'test15' ? '15 min' : 'full mock'} · ${t.trans === 'auto' ? 'automatic' : 'manual'}</div>
+        <div class="grow"><div class="t">${t.centreName || (t.centre === 'canterbury' ? 'Canterbury' : 'Herne Bay')} · ${t.kind === 'test15' ? '15 min' : 'full mock'} · ${t.trans === 'auto' ? 'automatic' : 'manual'}</div>
         <div class="s">${when} · ${t.minor} driving · ${t.serious} serious · ${t.dangerous} dangerous${t.main ? ` · ${esc(t.main)}` : ''}</div></div>
         ${t.seed != null ? `<button class="buy ghost" data-act="retest" data-id="${t.centre}:${t.seed}">Retry route</button>` : ''}</div>`;
     }).join('');
