@@ -525,9 +525,14 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
   // approach strip north of the runway). Nothing placed here may land inside them.
   const home = data.home || { x: 4150, z: -5920 };
   const af = data.airfield || { x: 3870, z: -2326 };
+  // roundabouts own their own island (drawRoundabout plants it): keep scenery — trees above all —
+  // off the whole footprint so nothing overhangs the circulating lanes (a repeated complaint).
+  const rbClear = (net?.roundabouts instanceof Map ? [...net.roundabouts.values()] : []).map((rb) => ({ x: rb.x, z: rb.z, r2: (rb.r + 6) ** 2 }));
+  const inRoundabout = (x, z) => { for (const rb of rbClear) if ((x - rb.x) ** 2 + (z - rb.z) ** 2 < rb.r2) return true; return false; };
   const excluded = (x, z) => Math.hypot(x - home.x, z - home.z) < 70
     || (x >= af.x - 230 && x <= af.x + 45 && z >= af.z - 920 && z <= af.z + 50)
-    || (x >= af.x - 40 && x <= af.x + 40 && z >= af.z - 1320 && z < af.z - 920);
+    || (x >= af.x - 40 && x <= af.x + 40 && z >= af.z - 1320 && z < af.z - 920)
+    || inRoundabout(x, z);
   const halfW = (w) => w.halfW ?? (w.width ?? (w.cls === 'residential' || w.cls === 'living_street' ? 6 : 7.3)) / 2;
   const nearestRoad = (x, z, d) => { try { return net?.nearest?.(x, z, d) || null; } catch { return null; } };
   /** does a collider box (w across, d along yaw) cover any part of a carriageway? */
