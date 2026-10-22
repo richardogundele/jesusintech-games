@@ -674,6 +674,7 @@ $('res-ok').onclick = closeResult;
 let lesson = null;
 const autoState = {};
 const drive = { indicator: null, turned: 0, blink: 0, mirrorPressed: false, mirrorFlash: 0, trafficHit: false };
+let mirrorThisFrame = false; // Q this frame, kept past the per-frame reset for the HUD
 
 function addLPlates(c) {
   const mat = new THREE.MeshBasicMaterial({ map: lPlateTex() });
@@ -1246,8 +1247,14 @@ $('start').onclick = () => {
   enterWorld(state.world in builders ? state.world : 'kent');
   hud.show(true);
   refreshHudExtras();
-  const hello = { kent: 'Welcome home to Kent.', london: 'Welcome to London.', birmingham: 'Welcome to Birmingham.', manchester: 'Welcome to Manchester.' }[world.id] || 'Welcome back.';
-  hud.toast(`${hello} Press P for your phone: today's goals are waiting.`, 5000);
+  if (!state.welcomed) {
+    // a cold save: say what this is and where to start, once
+    state.welcomed = true; save();
+    hud.toast('Your learner car is outside. Get in with E and the game will walk you through your first drive. Lessons and tests are on your phone (P).', 9000);
+  } else {
+    const hello = { kent: 'Welcome home to Kent.', london: 'Welcome to London.', birmingham: 'Welcome to Birmingham.', manchester: 'Welcome to Manchester.' }[world.id] || 'Welcome back.';
+    hud.toast(`${hello} Press P for your phone: today's goals are waiting.`, 5000);
+  }
 };
 
 // ---------- loop ----------
@@ -1325,6 +1332,7 @@ function step(dt) {
       if (lesson) {
         lesson.update(dt, car, { indicator: drive.indicator, mirrorPressed: drive.mirrorPressed, hit: res.hit || drive.trafficHit });
       }
+      mirrorThisFrame = drive.mirrorPressed; // the HUD's guided first drive reads it after this reset
       drive.mirrorPressed = false;
       drive.trafficHit = false;
       P.emit('km', (Math.abs(car.vF) * dt) / 1000);
@@ -1341,7 +1349,8 @@ function step(dt) {
     updateCamera(dt);
     const p = car ? car.pos : player.pos;
     world.env.follow(p);
-    hud.update({ world, x: p.x, z: p.z, car, balance: state.balance, prompt: mode === 'jets' ? '' : currentPrompt(), mode, gas: input.up, trans: state.uk.trans });
+    hud.update({ world, x: p.x, z: p.z, car, balance: state.balance, prompt: mode === 'jets' ? '' : currentPrompt(), mode, gas: input.up, trans: state.uk.trans, mirror: mirrorThisFrame });
+    mirrorThisFrame = false;
     hud.minimap(world, p.x, p.z, car ? car.heading : player.heading, world.cars.filter((c) => c !== car), world.trials?.marks() || [], lesson?.path());
     const inLearner = mode === 'car' && !!car?.drive; // the rear-view mirror is the learner car's
     hud.limit(world.units === 'mph' ? world.speedLimitAt(p.x, p.z) : null, world.units === 'mph' && world.nslAt?.(p.x, p.z));

@@ -14,6 +14,7 @@ const DEFAULTS = () => ({
   streak: { count: 0, last: '' },      // days in a row with all three daily goals done
   wins: { date: '', counts: {} },      // real-life wins logged today, per category
   radio: false,
+  welcomed: false, // the first-run toast has been shown
   // driving lessons and tests: licence false | 'auto' (passed in an automatic) | 'full' (passed in a manual);
   // trans: the gearbox you learn in; history: your driving tests (newest last); hints: key hints seen per gearbox
   uk: { lessons: {}, licence: false, tests: 0, trans: 'manual', lessonCar: null, history: [], hints: {} },

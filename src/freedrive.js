@@ -213,6 +213,14 @@ export class FreeExam {
       } else this.wrongDist = 0;
     } else this.wrongDist = 0;
 
+    // ---- the edge of the map ----
+    // Richard drove the A299 for a mile looking for Manchester. The map ends; nothing said so.
+    const B = world && world.bounds;
+    if (B && Math.abs(v) > 3) {
+      const toEdge = Math.min(car.pos.x - B.minX, B.maxX - car.pos.x, car.pos.z - B.minZ, B.maxZ - car.pos.z);
+      if (toEdge < 160) return this.tip('The map ends just ahead. To drive to another city, go to the jet centre and pick "By road" at the terminal.', 'edge', 30);
+    }
+
     // ---- a speed hump coming up ----
     // Humps are on the residential streets where most of the driving happens, so this is the tip a
     // learner meets most often. Only speaks if you are still carrying speed at it.

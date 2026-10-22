@@ -36,13 +36,19 @@ const HINTS = {
   engine: { max: 5, html: `${k('I')} starts the engine` },
   stalled: { max: 6, html: `Clutch down, ${k('0')}, then ${k('I')}` },
   pbrake: { max: 6, linger: 3000, html: `${k('Space')} releases the handbrake` },
-  // the first time in a manual: three steps, each moved on by doing it
+  // the first time in a manual: the move-off, each step moved on by doing it...
   m0: { html: `Hold ${k('Shift')} for the clutch` },
   m1: { html: `Press ${k('1')} for first gear` },
   m2: { html: `Ease off ${k('Shift')} while pressing ${k('W')}` },
   // the first time in an automatic
   a0: { html: `Press ${k('1')} for Drive` },
+  // ...then, once rolling, the two things nobody can guess and the one thing that explains the game.
+  // Shared by both gearboxes. 'look' clears when you press Q, the others on a timer.
+  look: { html: `${k('Q')} checks your mirrors — do it before you signal or slow down` },
+  ind: { html: `${k('Z')} and ${k('X')} are your indicators · ${k('Q')} first, then signal` },
+  exam: { html: `The <b>L</b> top-left is your examiner: every fault counts · ${k('E')} to get out for your report` },
 };
+const ROLLING = ['look', 'ind', 'exam']; // the post-move-off steps, in order
 const CONDITIONS = ['stalled', 'engine', 'pbrake'];
 const STORE = 'dreamlife.hud.v1';
 const H_TIP_SESSIONS = 3;
@@ -152,7 +158,7 @@ export class Hud {
     el.classList.toggle(cls, on);
   }
 
-  update({ world, x, z, car, balance, prompt, mode, gas = false, trans = 'manual' }) {
+  update({ world, x, z, car, balance, prompt, mode, gas = false, trans = 'manual', mirror = false }) {
     this.mode = mode;
     this.renderDock({ car, mode, trans });
     this.set('city', this.city, world.name);
@@ -171,7 +177,7 @@ export class Hud {
       this.set('unit', this.unitEl, mph ? 'mph' : 'km/h');
       this.set('car', this.carName, car.drive ? '' : car.spec?.model || car.name); // the model alone fits the caption
     }
-    this.hints({ mode, car, gas });
+    this.hints({ mode, car, gas, mirror });
     // the H tip: bottom left, the first few sessions, until H has been used
     const tip = (mode === 'foot' || mode === 'car') && !this.ui.hUsed && this.ui.sessions <= H_TIP_SESSIONS;
     if (tip) reveal(this.tipEl); else conceal(this.tipEl);
@@ -190,16 +196,17 @@ export class Hud {
   }
   event(id) { this.evt = { id, at: performance.now(), until: 0 }; }
 
-  hints({ mode, car, gas }) {
+  hints({ mode, car, gas, mirror = false }) {
     const now = performance.now();
     // getting in or out of a car, and the first walk of the session, queue an event hint
     if (car !== this.hCar) {
       this.hCar = car;
       this.evt = null;
+      this.rollT = 0;
       if (car && mode === 'car') {
         const d = car.drive;
         if (!d) this.event('drive');
-        else if ((this.ui.onboard[d.kind] || 0) >= (d.kind === 'manual' ? 3 : 1)) this.event('learner');
+        else if ((this.ui.onboard[d.kind] || 0) >= (d.kind === 'manual' ? 3 : 1) && (this.ui.onboard.roll || 0) >= ROLLING.length) this.event('learner');
       }
     }
     if (mode === 'foot' && !car && !this.footShown) { this.footShown = true; this.event('foot'); }
@@ -241,6 +248,17 @@ export class Hud {
         if (!want && !this.inLesson && step < 1) want = 'a0';
       }
       if (step !== before) { ob[d.kind] = step; this.persist(); }
+      // the guided first drive continues once you are rolling: mirrors, indicators, the examiner.
+      // Each shows for a while and moves on; the mirrors one also clears the moment you press Q.
+      const movedOff = d.kind === 'manual' ? step >= 3 : step >= 1;
+      let roll = ob.roll || 0;
+      if (movedOff && roll < ROLLING.length && !this.inLesson && car.vF > 1.5) {
+        this.rollT = (this.rollT || 0) + 1 / 60;
+        const id = ROLLING[roll];
+        const done = (id === 'look' && mirror) || this.rollT > (id === 'exam' ? 9 : 7);
+        if (done) { roll++; ob.roll = roll; this.rollT = 0; this.persist(); }
+        else if (!want) want = id;
+      }
     }
     // event hints (getting in, the first walk): shown once for a few seconds if nothing more urgent
     const ev = this.evt;
