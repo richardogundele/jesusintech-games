@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { facadeMaterial, waterMaterial } from '../materials.js';
+import { facadeMaterial, waterMaterial, worldMappedMaterial } from '../materials.js';
 import { drapeGeometry } from '../worlds/terrain.js';
 import { PAVE_W, KERB_W } from './markings.js';
 
@@ -407,11 +407,16 @@ let S = null;
 function shared() {
   if (S) return S;
   const tryPbr = (name, opts, fallback) => { try { return A.pbr(name, opts); } catch { return new THREE.MeshStandardMaterial({ color: fallback, roughness: 1 }); } };
+  // real surfaces where the sets exist (a node run has none; it falls back to flat colour)
+  const set = (name) => { try { return A.texSet?.(name) || null; } catch { return null; } };
+  const plaster = set('painted_plaster_wall'), tiles = set('clay_roof_tiles_02'), leaf = set('leafy_grass');
   const brick = facadeMaterial({ winSize: [2.2, 2.9], amount: 0.8, roughness: 0.92, frame: 0xf2efe8, texScale: 0.5 });
   const brickTex = brickTexture();
   if (brickTex) brick.map = brickTex; // the facade shader maps it in world space
-  const plain = facadeMaterial({ winSize: [2.4, 3.0], amount: 0.85, roughness: 0.85, frame: 0xe8e4dc });
-  const walls = facadeMaterial({ winSize: [2.2, 2.9], amount: 0.75, roughness: 0.9, frame: 0xf2efe8 });
+  // rendered walls: flats, shops and the non-brick houses get a plaster texture instead of a flat
+  // fill, so a street of them stops reading as painted boxes
+  const plain = facadeMaterial({ winSize: [2.4, 3.0], amount: 0.85, roughness: 0.85, frame: 0xe8e4dc, tex: plaster, texScale: 0.35 });
+  const walls = facadeMaterial({ winSize: [2.2, 2.9], amount: 0.75, roughness: 0.9, frame: 0xf2efe8, tex: plaster, texScale: 0.35 });
   walls.vertexColors = true;
   const atlas = frontsAtlas();
   const unitBox = new THREE.BoxGeometry(1, 1, 1);
@@ -424,17 +429,26 @@ function shared() {
   gb.tri([-0.5, 0, 0.5], [0.5, 0, 0.5], [0, 1, 0.5], w);
   gb.tri([0.5, 0, -0.5], [-0.5, 0, -0.5], [0, 1, -0.5], w);
   const gable = gb.build();
-  // low-poly broadleaf: trunk + three crown blobs in one geometry, crown tinted per instance
+  // A broadleaf tree: a trunk that forks, and a crown of seven overlapping lobes at one level of
+  // subdivision, jittered so the silhouette is ragged rather than three balls on a stick. The old
+  // three-blob crown was the single thing that most made the world read as a tech demo. Still one
+  // geometry, still instanced, ~560 triangles.
   const tg = new GB({ uv: false, color: true });
-  const trunkCol = new THREE.Color(0x5a4632), crownCol = new THREE.Color(0x4a6e34);
-  const trunk = new THREE.CylinderGeometry(0.2, 0.3, 3.4, 7, 1, true).translate(0, 1.7, 0).toNonIndexed();
-  const tp = trunk.attributes.position;
-  for (let i = 0; i < tp.count; i += 3) tg.tri([tp.getX(i), tp.getY(i), tp.getZ(i)], [tp.getX(i + 1), tp.getY(i + 1), tp.getZ(i + 1)], [tp.getX(i + 2), tp.getY(i + 2), tp.getZ(i + 2)], trunkCol);
-  for (const [x, y, z, r] of [[0, 5.0, 0, 2.5], [1.3, 4.2, 0.5, 1.8], [-1.1, 4.5, -0.5, 1.9]]) {
-    const b = new THREE.IcosahedronGeometry(r, 0).translate(x, y, z);
-    const bp = b.attributes.position;
-    for (let i = 0; i < bp.count; i += 3) tg.tri([bp.getX(i), bp.getY(i), bp.getZ(i)], [bp.getX(i + 1), bp.getY(i + 1), bp.getZ(i + 1)], [bp.getX(i + 2), bp.getY(i + 2), bp.getZ(i + 2)], crownCol);
-  }
+  const trunkCol = new THREE.Color(0x4e3b2a), crownCol = new THREE.Color(0x4a6e34), crownLight = new THREE.Color(0x5e8540);
+  const addGeo = (geo, col) => { const p = geo.toNonIndexed().attributes.position; for (let i = 0; i < p.count; i += 3) tg.tri([p.getX(i), p.getY(i), p.getZ(i)], [p.getX(i + 1), p.getY(i + 1), p.getZ(i + 1)], [p.getX(i + 2), p.getY(i + 2), p.getZ(i + 2)], col); };
+  addGeo(new THREE.CylinderGeometry(0.16, 0.34, 3.6, 7, 1, true).translate(0, 1.8, 0), trunkCol);
+  addGeo(new THREE.CylinderGeometry(0.08, 0.15, 2.2, 5, 1, true).rotateZ(0.5).translate(0.55, 4.0, 0.2), trunkCol);
+  addGeo(new THREE.CylinderGeometry(0.08, 0.15, 2.0, 5, 1, true).rotateZ(-0.45).rotateY(1.2).translate(-0.45, 4.1, -0.3), trunkCol);
+  const lobes = [[0, 5.6, 0, 2.3], [1.5, 5.0, 0.6, 1.7], [-1.4, 5.2, -0.4, 1.8], [0.4, 4.4, -1.5, 1.6], [-0.6, 4.6, 1.5, 1.5], [0.9, 6.8, -0.3, 1.5], [-0.9, 6.5, 0.7, 1.4]];
+  lobes.forEach(([x, y, z, r], i) => {
+    const g = new THREE.IcosahedronGeometry(r, 1);
+    const p = g.attributes.position;
+    for (let k = 0; k < p.count; k++) { // ragged edge: push each vertex in or out a little
+      const j = 0.82 + 0.3 * Math.abs(Math.sin(k * 12.9898 + i * 78.233));
+      p.setXYZ(k, p.getX(k) * j, p.getY(k) * (0.9 + 0.15 * j), p.getZ(k) * j);
+    }
+    addGeo(g.translate(x, y, z), i % 3 === 0 ? crownLight : crownCol);
+  });
   const tree = tg.build();
   // street lamp: tapered post, short arm, lantern (about 36 triangles)
   const lg = new GB({ uv: false, color: true });
@@ -450,10 +464,12 @@ function shared() {
   S = {
     brick, plain, walls,
     front: new THREE.MeshStandardMaterial({ map: atlas, color: atlas ? 0xffffff : 0xb98a6e, roughness: 0.9 }),
-    roof: new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.85 }),
-    roofInst: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.85 }),
+    // roof tiles and hedge leaf mapped in world space: these geometries carry no UVs, and the
+    // per-building roof tint still multiplies through on the merged hips
+    roof: tiles ? worldMappedMaterial(tiles, { scale: 0.45, vertexColors: true, roughness: 0.85 }) : new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.85 }),
+    roofInst: tiles ? worldMappedMaterial(tiles, { scale: 0.45, roughness: 0.85 }) : new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.85 }),
     chimney: new THREE.MeshStandardMaterial({ color: 0x8a5a48, roughness: 0.95 }),
-    hedge: new THREE.MeshStandardMaterial({ color: 0x3f6b2e, roughness: 1 }),
+    hedge: leaf ? worldMappedMaterial(leaf, { scale: 0.6, color: 0x5b7f3a, roughness: 1 }) : new THREE.MeshStandardMaterial({ color: 0x3f6b2e, roughness: 1 }),
     tree: new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.95, flatShading: true }),
     lamp: new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, metalness: 0.5, roughness: 0.5 }),
     // no polygonOffset: at grazing angles it would push fields through the asphalt 2 cm above them;

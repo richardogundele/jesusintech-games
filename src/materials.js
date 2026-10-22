@@ -23,6 +23,42 @@ function injectWorldVaryings(shader) {
 }
 
 /**
+ * A PBR texture set mapped in WORLD space (triplanar by dominant normal), so it works on geometry
+ * that has no UVs at all: merged hip roofs, instanced gable prisms and hedge boxes. `color` tints
+ * it; with `vertexColors` the per-building tint still multiplies through.
+ */
+export function worldMappedMaterial(tex, { scale = 0.25, color = 0xffffff, roughness = 0.9, metalness = 0, vertexColors = false, flatShading = false } = {}) {
+  const mat = new THREE.MeshStandardMaterial({ color, roughness, metalness, vertexColors, flatShading });
+  if (tex) {
+    mat.map = tex.diff; mat.normalMap = tex.nor; mat.roughnessMap = tex.arm; mat.aoMap = tex.arm;
+    mat.normalScale.set(0.7, 0.7);
+  }
+  const uniforms = { uTexScale: { value: scale } };
+  mat.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, uniforms);
+    injectWorldVaryings(shader);
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nuniform float uTexScale;')
+      .replace('vWN = normalize(mat3(modelMatrix) * fwn);', `vWN = normalize(mat3(modelMatrix) * fwn);
+      vec2 wuv = (abs(vWN.y) > 0.5 ? vWPos.xz : (abs(vWN.x) > 0.5 ? vWPos.zy : vWPos.xy)) * uTexScale;
+      #ifdef USE_MAP
+        vMapUv = wuv;
+      #endif
+      #ifdef USE_NORMALMAP
+        vNormalMapUv = wuv;
+      #endif
+      #ifdef USE_ROUGHNESSMAP
+        vRoughnessMapUv = wuv;
+      #endif
+      #ifdef USE_AOMAP
+        vAoMapUv = wuv;
+      #endif`);
+  };
+  mat.customProgramCacheKey = () => `worldmap-${scale}-${tex ? 1 : 0}-${vertexColors ? 1 : 0}-${flatShading ? 1 : 0}`;
+  return mat;
+}
+
+/**
  * Building facade: window grid drawn procedurally in world space, so any box size
  * gets correctly spaced windows. With `tex` (a PBR texture set) the walls get a real
  * material, mapped in world space too. `shutters` adds Riviera-style shutters.

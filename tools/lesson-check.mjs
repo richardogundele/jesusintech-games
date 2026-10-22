@@ -34,7 +34,7 @@ const ids = args.filter((a, i) => !a.startsWith('--') && !(i > 0 && args[i - 1].
 // ---------- bundle ----------
 const STUB_NAMES = {
   'assets.js': ['MODEL_NAMES', 'REAL_FERRARI', 'loadAll', 'hdri', 'pbr', 'texSet', 'model', 'updateCulling', 'instanced', 'modelMaterial', 'modelSize', 'gltf', 'misc'],
-  'materials.js': ['facadeMaterial', 'waterMaterial', 'roadTexture', 'groundTexture', 'curbTexture', 'label', 'M'],
+  'materials.js': ['facadeMaterial', 'waterMaterial', 'worldMappedMaterial', 'roadTexture', 'groundTexture', 'curbTexture', 'label', 'M'],
   'models.js': ['blobShadow', 'buildCar', 'buildJet', 'buildYacht', 'buildPerson', 'palms', 'planExtrude', 'sideExtrude', 'mesh', 'rocks', 'stonePines', 'buildCasual', 'buildPlayer', 'buildPedestrian'],
 };
 const stubSource = (file) => `import * as THREE from 'three';
