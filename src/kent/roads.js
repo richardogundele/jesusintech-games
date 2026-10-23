@@ -652,7 +652,7 @@ export function makeRoadMaterials({ pbr, decal = null, planting = null } = {}) {
     white: flat(0xf2f2ee),
     yellow: flat(0xe8c23a),
     kerb: new THREE.MeshStandardMaterial({ color: 0xa9a59c, roughness: 0.9 }),
-    barrier: new THREE.MeshStandardMaterial({ color: 0xc4c8cc, metalness: 0.7, roughness: 0.35 }),
+    barrier: new THREE.MeshStandardMaterial({ color: 0x8c9196, metalness: 0.25, roughness: 0.6 }), // dull galvanised, not glaring chrome-white
     concrete: new THREE.MeshStandardMaterial({ color: 0xb9b5ad, roughness: 0.85 }),
     decal, planting,
   };
@@ -1574,8 +1574,9 @@ function drawReservation(p, partner, { batch, near, inBox, obbAlong, uvWorld, tr
         const m = run.map((r) => [(r[0][0] + r[1][0]) / 2, (r[0][1] + r[1][1]) / 2]);
         for (let i = 0; i < m.length - 1; i++) {
           const dx = m[i + 1][0] - m[i][0], dz = m[i + 1][1] - m[i][1], L = Math.hypot(dx, dz);
-          Bm.box((m[i][0] + m[i + 1][0]) / 2, 0.62, (m[i][1] + m[i + 1][1]) / 2, 0.25, 0.32, L + 0.02, Math.atan2(dx, dz));
-          for (let t = 1.6; t < L; t += 3.2) Bm.box(m[i][0] + dx * t / L, 0, m[i][1] + dz * t / L, 0.12, 0.64, 0.12, Math.atan2(dx, dz));
+          // a slim Armco rail at ~0.6 m with thin posts behind it, not a chunky elevated beam
+          Bm.box((m[i][0] + m[i + 1][0]) / 2, 0.5, (m[i][1] + m[i + 1][1]) / 2, 0.12, 0.26, L + 0.02, Math.atan2(dx, dz));
+          for (let t = 1.6; t < L; t += 3.2) Bm.box(m[i][0] + dx * t / L, 0, m[i][1] + dz * t / L, 0.08, 0.6, 0.08, Math.atan2(dx, dz));
         }
         obbAlong(m, 0.5, true);
       }
