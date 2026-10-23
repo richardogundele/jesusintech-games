@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="robots" content="noindex, nofollow" />
     <title>The Dream Life</title>
     <!-- Anton stands in for Pricedown (the GTA cash/title face, which is personal-use only) -->
@@ -22,7 +22,7 @@
         <h1>THE DREAM LIFE</h1>
         <p class="sub">Learn to drive a manual on real UK streets. An examiner marks every drive.</p>
         <button id="start" class="btn-primary">Enter</button>
-        <p class="hint" id="title-hint">Laptop and keyboard, or a phone turned sideways. Your first drive is guided and takes about two minutes.</p>
+        <p class="hint" id="title-hint">Best on a laptop or desktop with a keyboard. Your first drive is guided and takes about two minutes.</p>
       </div>
     </div>
 
@@ -105,35 +105,6 @@
 
     <!-- the always-on controls dock: the bottom 10% of the screen -->
     <div id="controldock" class="hidden" aria-label="Controls"></div>
-
-    <!-- on-screen touch controls (phones and tablets): each button fires the matching key, so the
-         game's own input code drives it. data-hold keys are held; data-tap keys are a single press. -->
-    <div id="touch" class="hidden" aria-hidden="true">
-      <div class="t-zone t-left">
-        <button class="t-btn t-steer" data-hold="ArrowLeft" aria-label="Steer left">‹</button>
-        <button class="t-btn t-steer" data-hold="ArrowRight" aria-label="Steer right">›</button>
-      </div>
-      <div class="t-zone t-mid">
-        <button class="t-btn t-sm" data-tap="KeyI" aria-label="Engine on/off">⏻</button>
-        <button class="t-btn t-sm" data-tap="KeyR" aria-label="Reverse">R</button>
-        <button class="t-btn t-sm" data-tap="Digit0" aria-label="Neutral">N</button>
-        <button class="t-btn t-sm" data-tap="Digit1" aria-label="Drive">D</button>
-        <button class="t-btn t-sm t-clutch" data-hold="ShiftLeft" aria-label="Clutch">CL</button>
-        <button class="t-btn t-sm" data-tap="Space" aria-label="Handbrake">✋</button>
-      </div>
-      <div class="t-zone t-right">
-        <button class="t-btn t-gas" data-hold="ArrowUp" aria-label="Accelerate">▲</button>
-        <button class="t-btn t-brake" data-hold="ArrowDown" aria-label="Brake and reverse">▼</button>
-      </div>
-      <div class="t-zone t-aux">
-        <button class="t-btn t-sm" data-tap="KeyZ" aria-label="Left indicator">⬅</button>
-        <button class="t-btn t-sm" data-tap="KeyQ" aria-label="Check mirrors">mir</button>
-        <button class="t-btn t-sm" data-tap="KeyX" aria-label="Right indicator">➡</button>
-        <button class="t-btn t-act" data-tap="KeyE" aria-label="Interact">E</button>
-        <button class="t-btn t-act" data-tap="KeyP" aria-label="Phone">☰</button>
-      </div>
-    </div>
-    <div id="rotate" class="hidden"><div>↻<br>Turn your phone sideways to drive</div></div>
 
     <!-- the controls card (H) -->
     <div id="controls" class="screen hidden" role="dialog" aria-modal="true" aria-labelledby="controls-title">

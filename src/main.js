@@ -209,37 +209,6 @@ window.addEventListener('keydown', (e) => {
 window.addEventListener('keyup', (e) => keys.delete(e.code));
 window.addEventListener('blur', () => keys.clear());
 
-// ---------- touch controls: on a phone/tablet the on-screen buttons fire the matching keys, so the
-// game's own keyboard input code drives everything. data-hold is held; data-tap is a single press. ----------
-const isTouch = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window || navigator.maxTouchPoints > 0;
-const touchEl = $('touch'), rotateEl = $('rotate');
-if (isTouch) {
-  document.body.classList.add('touch');
-  // a keyboard-less player starts in an automatic (clutch work is hard on glass); an established
-  // manual learner keeps their own choice
-  if (!state.uk.tests && !Object.keys(state.uk.lessons).length && state.uk.trans !== 'auto') { state.uk.trans = 'auto'; save(); }
-  const fire = (code, type) => window.dispatchEvent(new KeyboardEvent(type, { code, bubbles: true }));
-  touchEl.querySelectorAll('[data-hold]').forEach((btn) => {
-    const code = btn.dataset.hold;
-    const press = (e) => { e.preventDefault(); if (btn.classList.contains('on')) return; btn.classList.add('on'); fire(code, 'keydown'); };
-    const release = (e) => { if (e) e.preventDefault(); if (!btn.classList.contains('on')) return; btn.classList.remove('on'); fire(code, 'keyup'); };
-    btn.addEventListener('pointerdown', press);
-    btn.addEventListener('pointerup', release); btn.addEventListener('pointercancel', release); btn.addEventListener('pointerleave', release);
-  });
-  touchEl.querySelectorAll('[data-tap]').forEach((btn) => {
-    const code = btn.dataset.tap;
-    btn.addEventListener('pointerdown', (e) => { e.preventDefault(); fire(code, 'keydown'); setTimeout(() => fire(code, 'keyup'), 40); });
-  });
-}
-/** show the on-screen controls while driving/on foot in landscape; nudge to rotate in portrait */
-function updateTouchUI() {
-  if (!isTouch) return;
-  const driving = mode === 'car' || mode === 'foot';
-  const portrait = window.innerHeight > window.innerWidth * 1.05;
-  touchEl.classList.toggle('hidden', !driving || portrait);
-  rotateEl.classList.toggle('hidden', !driving || !portrait);
-}
-
 function readInput() {
   const learner = learnerCar();
   const out = {
@@ -1372,7 +1341,6 @@ function frame() {
   const dt = Math.min(clock.getDelta(), 0.05);
   if (!window.__game?.paused) step(dt);
   draw();
-  updateTouchUI();
 }
 
 function step(dt) {

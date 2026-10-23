@@ -534,43 +534,6 @@ h1 { font-family: var(--font-display); font-size: clamp(40px, 9vw, 112px); lette
 #quiz-plate img { width: 150px; height: 150px; object-fit: contain; padding: var(--sp-3);
   background: rgba(255, 255, 255, 0.04); border: 1px solid var(--hairline); border-radius: var(--r-md); }
 
-/* ---------- on-screen touch controls (phones / tablets) ---------- */
-#touch { position: fixed; inset: 0; z-index: 40; pointer-events: none; }
-#touch.hidden { display: none; }
-#touch .t-zone { position: absolute; display: flex; gap: 12px; }
-#touch .t-btn {
-  pointer-events: auto; touch-action: none; -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent;
-  display: flex; align-items: center; justify-content: center; padding: 0;
-  background: rgba(18, 20, 24, 0.44); color: #fff; border: 1.5px solid rgba(255, 255, 255, 0.3);
-  font-weight: 700; backdrop-filter: blur(7px); -webkit-backdrop-filter: blur(7px);
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.35); transition: background .07s, transform .07s; cursor: pointer;
-}
-#touch .t-btn.on, #touch .t-btn:active { background: rgba(240, 210, 120, 0.9); color: #15161a; transform: scale(0.93); border-color: rgba(240, 210, 120, 0.95); }
-.t-left  { left: calc(18px + env(safe-area-inset-left)); bottom: calc(22px + env(safe-area-inset-bottom)); }
-.t-right { right: calc(18px + env(safe-area-inset-right)); bottom: calc(22px + env(safe-area-inset-bottom)); flex-direction: column; align-items: flex-end; }
-.t-mid   { left: 50%; transform: translateX(-50%); bottom: calc(20px + env(safe-area-inset-bottom)); gap: 9px; }
-.t-aux   { right: calc(18px + env(safe-area-inset-right)); top: calc(16px + env(safe-area-inset-top)); gap: 9px; }
-#touch .t-steer { width: 78px; height: 78px; font-size: 44px; line-height: 0.7; border-radius: 50%; }
-#touch .t-gas   { width: 86px; height: 86px; font-size: 26px; border-radius: 50%; background: rgba(56, 150, 84, 0.42); }
-#touch .t-brake { width: 72px; height: 72px; font-size: 24px; border-radius: 50%; background: rgba(176, 62, 62, 0.44); }
-#touch .t-sm    { width: 48px; height: 48px; font-size: 15px; border-radius: 13px; }
-#touch .t-act   { width: 54px; height: 54px; font-size: 19px; border-radius: 15px; }
-#touch .t-clutch { font-size: 13px; }
-/* portrait nudge: driving wants landscape */
-#rotate { position: fixed; inset: 0; z-index: 60; background: rgba(8, 9, 11, 0.94); color: #e8e4dc; align-items: center; justify-content: center; text-align: center; padding: 24px; }
-#rotate.hidden { display: none; }
-#rotate:not(.hidden) { display: flex; }
-#rotate div { font-size: 19px; font-weight: 600; line-height: 2; }
-body.touch { overscroll-behavior: none; }
-body.touch #controldock { display: none !important; } /* the keyboard hint dock is pointless on a phone */
-/* comfortable thumb-sized targets in the menus on a phone */
-body.touch #phone-tabs button { padding: 10px 15px; font-size: 13px; }
-body.touch #phone-body .buy { padding: 12px 18px; }
-body.touch #phone-body .row { padding: 14px 12px; }
-body.touch #phone .x { padding: 10px 16px; }
-body.touch .seg button { padding: 11px 14px; }
-body.touch #phone-body .sw { min-width: 38px; min-height: 38px; }
-
 /* a gentle pop when a sheet opens, so modals feel placed rather than flashed in */
 @keyframes sheet-pop { from { opacity: 0; transform: translateY(10px) scale(0.985); } to { opacity: 1; transform: none; } }
 .phone, #result .modal, #jets .modal, #quiz .modal { animation: sheet-pop 0.22s var(--ease) both; }
