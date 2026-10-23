@@ -264,7 +264,7 @@ export class LessonRun {
     this.say(this.drillQ.length ? `${def.intro} ${this.drillQ[0].text}` : def.intro);
     if (this.drillQ.length) this.drillQ[0].shown = true;
     // emerging give-way lines: where the route crosses the mouth of the side road
-    if (!def.mock) this.guide = guideLine(this.route.pts);
+    if (!def.mock) this.guide = guideLine(this.route.pts, world.heightAt);
     if (this.guide) world.scene.add(this.guide);
     if (this.kent) {
       // each event remembers where the manoeuvre before it ended, so a signal still on from that one
@@ -865,7 +865,7 @@ export class LessonRun {
     this.spec = { ...this.spec, vias };
     this.idx = 0;
     this.track(car);
-    if (this.guide) { this.world.scene.remove(this.guide); this.guide.geometry.dispose(); this.guide = guideLine(this.route.pts); this.world.scene.add(this.guide); }
+    if (this.guide) { this.world.scene.remove(this.guide); this.guide.geometry.dispose(); this.guide = guideLine(this.route.pts, this.world.heightAt); this.world.scene.add(this.guide); }
     this.satnav = { next: null, called: {} };
     this.say(this.independent ? (this.indepMode === 'signs' ? `That's fine. Follow the signs for ${this.signsTarget} again when you can.` : 'Sat nav: route recalculated.') : "That's fine, I'll take you back on to the route. Follow the road and I'll direct you.");
   }
@@ -1049,14 +1049,17 @@ function viaPositions(route) {
 }
 
 /** A soft blue line on the road along the lesson route. */
-function guideLine(pts) {
+function guideLine(pts, heightAt = null) {
   const pos = [], idx = [];
+  let prevY = null;
   for (let i = 0; i < pts.length; i++) {
     const a = pts[Math.max(0, i - 1)], b = pts[Math.min(pts.length - 1, i + 1)];
     let dx = b.x - a.x, dz = b.z - a.z;
     const l = Math.hypot(dx, dz) || 1;
     dx /= l; dz /= l;
-    pos.push(pts[i].x + dz * 0.18, 0.045, pts[i].z - dx * 0.18, pts[i].x - dz * 0.18, 0.045, pts[i].z + dx * 0.18);
+    // lie on the road: the ground under this point (and a flyover deck, via prevY), not a fixed height
+    const y = (heightAt ? (prevY = heightAt(pts[i].x, pts[i].z, prevY)) : 0) + 0.045;
+    pos.push(pts[i].x + dz * 0.18, y, pts[i].z - dx * 0.18, pts[i].x - dz * 0.18, y, pts[i].z + dx * 0.18);
     if (i < pts.length - 1) { const k = i * 2; idx.push(k, k + 1, k + 2, k + 1, k + 3, k + 2); }
   }
   const g = new THREE.BufferGeometry();

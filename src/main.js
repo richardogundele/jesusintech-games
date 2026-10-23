@@ -808,7 +808,7 @@ function speak(text) {
 function addEyesightCar(w, spot) {
   const spec = { ...TRAFFIC[0], color: 0x1d2b44 };
   const m = buildCar(spec);
-  m.root.position.set(spot.x, 0, spot.z);
+  m.root.position.set(spot.x, w.heightAt ? w.heightAt(spot.x, spot.z) : 0, spot.z); // on the ground, hills and all
   m.root.rotation.y = spot.heading; // nose into the bay, number plate facing the aisle
   w.scene.add(m.root);
   if (spot.heading) w.colliders.obb(spot.x, spot.z, 2.0, 4.8, spot.heading);
@@ -883,7 +883,7 @@ const lessonHooks = {
   // an angled start pulls up behind a parked car: a body and a box to steer round
   parkedCar(p) {
     const m = buildCar({ ...TRAFFIC[1 % TRAFFIC.length], color: 0x6b1f2a });
-    m.root.position.set(p.x, 0, p.z);
+    m.root.position.set(p.x, world.heightAt ? world.heightAt(p.x, p.z) : 0, p.z);
     m.root.rotation.y = p.heading;
     world.scene.add(m.root);
     return { m, box: world.colliders.obb(p.x, p.z, 1.9, 4.5, p.heading) };
@@ -1098,12 +1098,13 @@ async function startLesson(id) {
     mode = 'foot';
     // stand 20 m behind the car (and a step to its left), looking at its number plate
     const fx = Math.sin(spot.heading), fz = Math.cos(spot.heading), lx = Math.cos(spot.heading), lz = -Math.sin(spot.heading);
-    player.pos.set(spot.x - fx * 22 + lx, 0, spot.z - fz * 22 + lz);
+    const groundAt = (x, z) => (world.heightAt ? world.heightAt(x, z) : 0); // a test centre can sit on a hill
+    player.pos.set(spot.x - fx * 22 + lx, groundAt(spot.x - fx * 22 + lx, spot.z - fz * 22 + lz), spot.z - fz * 22 + lz);
     player.heading = spot.heading;
     if (tiled) await warmTiles(player.pos.x, player.pos.z, window.__game?.autoQuiz ? 0 : 1500); // the player is there now, so the frame loop streams the same tiles
     snapCamera();
-    camera.position.set(spot.x - fx * 21 + lx, 1.7, spot.z - fz * 21 + lz);
-    camera.lookAt(spot.x, 0.6, spot.z);
+    camera.position.set(spot.x - fx * 21 + lx, groundAt(spot.x - fx * 21 + lx, spot.z - fz * 21 + lz) + 1.7, spot.z - fz * 21 + lz);
+    camera.lookAt(spot.x, groundAt(spot.x, spot.z) + 0.6, spot.z);
     if (tiled) { hud.show(true); await fade(0); }
     draw();
     const eyes = await quiz({ title: 'Eyesight check', q: `Read the number plate on the dark blue car ${centre === 'canterbury' ? 'parked in front of the test centre' : 'in the bay ahead'} (about 20 metres away). Which is it?`, a: plateOptions(world.plate), plate: true });

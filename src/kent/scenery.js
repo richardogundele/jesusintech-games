@@ -1119,7 +1119,7 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
         if (near && !obbOnRoad(b.obb)) cs.add(b.obb.cx, b.obb.cz, b.obb.w, b.obb.d, b.obb.yaw);
       }
       if (near && !b.sign && (b.kind === 'house' || b.kind === 'terrace' || b.kind === 'shop') && b.h <= 12) addFront(b, fronts, rng, gy);
-      if (near && b.sign && hasDOM) addSign(b, out, M);
+      if (near && b.sign && hasDOM) addSign(b, out, M, gy);
     }
     const inst = (items, geo, mat, { color = true, cast = true } = {}) => {
       if (!items.length) return null;
@@ -1193,7 +1193,7 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
     }
   }
   /** brand fascia on a supermarket's road-facing side */
-  function addSign(b, out, M) {
+  function addSign(b, out, M, gy = 0) {
     const hit = nearestRoad(b.cx, b.cz, 90);
     const o = b.obb, c = Math.cos(o.yaw), s = Math.sin(o.yaw);
     const tx = hit ? hit.px - b.cx : seaDir[0], tz = hit ? hit.pz - b.cz : seaDir[1];
@@ -1204,7 +1204,7 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
     const tex = fasciaTex(b.sign, bg, ink);
     const w = clamp(face.len * 0.6, 6, 24), h = w * 192 / 1024;
     const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshStandardMaterial({ map: tex, roughness: 0.6, emissive: 0xffffff, emissiveMap: tex, emissiveIntensity: 0.25 }));
-    m.position.set(o.cx + face.nx * (face.hd + 0.08), Math.max(3.2, b.h - h / 2 - 0.4), o.cz + face.nz * (face.hd + 0.08));
+    m.position.set(o.cx + face.nx * (face.hd + 0.08), gy + Math.max(3.2, b.h - h / 2 - 0.4), o.cz + face.nz * (face.hd + 0.08));
     m.rotation.y = Math.atan2(face.nx, face.nz);
     m.geometry.userData.owned = true;
     m.material.userData.owned = true;
@@ -1347,7 +1347,11 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
               const nx = p.dz * side, nz = -p.dx * side; // driver's left for side = 1
               const off = way.halfW + 1.4 + (rng() - 0.5) * 0.3;
               const x = p.x + nx * off, z = p.z + nz * off;
-              if (inside(x, z) && !excluded(x, z)) hedges.push({ x, z, len: len + 0.3, h: 1.3 + rng() * 0.7, wd: 1.3 + rng() * 0.5, yaw: Math.atan2(p.dx, p.dz), t: rng() });
+              if (inside(x, z) && !excluded(x, z)) {
+                // a hedge runs up or down the hill: plant it at the LOWEST of its two ends and middle so no end hangs in the air
+                const y = groundY ? Math.min(groundY(x, z), groundY(x + p.dx * len / 2, z + p.dz * len / 2), groundY(x - p.dx * len / 2, z - p.dz * len / 2)) : 0;
+                hedges.push({ x, y, z, len: len + 0.3, h: 1.3 + rng() * 0.7, wd: 1.3 + rng() * 0.5, yaw: Math.atan2(p.dx, p.dz), t: rng() });
+              }
             }
             s += len;
           }
@@ -1363,7 +1367,7 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
           const off = way.halfW + PAVE - 0.4;
           const x = p.x + nx * off, z = p.z + nz * off;
           if (!inside(x, z) || excluded(x, z)) continue;
-          lamps.push({ x, z, rot: Math.atan2(-nx, -nz) }); // the arm reaches over the road
+          lamps.push({ x, z, y: groundY ? groundY(x, z) : 0, rot: Math.atan2(-nx, -nz) }); // the arm reaches over the road; planted on the hill
         }
       }
     }
@@ -1372,7 +1376,10 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
       const im = new THREE.InstancedMesh(M.geoBox, M.hedge, hedges.length);
       const o = new THREE.Object3D();
       hedges.forEach((h, i) => {
-        o.position.set(h.x, 0, h.z); o.rotation.set(0, h.yaw, 0); o.scale.set(h.wd, h.h, h.len); o.updateMatrix();
+        // a garden hedge is handed its house's base height, but the hedge itself can stand lower down the
+        // slope: never hang it in the air, so plant it at the lower of the two
+        const hy = groundY ? Math.min(h.y ?? Infinity, groundY(h.x, h.z)) : 0;
+        o.position.set(h.x, hy, h.z); o.rotation.set(0, h.yaw, 0); o.scale.set(h.wd, h.h, h.len); o.updateMatrix();
         im.setMatrixAt(i, o.matrix);
         im.setColorAt(i, col.setHSL(0.26 + h.t * 0.04, 0.45, 0.28 + h.t * 0.08).multiplyScalar(1.8));
       });
@@ -1388,7 +1395,7 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
       if (!done) {
         const im = new THREE.InstancedMesh(M.geoLamp, M.lamp, lamps.length);
         const o = new THREE.Object3D();
-        lamps.forEach((l, i) => { o.position.set(l.x, 0, l.z); o.rotation.set(0, l.rot, 0); o.scale.set(1, 1, 1); o.updateMatrix(); im.setMatrixAt(i, o.matrix); });
+        lamps.forEach((l, i) => { o.position.set(l.x, l.y || 0, l.z); o.rotation.set(0, l.rot, 0); o.scale.set(1, 1, 1); o.updateMatrix(); im.setMatrixAt(i, o.matrix); });
         im.castShadow = true;
         im.computeBoundingSphere();
         out.add(im);
@@ -1425,7 +1432,7 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
     if (sleeperSpots.length) {
       const im = new THREE.InstancedMesh(M.geoSleeper, M.sleeper, sleeperSpots.length);
       const o = new THREE.Object3D();
-      sleeperSpots.forEach((p, i) => { o.position.set(p.x, 0.03, p.z); o.rotation.set(0, p.yaw, 0); o.scale.set(1, 1, 1); o.updateMatrix(); im.setMatrixAt(i, o.matrix); });
+      sleeperSpots.forEach((p, i) => { o.position.set(p.x, (groundY ? groundY(p.x, p.z) : 0) + 0.03, p.z); o.rotation.set(0, p.yaw, 0); o.scale.set(1, 1, 1); o.updateMatrix(); im.setMatrixAt(i, o.matrix); });
       im.receiveShadow = true;
       im.computeBoundingSphere();
       out.add(im);
@@ -1447,9 +1454,10 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
           const ax = dx * dir, az = dz * dir;
           const lx = az, lz = -ax;
           const px = c.x - ax * 4.5 + lx * (hw + 0.8), pz = c.z - az * 4.5 + lz * (hw + 0.8);
-          cg.box(px, 0, pz, 0.35, 1.2, 0.35, 0, post);
+          const by = groundY ? groundY(px, pz) : 0; // the post stands on the ground, whatever the hill
+          cg.box(px, by, pz, 0.35, 1.2, 0.35, 0, post);
           const boomL = Math.min(5.5, hw + 1.2);
-          for (let s = 0; s < boomL; s += 0.9) cg.box(px, 1.0 + s, pz, 0.16, Math.min(0.9, boomL - s), 0.12, 0, Math.floor(s / 0.9) % 2 ? white : red);
+          for (let s = 0; s < boomL; s += 0.9) cg.box(px, by + 1.0 + s, pz, 0.16, Math.min(0.9, boomL - s), 0.12, 0, Math.floor(s / 0.9) % 2 ? white : red);
           cs.add(px, pz, 0.5, 0.5, 0);
         }
         crossings++;
@@ -1466,6 +1474,14 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
     const g = new GB({ uv: false, color: true });
     const stone = new THREE.Color(0xd9d0bd), flint = new THREE.Color(0x6e6a60), brick = new THREE.Color(0x8f4a3c), white = new THREE.Color(0xf2efe8), dark = new THREE.Color(0x2b2e33);
     const deck = new GB({ uv: true, color: false });
+    // The lowest ground under a hw x hd half-extent footprint: a big landmark is planted there and sits a
+    // little into the slope on its high side, so no edge ever hangs in the air (and none is buried whole).
+    const lowest = (x, z, hw, hd) => {
+      if (!groundY) return 0;
+      let lo = Infinity;
+      for (const sx of [-1, -0.5, 0, 0.5, 1]) for (const sz of [-1, 0, 1]) lo = Math.min(lo, groundY(x + sx * hw, z + sz * hd));
+      return lo;
+    };
     let n = 0;
     for (const lm of list) {
       n++;
@@ -1488,7 +1504,7 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
         const city = /canterbury/i.test(lm.name) ? 'Canterbury' : /herne/i.test(lm.name) ? 'Herne Bay' : (lm.name || 'DVSA').replace(/\s*\(.*\)\s*$/, '');
         if (hasDOM) {
           const sign = new THREE.Mesh(new THREE.PlaneGeometry(10, 1.4), new THREE.MeshStandardMaterial({ map: plateTex(`${city} Driving Test Centre`), roughness: 0.6 }));
-          sign.position.set(fx, 3.3, fz);
+          sign.position.set(fx, ly + 3.3, fz); // on the building, which is planted at ly
           sign.rotation.y = Math.atan2(nz[0] * sgn, nz[1] * sgn);
           sign.geometry.userData.owned = true; sign.material.userData.owned = true;
           out.add(sign);
@@ -1505,33 +1521,35 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
       } else if (lm.type === 'cathedral') {
         // nave + quire, two transepts, Bell Harry over the crossing, twin west towers (east-west axis)
         const yaw = 0;
-        g.box(lm.x, 0, lm.z, 160, 22, 24, yaw, stone);
-        g.box(lm.x, 0, lm.z, 60, 14, 1.2, yaw, stone); // buttress line
+        const by = lowest(lm.x, lm.z, 80, 30), fd = 3; // planted on the lowest ground, foundations sunk fd m so the high side sits into the hill
+        g.box(lm.x, by - fd, lm.z, 160, 22 + fd, 24, yaw, stone);
+        g.box(lm.x, by, lm.z, 60, 14, 1.2, yaw, stone); // buttress line
         const roofs = new GB({ uv: false, color: true });
-        roofs.hip([[lm.x - 80.5, lm.z - 12.5], [lm.x + 80.5, lm.z - 12.5], [lm.x + 80.5, lm.z + 12.5], [lm.x - 80.5, lm.z + 12.5]].reverse(), 22, 9, 11.5, new THREE.Color(0x5a5d63));
+        roofs.hip([[lm.x - 80.5, lm.z - 12.5], [lm.x + 80.5, lm.z - 12.5], [lm.x + 80.5, lm.z + 12.5], [lm.x - 80.5, lm.z + 12.5]].reverse(), by + 22, 9, 11.5, new THREE.Color(0x5a5d63));
         for (const ox of [-10, 42]) {
-          g.box(lm.x + ox, 0, lm.z, 16, 22, 60, yaw, stone);
-          roofs.hip([[lm.x + ox - 8.2, lm.z - 30.2], [lm.x + ox + 8.2, lm.z - 30.2], [lm.x + ox + 8.2, lm.z + 30.2], [lm.x + ox - 8.2, lm.z + 30.2]].reverse(), 22, 7, 7.8, new THREE.Color(0x5a5d63));
+          g.box(lm.x + ox, by - fd, lm.z, 16, 22 + fd, 60, yaw, stone);
+          roofs.hip([[lm.x + ox - 8.2, lm.z - 30.2], [lm.x + ox + 8.2, lm.z - 30.2], [lm.x + ox + 8.2, lm.z + 30.2], [lm.x + ox - 8.2, lm.z + 30.2]].reverse(), by + 22, 7, 7.8, new THREE.Color(0x5a5d63));
         }
-        g.box(lm.x + 16, 0, lm.z, 14, 72, 14, yaw, stone);
-        for (const [dx, dz] of [[-7, -7], [7, -7], [-7, 7], [7, 7]]) g.box(lm.x + 16 + dx, 72, lm.z + dz, 2, 8, 2, yaw, stone);
-        for (const dz of [-9, 9]) { g.box(lm.x - 74, 0, lm.z + dz, 10, 48, 10, yaw, stone); for (const [dx, ddz] of [[-5, -5], [5, -5], [-5, 5], [5, 5]]) g.box(lm.x - 74 + dx, 48, lm.z + dz + ddz, 1.6, 6, 1.6, yaw, stone); }
+        g.box(lm.x + 16, by - fd, lm.z, 14, 72 + fd, 14, yaw, stone);
+        for (const [dx, dz] of [[-7, -7], [7, -7], [-7, 7], [7, 7]]) g.box(lm.x + 16 + dx, by + 72, lm.z + dz, 2, 8, 2, yaw, stone);
+        for (const dz of [-9, 9]) { g.box(lm.x - 74, by - fd, lm.z + dz, 10, 48 + fd, 10, yaw, stone); for (const [dx, ddz] of [[-5, -5], [5, -5], [-5, 5], [5, 5]]) g.box(lm.x - 74 + dx, by + 48, lm.z + dz + ddz, 1.6, 6, 1.6, yaw, stone); }
         for (const [cx, cz, w, d] of [[lm.x, lm.z, 160, 24], [lm.x - 10, lm.z, 16, 60], [lm.x + 42, lm.z, 16, 60]]) cs.add(cx, cz, w, d, 0);
         if (roofs.tris) { const m = new THREE.Mesh(roofs.build(), M.roof); m.castShadow = m.receiveShadow = true; m.geometry.userData.owned = true; out.add(m); }
       } else if (lm.type === 'clock') {
-        g.box(lm.x, 0, lm.z, 4.6, 1.2, 4.6, 0, stone);
-        g.box(lm.x, 1.2, lm.z, 3.6, 14, 3.6, 0, new THREE.Color(0xcfc5ae));
-        g.box(lm.x, 15.2, lm.z, 4.2, 0.6, 4.2, 0, stone);
-        g.box(lm.x, 15.8, lm.z, 3.2, 5, 3.2, 0, new THREE.Color(0xcfc5ae));
-        g.box(lm.x, 20.8, lm.z, 3.8, 0.5, 3.8, 0, stone);
-        g.box(lm.x, 21.3, lm.z, 2, 1.6, 2, 0, stone);
-        g.box(lm.x, 22.9, lm.z, 0.3, 1.4, 0.3, 0, dark);
+        const by = lowest(lm.x, lm.z, 2.3, 2.3); // planted on the ground the tower actually stands on
+        g.box(lm.x, by - 3, lm.z, 4.6, 1.2 + 3, 4.6, 0, stone);
+        g.box(lm.x, by + 1.2, lm.z, 3.6, 14, 3.6, 0, new THREE.Color(0xcfc5ae));
+        g.box(lm.x, by + 15.2, lm.z, 4.2, 0.6, 4.2, 0, stone);
+        g.box(lm.x, by + 15.8, lm.z, 3.2, 5, 3.2, 0, new THREE.Color(0xcfc5ae));
+        g.box(lm.x, by + 20.8, lm.z, 3.8, 0.5, 3.8, 0, stone);
+        g.box(lm.x, by + 21.3, lm.z, 2, 1.6, 2, 0, stone);
+        g.box(lm.x, by + 22.9, lm.z, 0.3, 1.4, 0.3, 0, dark);
         cs.add(lm.x, lm.z, 4.6, 4.6, 0);
         if (near && hasDOM) {
           const tex = clockTex();
           for (const [nx, nz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
             const f = new THREE.Mesh(new THREE.CircleGeometry(1.1, 24), new THREE.MeshStandardMaterial({ map: tex, roughness: 0.5 }));
-            f.position.set(lm.x + nx * 1.62, 18.3, lm.z + nz * 1.62);
+            f.position.set(lm.x + nx * 1.62, by + 18.3, lm.z + nz * 1.62);
             f.rotation.y = Math.atan2(nx, nz);
             f.geometry.userData.owned = true; f.material.userData.owned = true;
             out.add(f);
@@ -1539,9 +1557,10 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
         }
       } else if (lm.type === 'reculver') {
         // two square towers joined by the west front, low ruin walls behind
-        for (const ox of [-8, 8]) { g.box(lm.x + ox, 0, lm.z, 6.5, 20, 6.5, 0, flint); g.box(lm.x + ox, 20, lm.z, 7.1, 0.7, 7.1, 0, stone); cs.add(lm.x + ox, lm.z, 6.5, 6.5, 0); }
-        g.box(lm.x, 0, lm.z, 10, 9, 1.6, 0, flint);
-        for (const [ox, oz, w, d] of [[-12, 12, 1.2, 22], [12, 12, 1.2, 22], [0, 22, 24, 1.2]]) { g.box(lm.x + ox, 0, lm.z + oz, w, 1.1, d, 0, flint); cs.add(lm.x + ox, lm.z + oz, w, d, 0); }
+        const by = lowest(lm.x, lm.z + 10, 14, 14); // planted on the lowest ground under the ruin
+        for (const ox of [-8, 8]) { g.box(lm.x + ox, by - 3, lm.z, 6.5, 20 + 3, 6.5, 0, flint); g.box(lm.x + ox, by + 20, lm.z, 7.1, 0.7, 7.1, 0, stone); cs.add(lm.x + ox, lm.z, 6.5, 6.5, 0); }
+        g.box(lm.x, by - 2, lm.z, 10, 9 + 2, 1.6, 0, flint);
+        for (const [ox, oz, w, d] of [[-12, 12, 1.2, 22], [12, 12, 1.2, 22], [0, 22, 24, 1.2]]) { g.box(lm.x + ox, by - 2, lm.z + oz, w, 1.1 + 2, d, 0, flint); cs.add(lm.x + ox, lm.z + oz, w, d, 0); }
       } else if (lm.type === 'pier') {
         // deck on piles from the promenade 300 m out to sea, a pavilion at each end
         const zc = coastZAt(lm.x) ?? lm.z;

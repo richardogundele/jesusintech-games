@@ -975,7 +975,7 @@ export function buildRoadTile(net, tile, { lod = 'near', mats, materials, ground
 
   // ---- roundabouts whose centre is in this tile ----
   mark(null);
-  for (const rb of cell.rbs) drawRoundabout(view, rb, { batch, near, obb, laneArrow, wordDecal, uvWorld, mats, extraObjects, roads });
+  for (const rb of cell.rbs) drawRoundabout(view, rb, { batch, near, obb, laneArrow, wordDecal, uvWorld, mats, extraObjects, roads, groundY });
 
   // ---- dual carriageway reservations + barriers ----
   for (const p of wayPreps) {
@@ -1338,7 +1338,7 @@ function drawMini(view, info, batch, laneArrow, wordDecal, uvWorld) {
  * between the arms, the arm caps, entry give-way lines, splitter islands with hatching, approach
  * lane lines, lane arrows and destinations. Arm ribbons were trimmed at r + 0.3 by wayCuts().
  */
-function drawRoundabout(view, rb, { batch, near, obb, laneArrow, wordDecal, uvWorld, mats, extraObjects, roads }) {
+function drawRoundabout(view, rb, { batch, near, obb, laneArrow, wordDecal, uvWorld, mats, extraObjects, roads, groundY = null }) {
   const cx = rb.x, cz = rb.z, r = num(rb.r, 15), lanes = Math.max(1, num(rb.lanes, 1));
   const laneW = num(rb.laneW, r < 12 ? LW_RING_SMALL : LW);
   const island = Math.max(1.5, Math.min(r - 3, num(rb.island, r - lanes * laneW)));
@@ -1365,8 +1365,10 @@ function drawRoundabout(view, rb, { batch, near, obb, laneArrow, wordDecal, uvWo
     if (island >= 8 && mats.planting) {
       const spots = [];
       const n = Math.max(6, Math.round(island));
-      for (let i = 0; i < n; i++) { const a = (i / n) * TAU + island * 0.37; spots.push({ x: cx + Math.cos(a) * island * 0.55, z: cz + Math.sin(a) * island * 0.55, y: 0.14, scale: 0.9 + 0.3 * ((i * 7) % 3) / 3, rot: a }); }
-      spots.push({ x: cx, z: cz, y: 0.14, scale: 1.3, rot: 0 });
+      // the island is draped on the hill, so the shrubs are planted on the ground under each one
+      const gAt = (x, z) => (groundY ? groundY(x, z) : 0);
+      for (let i = 0; i < n; i++) { const a = (i / n) * TAU + island * 0.37; const sx = cx + Math.cos(a) * island * 0.55, sz = cz + Math.sin(a) * island * 0.55; spots.push({ x: sx, z: sz, y: 0.14 + gAt(sx, sz), scale: 0.9 + 0.3 * ((i * 7) % 3) / 3, rot: a }); }
+      spots.push({ x: cx, z: cz, y: 0.14 + gAt(cx, cz), scale: 1.3, rot: 0 });
       const o = mats.planting(spots);
       if (o) extraObjects.push(o);
     }
