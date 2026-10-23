@@ -101,7 +101,12 @@ export class RoadNet {
     for (const w of this.data.ways) {
       const n = w.pts.length, cum = new Float64Array(n);
       for (let i = 1; i < n; i++) cum[i] = cum[i - 1] + hypot(w.pts[i][0] - w.pts[i - 1][0], w.pts[i][1] - w.pts[i - 1][1]);
-      const way = Object.assign({}, w, { cum, len: cum[n - 1], halfW: w.width / 2 });
+      // give the tightest two-way streets a little more room: a learner kept drifting over the centre
+      // line when turning. Aim for a comfortable ~3.4 m lane, but never widen a street by over 2.5 m
+      // (pavements and procedural houses are drawn from halfW, so they move out with it).
+      let width = w.width;
+      if (!w.oneway && !w.rb && !w.link && w.cls !== 'service' && (RANK[w.cls] ?? 3) <= 4) width = Math.min(w.width + 2.5, Math.max(w.width, 7));
+      const way = Object.assign({}, w, { cum, len: cum[n - 1], width, halfW: width / 2 });
       way.limit = w.limit || (w.pave ? 30 : 60);
       way.rank = RANK[w.cls] ?? 3;
       this.ways.set(w.id, way);
