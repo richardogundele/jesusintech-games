@@ -146,14 +146,22 @@ export class RoadNet {
     return bearingOf(p[0] - q[0], p[1] - q[1]);
   }
   #buildRoundabouts() {
+    // comfortable circulating width: the baked islands leave only ~3.6 m on single-lane rings, too
+    // tight to steer round without clipping a kerb, so shrink the island to open the carriageway up
+    const MIN_RING = 5.5;
     for (const r of this.data.roundabouts || []) {
       const rb = Object.assign({}, r);
-      rb.laneW = r.laneW || (r.r < 12 ? 3.0 : LW);
+      const lanes = Math.max(1, r.lanes || 1);
+      let island = r.island;
+      if (lanes <= 1) { const want = Math.min(MIN_RING, r.r - 1.5); if (island == null || r.r - island < want) island = r.r - want; }
+      rb.island = island;
+      // a single-lane ring's lane IS the whole carriageway, so the driving line sits in its middle
+      rb.laneW = lanes <= 1 && island != null ? Math.max(3.5, r.r - island) : (r.laneW || (r.r < 12 ? 3.0 : LW));
       rb.arms = r.arms.map((a) => Object.assign({}, a)).sort((a, b) => a.bearing - b.bearing);
       rb.angleAt = (x, z) => Math.atan2(z - rb.z, x - rb.x);
       rb.pointAt = (ang, radius) => [rb.x + Math.cos(ang) * radius, rb.z + Math.sin(ang) * radius];
       rb.laneRadius = (k) => rb.r - (k - 0.5) * rb.laneW; // lane 1 = outer (nearside) lane
-      rb.outer = rb.r; rb.island = r.island;
+      rb.outer = rb.r;
       this.roundabouts.set(rb.id, rb);
       for (const nid of rb.ringNodes) { const n = this.nodes.get(nid); if (n) n.rb = rb.id; }
     }

@@ -134,6 +134,14 @@ let controlsOpen = false; // the H card: the world waits while it's open
 function toggleControls() {
   controlsOpen = hud.controls(!controlsOpen, { car: mode === 'car' ? car : null, trans: state.uk.trans });
 }
+// Esc pauses: the frame loop stops stepping the world while window.__game.paused is set (it still
+// renders, so you see the frozen scene behind the overlay)
+function togglePause() {
+  const paused = !!window.__game?.paused;
+  if (!paused && (controlsOpen || !(mode === 'car' || mode === 'foot'))) return; // you can only pause while driving or on foot
+  if (window.__game) window.__game.paused = !paused;
+  document.getElementById('pausescreen')?.classList.toggle('hidden', paused);
+}
 hud.onControlsClose = () => { if (controlsOpen) toggleControls(); };
 // the "goals today" chip opens the phone on Today
 hud.onGoals = () => { if (mode === 'foot' || mode === 'car') { phone.tab = 'today'; togglePhone(); } };
@@ -168,6 +176,9 @@ window.addEventListener('keydown', (e) => {
   // H: the controls card (the world waits while it's open); H or Esc closes it
   if (e.code === 'KeyH' && (controlsOpen || mode === 'foot' || mode === 'car')) { toggleControls(); return; }
   if (controlsOpen) { if (e.code === 'Escape') toggleControls(); return; }
+  // Esc pauses the world while driving or on foot (and resumes it); while paused, only Esc works
+  if (e.code === 'Escape' && (mode === 'car' || mode === 'foot')) { e.preventDefault(); togglePause(); return; }
+  if (window.__game?.paused) { if (e.code === 'Escape') togglePause(); return; }
   if (learnerCar() && !window.__game?.autoDrive) {
     // Left Shift (held) is the clutch (readInput); 1-5 gears (1 is D in an automatic), R reverse, 0 neutral, 9 park, I engine, Space handbrake
     const g = { Digit1: 1, Digit2: 2, Digit3: 3, Digit4: 4, Digit5: 5, Digit0: 'N', Digit9: 'P', KeyR: 'R', Numpad1: 1, Numpad2: 2, Numpad3: 3, Numpad4: 4, Numpad5: 5, Numpad0: 'N', Numpad9: 'P' }[e.code];
