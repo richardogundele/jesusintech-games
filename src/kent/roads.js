@@ -1182,7 +1182,8 @@ function drawStopLine(W, p, sNode, dir, dist, stop, d, gore) {
 
 /** 1023A triangle: 3.75 long, 1.25 base towards the line, 0.15 sides, 0.6 solid band, centred in the approach lane */
 function giveWayTriangle(W, p, sNode, dir, dist, d) {
-  const base = sNode + dir * (dist + 2.4), apex = sNode + dir * (dist + 2.4 + 3.75);
+  // base towards the give-way line, apex pointing back at the approaching driver (like the sign)
+  const base = sNode + dir * (dist + 2.4 + 3.75), apex = sNode + dir * (dist + 2.4);
   const fb = frameAt(p.frames, base), fa = frameAt(p.frames, apex);
   const entryHw = dir === -1 ? fb.hwL : fb.hwR;
   const lane = d.oneway ? 0 : -dir * entryHw / 2;
