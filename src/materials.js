@@ -110,7 +110,7 @@ export function facadeMaterial({ winSize = [2.6, 3.2], winColor = 0x1d2733, amou
           float u = abs(vWN.x) > 0.5 ? vWPos.z : vWPos.x;
           float fu = fract(u / uWinSize.x);
           float fv = fract(vWPos.y / uWinSize.y);
-          float above = step(2.4, vWPos.y);
+          float above = step(0.85, vWPos.y); // windows down to a low plinth, so no blank warehouse ground floor
           float row = step(0.28, fv) * step(fv, 0.86);
           float win = step(0.3, fu) * step(fu, 0.7) * row * above;
           float frameMask = step(0.27, fu) * step(fu, 0.73) * step(0.25, fv) * step(fv, 0.89) * above * (1.0 - win);
