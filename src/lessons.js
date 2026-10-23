@@ -295,6 +295,7 @@ export class LessonRun {
     this.faults.push({ sev, cat, s: this.s, at: this.carPos && { x: +this.carPos.x.toFixed(1), z: +this.carPos.z.toFixed(1) }, extra: this.lastExtra });
     this.lastExtra = null;
     if (!this.def.mock) this.hooks.flash?.(`${SEV[sev]}: ${cat}`, sev);
+    if (sev === 'dangerous' && this.isTest()) this.endNow = true; // a dangerous fault ends the test (handled next frame in update)
   }
 
   /** time-based "condition held for n seconds" helper */
@@ -330,6 +331,7 @@ export class LessonRun {
   /** ctl: { indicator: 'left'|'right'|null, mirrorPressed: bool, hit: bool } */
   update(dt, car, ctl) {
     if (this.done || this.waiting) return;
+    if (this.endNow) { this.endOnDanger(car); return; } // a dangerous fault last frame: stop the test now
     this.t += dt;
     this.carPos = car.pos;
     const prevS = this.s;
@@ -915,6 +917,19 @@ export class LessonRun {
         if (this.lat < -0.4) this.fault('minor', 'Positioning: too far from the kerb');
       }
     }
+    this.report(car, false);
+  }
+
+  /** A test ends the moment you commit a dangerous fault — the examiner stops you for safety and
+   * hands over the full report there and then (real tests run on, but Richard asked for this). */
+  isTest() { return !!(this.def.mock || this.def.generated); }
+  endOnDanger(car) {
+    this.say('That is a dangerous fault, so I am going to stop the test here for safety. Pull up on the left when it is safe, and I will give you your report.');
+    this.report(car, true);
+  }
+
+  /** Build the DL25 sheet + debrief and hand it to the result screen. `terminated` = stopped early on a dangerous fault. */
+  report(car, terminated) {
     this.done = true;
     this.dispose();
     // the DL25: one marking for the pass/fail, the sheet and the debrief (dl25.js); repetition only counts on tests
@@ -930,10 +945,10 @@ export class LessonRun {
     }
     const lines = Object.entries(groups).map(([k, n]) => { const [sev, cat] = k.split('|'); return { sev, cat, n }; })
       .sort((a, b) => ['dangerous', 'serious', 'minor'].indexOf(a.sev) - ['dangerous', 'serious', 'minor'].indexOf(b.sev));
-    this.say(this.def.mock ? `Please switch off the engine and give me a moment to complete my test report. ${brief.spoken}` : brief.verdict);
+    if (!terminated) this.say(this.def.mock ? `Please switch off the engine and give me a moment to complete my test report. ${brief.spoken}` : brief.verdict);
     const map = this.kent || this.route.pts.length ? { pts: this.route.pts.filter((q, i) => i % 6 === 0).map((q) => [+q.x.toFixed(1), +q.z.toFixed(1)]), faults: this.faults.filter((f) => f.at).map((f) => ({ x: f.at.x, z: f.at.z, sev: f.sev })) } : null;
     this.hooks.result({ id: this.def.id, title: this.def.title, mock: !!this.def.mock, practice: !!this.def.practice, passed, counts: c, lines, time: this.t, tasks: this.tasks, trans: this.trans || car.trans,
-      sheet, brief, map, generated: this.def.generated || null, signs: this.def.signs || null });
+      sheet, brief, map, generated: this.def.generated || null, signs: this.def.signs || null, terminated: !!terminated });
   }
 
   /** where a fault happened, for the debrief: the roundabout or junction near it, else the road */

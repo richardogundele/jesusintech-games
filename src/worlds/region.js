@@ -69,6 +69,7 @@ export function buildRegion(renderer, { id, name, data, arena = false }) {
   const signals = new SignalSystem({ net, signsBuilder: signs });
   const traffic = new KentTraffic({
     net, scene, signals, bodies: TRAFFIC, buildCar, buildPedestrian,
+    maxCars: 80, maxPeds: 55, // busier roads
     groundY: heightAt, gradeAt, // deck-aware: traffic rides the flyovers too
   });
 

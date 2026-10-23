@@ -928,7 +928,7 @@ const lessonHooks = {
     if (reward) { addFundsUI(reward, r.mock ? 'Passed your UK driving test' : `Lesson passed: ${r.title}`); }
     if (r.passed) P.emit('lesson');
     $('res-name').textContent = r.mock ? `${r.title} · ${r.trans === 'manual' ? 'manual' : 'automatic'}` : `Lesson · ${r.title}`;
-    $('res-medal').textContent = r.passed ? (r.mock ? (uk.licence === 'full' ? 'PASSED · FULL UK LICENCE' : 'PASSED · AUTOMATIC LICENCE') : 'PASSED') : 'NOT PASSED';
+    $('res-medal').textContent = r.terminated ? 'TEST STOPPED · DANGEROUS FAULT' : r.passed ? (r.mock ? (uk.licence === 'full' ? 'PASSED · FULL UK LICENCE' : 'PASSED · AUTOMATIC LICENCE') : 'PASSED') : 'NOT PASSED';
     $('res-medal').style.color = r.passed ? 'var(--green-soft)' : 'var(--red-soft)';
     // a generated test can be driven again on the same seed: offer it in the action row, not buried in the sheet
     const retry = $('res-retry');

@@ -65,7 +65,7 @@ export function buildKent(renderer) {
   // Kent is flat, but its A299 and the slip roads over it are bridges: the deck is the only height
   const heightAt = (x, z, prevY = null) => net.deckNear(x, z, prevY, 0);
   const gradeAt = (x, z, heading, prevY = null) => { const dx = Math.sin(heading), dz = Math.cos(heading); return (heightAt(x + dx, z + dz, prevY) - heightAt(x - dx, z - dz, prevY)) / 2; };
-  const traffic = new KentTraffic({ net, scene, signals, bodies: TRAFFIC, buildCar, buildPedestrian, groundY: heightAt, gradeAt });
+  const traffic = new KentTraffic({ net, scene, signals, bodies: TRAFFIC, buildCar, buildPedestrian, maxCars: 80, maxPeds: 55, groundY: heightAt, gradeAt });
 
   // home on the cliff top and the jet centre at Maypole
   const house = buildKentHouse({ scene, colliders, tickers, origin: data.home, interactions, hooks, materials: { pbr }, driveEnd: 44 }); // the synthetic "Home Drive" road takes over at the gate
