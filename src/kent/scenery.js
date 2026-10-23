@@ -290,6 +290,13 @@ function sash(ctx, x, y, w, h) {
   g.addColorStop(0, '#5a6b7c'); g.addColorStop(0.5, '#2a3542'); g.addColorStop(1, '#4b5a68');
   ctx.fillStyle = g;
   ctx.fillRect(x, y, w, h);
+  // recess: the pane is set back in the wall, so the top soffit and the left reveal sit in shadow
+  const top = ctx.createLinearGradient(x, y, x, y + h * 0.55);
+  top.addColorStop(0, 'rgba(8,12,18,0.55)'); top.addColorStop(1, 'rgba(8,12,18,0)');
+  ctx.fillStyle = top; ctx.fillRect(x, y, w, h * 0.55);
+  const left = ctx.createLinearGradient(x, y, x + w * 0.38, y);
+  left.addColorStop(0, 'rgba(8,12,18,0.4)'); left.addColorStop(1, 'rgba(8,12,18,0)');
+  ctx.fillStyle = left; ctx.fillRect(x, y, w * 0.38, h);
   ctx.fillStyle = '#f4f2ec';
   ctx.fillRect(x, y + h / 2 - 3, w, 6);
   ctx.fillRect(x + w / 2 - 2, y, 4, h);

@@ -118,7 +118,15 @@ export function facadeMaterial({ winSize = [2.6, 3.2], winColor = 0x1d2733, amou
           // a few windows lit warm, a few with blinds, so the grid doesn't look printed
           float cell = fract(sin(dot(floor(vec2(u / uWinSize.x, vWPos.y / uWinSize.y)), vec2(12.9898, 78.233))) * 43758.5453);
           vec3 glass = mix(uWinColor, vec3(0.62, 0.58, 0.5), step(0.86, cell) * 0.5);
-          diffuseColor.rgb = mix(diffuseColor.rgb, uFrame, frameMask * uWinAmount);
+          // RECESS: the pane sits back in the wall, so the top soffit and one reveal fall into
+          // shadow, and the frame reads as a lip of light. Fakes depth with no extra geometry.
+          float lu = clamp((fu - 0.3) / 0.4, 0.0, 1.0);
+          float lv = clamp((fv - 0.28) / 0.58, 0.0, 1.0);
+          float recess = max(smoothstep(0.70, 1.0, lv), 0.6 * smoothstep(0.30, 0.0, lu));
+          glass *= 1.0 - 0.5 * recess;
+          // sink the frame's top edge (the lintel underside) into shadow for a little depth
+          vec3 frameCol = uFrame * (1.0 - 0.20 * smoothstep(0.84, 0.89, fv));
+          diffuseColor.rgb = mix(diffuseColor.rgb, frameCol, frameMask * uWinAmount);
           diffuseColor.rgb = mix(diffuseColor.rgb, uShutter * (0.8 + 0.2 * fract(fv * 9.0)), shut * uWinAmount);
           fw = win * uWinAmount;
           diffuseColor.rgb = mix(diffuseColor.rgb, glass, fw);
