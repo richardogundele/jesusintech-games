@@ -31,31 +31,78 @@ function findSun(tex) {
 }
 
 /**
- * Photographed HDR sky as background + image-based lighting, with a directional sun
- * aimed at the sun in the image so shadows match. rotation (deg) spins the sky.
+ * A soft grey overcast sky as an equirect canvas texture: a gentle zenith->horizon gradient
+ * (CIE overcast is brighter overhead) with faint low-frequency mottling so it isn't a dead flat
+ * grey. Used as BOTH background and environment, so reflections pick up the same grey, not a sun.
  */
-export function setupSky(scene, renderer, { hdri, rotation = 0, sunAzimuth = null, exposure = 1, envIntensity = 1, sunColor = 0xfff1dc, sunIntensity = 3.2, fogDensity = 0.0009, fogTint = 1 }) {
-  const found = findSun(hdri);
-  // sunAzimuth (deg, 0 = +z, 90 = +x) spins the whole sky so its real sun lands where we want it
-  let rot = THREE.MathUtils.degToRad(rotation);
-  if (sunAzimuth != null) rot = THREE.MathUtils.degToRad(sunAzimuth) - Math.atan2(found.dir.x, found.dir.z);
-  scene.background = hdri;
-  scene.environment = hdri;
-  scene.backgroundRotation.set(0, rot, 0);
-  scene.environmentRotation.set(0, rot, 0);
-  scene.backgroundIntensity = exposure;
-  scene.environmentIntensity = envIntensity;
+function overcastSky(zenith, horizon) {
+  const w = 1024, h = 512;
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  const ctx = c.getContext('2d');
+  const hex = (n) => '#' + n.toString(16).padStart(6, '0');
+  const g = ctx.createLinearGradient(0, 0, 0, h);   // y=0 is the zenith (top), y=h/2 the horizon
+  g.addColorStop(0, hex(zenith));
+  g.addColorStop(0.5, hex(horizon));
+  g.addColorStop(1, hex(horizon));
+  ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
+  // faint broad cloud mottling in the upper half, so the grey breathes a little
+  for (let i = 0; i < 90; i++) {
+    const x = Math.random() * w, y = Math.random() * h * 0.5, r = 60 + Math.random() * 200;
+    const a = (Math.random() - 0.5) * 0.06;
+    ctx.fillStyle = a > 0 ? `rgba(255,255,255,${a})` : `rgba(120,124,130,${-a})`;
+    ctx.beginPath(); ctx.ellipse(x, y, r, r * 0.4, 0, 0, Math.PI * 2); ctx.fill();
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.mapping = THREE.EquirectangularReflectionMapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.needsUpdate = true;
+  return tex;
+}
 
-  const { dir, horizon } = found;
-  const sunDir = dir.applyAxisAngle(new THREE.Vector3(0, 1, 0), rot).normalize();
-  if (sunDir.y < 0.12) sunDir.y = 0.12; // keep shadows a sensible length
-  sunDir.normalize();
+/**
+ * Sky + image-based lighting + a directional sun.
+ * Default: a photographed HDR sky with the sun aimed at the brightest pixel so shadows match.
+ * overcast:true instead paints a soft grey British sky (no HDR, no findSun) with a weak, diffuse
+ * sun placed from sunAzimuth/sunElevation - the overcast UK look the game ships with.
+ */
+export function setupSky(scene, renderer, {
+  hdri, rotation = 0, sunAzimuth = null, exposure = 1, envIntensity = 1,
+  sunColor = 0xfff1dc, sunIntensity = 3.2, fogDensity = 0.0009, fogTint = 1,
+  overcast = false, sunElevation = 46, skyZenith = 0xccd1d6, skyHorizon = 0xbec1c4,
+}) {
+  let sunDir, horizon;
+  if (overcast) {
+    const sky = overcastSky(skyZenith, skyHorizon);
+    scene.background = sky;
+    scene.environment = sky;               // grey IBL -> glass/paint reflect the grey sky, not a sun
+    scene.backgroundRotation.set(0, 0, 0);
+    scene.environmentRotation.set(0, 0, 0);
+    scene.backgroundIntensity = exposure;
+    scene.environmentIntensity = envIntensity;
+    const az = THREE.MathUtils.degToRad(sunAzimuth ?? 0), el = THREE.MathUtils.degToRad(sunElevation);
+    sunDir = new THREE.Vector3(Math.sin(az) * Math.cos(el), Math.sin(el), Math.cos(az) * Math.cos(el)).normalize();
+    horizon = new THREE.Color(skyHorizon);
+  } else {
+    const found = findSun(hdri);
+    // sunAzimuth (deg, 0 = +z, 90 = +x) spins the whole sky so its real sun lands where we want it
+    let rot = THREE.MathUtils.degToRad(rotation);
+    if (sunAzimuth != null) rot = THREE.MathUtils.degToRad(sunAzimuth) - Math.atan2(found.dir.x, found.dir.z);
+    scene.background = hdri;
+    scene.environment = hdri;
+    scene.backgroundRotation.set(0, rot, 0);
+    scene.environmentRotation.set(0, rot, 0);
+    scene.backgroundIntensity = exposure;
+    scene.environmentIntensity = envIntensity;
+    sunDir = found.dir.applyAxisAngle(new THREE.Vector3(0, 1, 0), rot).normalize();
+    if (sunDir.y < 0.12) sunDir.y = 0.12; // keep shadows a sensible length
+    sunDir.normalize();
+    horizon = found.horizon.clone().multiplyScalar(exposure * fogTint);
+    const max = Math.max(horizon.r, horizon.g, horizon.b);
+    if (max > 1) horizon.multiplyScalar(1 / max);
+  }
 
-  // fog matches the sky at the horizon so distant hills melt into it
-  const fogColor = horizon.clone().multiplyScalar(exposure * fogTint);
-  const max = Math.max(fogColor.r, fogColor.g, fogColor.b);
-  if (max > 1) fogColor.multiplyScalar(1 / max);
-  scene.fog = new THREE.FogExp2(fogColor, fogDensity);
+  // fog matches the sky at the horizon so distant tiles melt into it (no seam)
+  scene.fog = new THREE.FogExp2(horizon.clone(), fogDensity);
 
   const sun = new THREE.DirectionalLight(sunColor, sunIntensity);
   sun.castShadow = true;
@@ -67,6 +114,7 @@ export function setupSky(scene, renderer, { hdri, rotation = 0, sunAzimuth = nul
   sc.far = 600;
   sun.shadow.bias = -0.0003;
   sun.shadow.normalBias = 0.05;
+  sun.shadow.radius = overcast ? 4 : 1; // softer contact shadows under a diffuse sky
   scene.add(sun, sun.target);
 
   return {
@@ -77,6 +125,19 @@ export function setupSky(scene, renderer, { hdri, rotation = 0, sunAzimuth = nul
     },
   };
 }
+
+/** The shared overcast-UK sky preset. Callers spread it and add their own sunAzimuth. */
+export const UK_OVERCAST = {
+  overcast: true,
+  exposure: 1.0,
+  envIntensity: 1.15,
+  sunColor: 0xe3e6ea,
+  sunIntensity: 1.9,
+  fogDensity: 0.0016,
+  sunElevation: 46,
+  skyZenith: 0xccd1d6,
+  skyHorizon: 0xbec1c4,
+};
 
 // ---------- roads ----------
 

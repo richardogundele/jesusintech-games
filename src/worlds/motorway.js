@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { setupSky, buildRoad, Colliders } from './common.js';
+import { setupSky, buildRoad, UK_OVERCAST, Colliders } from './common.js';
 import { label } from '../materials.js';
 import { mesh } from '../models.js';
 import { hdri, pbr, instanced } from '../assets.js';
@@ -21,7 +21,7 @@ const laneX = (c, i, dir) => c + dir * (i - 1) * LANEW; // lane i (0 left .. 2 r
 
 export function buildMotorway(renderer) {
   const scene = new THREE.Scene();
-  const env = setupSky(scene, renderer, { hdri: hdri('monaco'), sunAzimuth: 230, exposure: 0.95, envIntensity: 0.85, sunColor: 0xfff2dc, sunIntensity: 2.8, fogDensity: 0.0009 });
+  const env = setupSky(scene, renderer, { ...UK_OVERCAST, sunAzimuth: 230 });
   const colliders = new Colliders();
   const tickers = [];
   const route = { to: 'london', from: 'kent' }; // set per trip by main.js

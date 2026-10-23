@@ -9,11 +9,14 @@ import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 const GradeShader = {
   uniforms: {
     tDiffuse: { value: null },
-    uContrast: { value: 1.16 },
-    uSaturation: { value: 1.13 },
-    uVignette: { value: 0.40 },
-    uLift: { value: new THREE.Vector3(-0.008, 0.0, 0.011) },   // cooler shadows
-    uGain: { value: new THREE.Vector3(1.07, 1.0, 0.91) },      // warmer highlights
+    // Overcast UK grade: low contrast, a touch of desaturation (kept mild so traffic lights,
+    // brake lights and signs stay legible - the candy palette is muted at the material level),
+    // softly lifted cool shadows, a light vignette.
+    uContrast: { value: 1.03 },
+    uSaturation: { value: 0.90 },
+    uVignette: { value: 0.24 },
+    uLift: { value: new THREE.Vector3(0.004, 0.006, 0.010) },
+    uGain: { value: new THREE.Vector3(0.98, 0.99, 1.0) },
   },
   vertexShader: `varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
   fragmentShader: `

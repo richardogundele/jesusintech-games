@@ -5,7 +5,7 @@
 // (kent/signs-place.js). Traffic lights run in kent/signals.js and live traffic and pedestrians in
 // kent/traffic.js. Left-hand traffic, mph. x = east, z = south.
 import * as THREE from 'three';
-import { setupSky, Colliders } from './common.js';
+import { setupSky, UK_OVERCAST, Colliders } from './common.js';
 import { hdri, pbr, misc, instanced } from '../assets.js';
 import { markingTexture } from '../signs.js';
 import { buildJet, buildCar, buildPedestrian } from '../models.js';
@@ -32,10 +32,7 @@ export function buildKent(renderer) {
   const net = new RoadNet(data);
   const scene = new THREE.Scene();
   // afternoon sun in the south-west (azimuth 0 = +z = south here)
-  const env = setupSky(scene, renderer, {
-    hdri: hdri('monaco'), sunAzimuth: 330, exposure: 0.95, envIntensity: 0.9,
-    sunColor: 0xfff4e6, sunIntensity: 2.6, fogDensity: 0.0011, fogTint: 0.95,
-  });
+  const env = setupSky(scene, renderer, { ...UK_OVERCAST, sunAzimuth: 330 });
   const colliders = new Colliders();
   const tickers = [];
   const interactions = [];

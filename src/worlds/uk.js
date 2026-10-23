@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { setupSky, Colliders } from './common.js';
+import { setupSky, UK_OVERCAST, Colliders } from './common.js';
 import { label } from '../materials.js';
 import { buildPedestrian } from '../models.js';
 import { hdri, pbr, instanced } from '../assets.js';
@@ -414,10 +414,7 @@ function strip(a, b, w, y) {
 export function buildUK(renderer) {
   let world_parked = null;
   const scene = new THREE.Scene();
-  const env = setupSky(scene, renderer, {
-    hdri: hdri('monaco'), sunAzimuth: 200, exposure: 0.95, envIntensity: 0.9,
-    sunColor: 0xfff4e6, sunIntensity: 2.6, fogDensity: 0.0011, fogTint: 0.95,
-  });
+  const env = setupSky(scene, renderer, { ...UK_OVERCAST, sunAzimuth: 200 });
   const colliders = new Colliders();
   const tickers = [];
 
