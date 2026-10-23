@@ -470,7 +470,7 @@ function shared() {
     roofInst: tiles ? worldMappedMaterial(tiles, { scale: 0.45, roughness: 0.85 }) : new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.85 }),
     chimney: new THREE.MeshStandardMaterial({ color: 0x8a5a48, roughness: 0.95 }),
     hedge: leaf ? worldMappedMaterial(leaf, { scale: 0.6, color: 0x5b7f3a, roughness: 1 }) : new THREE.MeshStandardMaterial({ color: 0x3f6b2e, roughness: 1 }),
-    tree: new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.95, flatShading: true }),
+    tree: new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.95 }), // smooth-shaded: the lobes read as soft foliage, not faceted crystals
     lamp: new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, metalness: 0.5, roughness: 0.5 }),
     // no polygonOffset: at grazing angles it would push fields through the asphalt 2 cm above them;
     // the world's ground plane should sit a few cm below y 0 so the fields clear it by height alone

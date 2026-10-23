@@ -9,11 +9,11 @@ import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 const GradeShader = {
   uniforms: {
     tDiffuse: { value: null },
-    uContrast: { value: 1.07 },
-    uSaturation: { value: 1.12 },
-    uVignette: { value: 0.32 },
-    uLift: { value: new THREE.Vector3(0.012, 0.006, -0.004) },
-    uGain: { value: new THREE.Vector3(1.03, 1.0, 0.96) },
+    uContrast: { value: 1.16 },
+    uSaturation: { value: 1.13 },
+    uVignette: { value: 0.40 },
+    uLift: { value: new THREE.Vector3(-0.008, 0.0, 0.011) },   // cooler shadows
+    uGain: { value: new THREE.Vector3(1.07, 1.0, 0.91) },      // warmer highlights
   },
   vertexShader: `varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
   fragmentShader: `
