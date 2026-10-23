@@ -1669,6 +1669,7 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
     build,
     statics,
     landGeometry,
+    inSea,          // is (x, z) in the sea polygon — terrain.landGeometry skips these quads
     seaLevelAt,
     /** how many buildings, landmarks etc. the index holds (for checks) */
     /** every procedural house generated so far (for checks) */

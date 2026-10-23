@@ -53,7 +53,7 @@ export function makeTerrain(data) {
    * up, so a small drop keeps grass from poking through on a slope).
    * Outside the grid it stays at 0, which matches heightAt's clamp.
    */
-  function landGeometry(drop = 0.12, pad = 1200) {
+  function landGeometry(drop = 0.12, pad = 1200, skip = null) {
     const px0 = x0 - pad, pz0 = z0 - pad, px1 = x1 + pad, pz1 = z1 + pad;
     // one ring of padding quads round the grid keeps the ground going out to the jet centre
     const xs = [px0, ...Array.from({ length: nx }, (_, i) => x0 + i * step), px1];
@@ -68,6 +68,8 @@ export function makeTerrain(data) {
     const idx = new Uint32Array((W - 1) * (H - 1) * 6);
     let n = 0;
     for (let j = 0; j < H - 1; j++) for (let i = 0; i < W - 1; i++) {
+      // a region with a coast cuts quads whose centre is in the sea, so the water shows through
+      if (skip && skip((xs[i] + xs[i + 1]) / 2, (zs[j] + zs[j + 1]) / 2)) continue;
       const a = j * W + i, b = a + 1, c = a + W, d = c + 1;
       // the SAME anti-diagonal split heightAt uses: (a,b,c) then (d,c,b)
       idx[n++] = a; idx[n++] = c; idx[n++] = b;
@@ -76,7 +78,7 @@ export function makeTerrain(data) {
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
-    g.setIndex(new THREE.BufferAttribute(idx, 1));
+    g.setIndex(new THREE.BufferAttribute(idx.subarray(0, n), 1));
     g.computeVertexNormals();
     g.computeBoundingSphere();
     return g;

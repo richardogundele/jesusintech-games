@@ -6,6 +6,7 @@
 // kent/traffic.js. Left-hand traffic, mph. x = east, z = south.
 import * as THREE from 'three';
 import { setupSky, UK_OVERCAST, Colliders } from './common.js';
+import { makeTerrain } from './terrain.js';
 import { hdri, pbr, misc, instanced } from '../assets.js';
 import { markingTexture } from '../signs.js';
 import { buildJet, buildCar, buildPedestrian } from '../models.js';
@@ -30,6 +31,10 @@ export function buildKent(renderer) {
   const data = misc('kentRegion');
   if (!data) throw new Error('Kent region data missing (public/assets/kent/region.json)');
   const net = new RoadNet(data);
+  const terrain = makeTerrain(data); // real EU-DEM hills (0 around home/airfield/coast); flat if absent
+  // ground height = terrain + a flyover deck under the point (Kent's A299 slip roads are bridges)
+  const heightAt = (x, z, prevY = null) => { const t = terrain.heightAt(x, z); return t + net.deckNear(x, z, prevY, t); };
+  const gradeAt = (x, z, heading, prevY = null) => { const dx = Math.sin(heading), dz = Math.cos(heading); return (heightAt(x + dx, z + dz, prevY) - heightAt(x - dx, z - dz, prevY)) / 2; };
   const scene = new THREE.Scene();
   // afternoon sun in the south-west (azimuth 0 = +z = south here)
   const env = setupSky(scene, renderer, { ...UK_OVERCAST, sunAzimuth: 330 });
@@ -38,8 +43,13 @@ export function buildKent(renderer) {
   const interactions = [];
 
   // ground: the land plate (the sea polygon is cut out so the water shows), fields sit just above it
-  const scenery = makeSceneryBuilder({ net, tickers, colliders, scene });
-  const land = new THREE.Mesh(scenery.landGeometry(-0.05), pbr('leafy_grass', { repeat: [1, 1], color: 0x6f9450 }));
+  const scenery = makeSceneryBuilder({ net, tickers, colliders, scene, groundY: terrain.has ? terrain.heightAt : null });
+  // with hills the land is the terrain grid's own triangles (draped roads agree with it exactly),
+  // but the sea polygon is still cut out so the water shows; flat Kent keeps the old single plate
+  const land = new THREE.Mesh(
+    terrain.has ? terrain.landGeometry(0.12, 1200, scenery.inSea) : scenery.landGeometry(-0.05),
+    pbr('leafy_grass', { repeat: [1, 1], color: 0x6f9450 }),
+  );
   land.receiveShadow = true;
   scene.add(land);
 
@@ -51,17 +61,14 @@ export function buildKent(renderer) {
     return decals.get(key);
   };
   const mats = makeRoadMaterials({ pbr, decal, planting: (spots) => instanced('shrub_01', spots, { maxDist: 600 }) });
-  const roads = makeRoadBuilder({ net, colliders, mats });
+  const roads = makeRoadBuilder({ net, colliders, mats, groundY: terrain.has ? terrain.heightAt : null });
   // fog is 90 % thick at 1.4 km, so full detail to 1 km and bare roads to 2.5 km is plenty
-  const signs = makeSignBuilder({ net, colliders });
+  const signs = makeSignBuilder({ net, colliders, groundY: terrain.has ? terrain.heightAt : null });
   tickers.push((t) => signs.tick(t)); // Belisha beacons blink
   const tiles = new TileManager({ net, scene, builders: [roads, scenery, signs], near: 1000, far: 2500, dropAt: 3200, budgetMs: 4 });
   // every set of lights in the region keeps time; the heads the sign tiles build show it
   const signals = new SignalSystem({ net, signsBuilder: signs });
   // live traffic: main.js picks this up as world.traffic (update / collide like the other worlds')
-  // Kent is flat, but its A299 and the slip roads over it are bridges: the deck is the only height
-  const heightAt = (x, z, prevY = null) => net.deckNear(x, z, prevY, 0);
-  const gradeAt = (x, z, heading, prevY = null) => { const dx = Math.sin(heading), dz = Math.cos(heading); return (heightAt(x + dx, z + dz, prevY) - heightAt(x - dx, z - dz, prevY)) / 2; };
   const traffic = new KentTraffic({ net, scene, signals, bodies: TRAFFIC, buildCar, buildPedestrian, maxCars: 80, maxPeds: 55, groundY: heightAt, gradeAt });
 
   // home on the cliff top and the jet centre at Maypole
@@ -113,7 +120,7 @@ export function buildKent(renderer) {
     place(x, z, y = 0) { return house.place(x, z, y) || air.place(x, z) || net.placeAt(x, z); },
     indoors: (x, z) => house.indoors(x, z),
     floorY: (x, z, yPrev) => house.indoors(x, z) ? house.floorY(x, z, yPrev) : heightAt(x, z, yPrev),
-    heightAt, gradeAt, // the flyovers' decks (Kent has no hills)
+    heightAt, gradeAt, // real EU-DEM hills + the flyovers' decks
     speedLimitAt: (x, z) => net.limitAt(x, z),
     nslAt: (x, z) => net.nslAt(x, z),
     signalHeads: () => signals.heads, // live heads ({x, z, heading, state}) for the free-drive examiner
