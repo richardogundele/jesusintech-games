@@ -152,19 +152,24 @@ export class Phone {
         <div class="grow"><div class="t">${l.title}${l.trans ? ` <span class="badge">${l.trans === 'manual' ? 'Manual' : 'Automatic'}</span>` : ''}</div><div class="s">${l.blurb}</div>${status}</div>
         <button class="buy" data-act="lesson" data-id="${l.id}">${r?.passed ? 'Again' : 'Start'}</button></div>`;
     };
-    // the real thing: Herne Bay and Canterbury, Kent. Only the lessons for your gearbox; Whitmore stays as a practice town
+    // One full test is the main event. The old per-skill lessons and fixed mocks fold into a
+    // collapsible "Practise a skill" section, so the headline is a single comprehensive drive.
     const mine = lessonsFor(trans);
-    const kent = mine.filter((l) => l.world === 'kent'), practice = mine.filter((l) => l.world !== 'kent');
-    const rows = kent.filter((l) => !l.mock).map((l, i) => row(l, i + 1)).join('');
-    const tests = kent.filter((l) => l.mock).map((l) => row(l, 'T')).join('');
+    const kent = mine.filter((l) => l.world === 'kent');
+    const skills = kent.filter((l) => !l.mock);                    // moving off, junctions, roundabouts, crossings, dual, manoeuvres…
+    const mocks = kent.filter((l) => l.mock);                      // the fixed full-length mock routes
+    const town = mine.filter((l) => l.world !== 'kent');           // Whitmore practice town
     const open = this.practiceOpen;
-    const wm = `<div class="row"><div class="tick">W</div><div class="grow"><div class="t">Whitmore practice town</div>
-        <div class="s">The made-up town the lessons started in: quiet roads to practise on. No pay, no licence.</div></div>
-        <button class="buy" data-act="practice">${open ? 'Hide' : 'Show'}</button></div>
-      ${open ? practice.map((l, i) => row(l, l.mock ? 'T' : i + 1)).join('') : ''}`;
+    const practiceBlock = !open ? '' : `
+      <p class="note">Practise one part of the test on its own. Not needed to take the test — the full test covers all of it.</p>
+      ${skills.map((l, i) => row(l, i + 1)).join('')}
+      <h4>Full-length mock routes</h4>${mocks.map((l) => row(l, 'T')).join('')}
+      <h4>Whitmore practice town</h4>
+      <p class="note">The made-up town the lessons started in: quiet roads to practise on. No pay, no licence.</p>
+      ${town.map((l, i) => row(l, l.mock ? 'T' : i + 1)).join('')}`;
     const lic = uk.licence === 'full' ? 'Full' : uk.licence === 'auto' ? 'Automatic' : 'Provisional';
     return `<div class="hero"><div class="big">${lic}<span>UK licence</span></div>
-        <div class="s">${uk.licence === 'auto' ? 'Automatic cars only: pass a test in a manual for a full licence. ' : uk.licence === 'full' ? 'Manual and automatic. ' : ''}Real UK rules on the real Kent roads: drive on the left, mph limits, give way to the right at roundabouts. Z and X are the indicators, Q checks your mirrors.</div></div>
+        <div class="s">${uk.licence === 'auto' ? 'Automatic cars only: pass a test in a manual for a full licence. ' : uk.licence === 'full' ? 'Manual and automatic. ' : ''}Real UK rules on real roads: drive on the left, mph limits, give way to the right at roundabouts. Z and X are the indicators, Q checks your mirrors.</div></div>
       <h3>Learning in</h3>
       <div class="seg"><button class="${trans === 'manual' ? 'on' : ''}" data-act="trans" data-id="manual">Manual</button><button class="${trans === 'auto' ? 'on' : ''}" data-act="trans" data-id="auto">Automatic</button></div>
       <p class="note">${trans === 'manual'
@@ -172,18 +177,18 @@ export class Phone {
         : 'Automatic: <b>1</b> drive, <b>R</b> reverse, <b>0</b> neutral, <b>9</b> park, <b>I</b> the engine, <b>Space</b> the handbrake. It creeps in D: cover the brake. Pass in an automatic and your licence is for automatics only.'}</p>
       <h3>Lesson car</h3>
       <div class="seg" style="flex-wrap:wrap">${this.hooks.lessonCars().map((c) => `<button class="${c.sel ? 'on' : ''}" data-act="lessoncar" data-id="${c.id}">${c.name}</button>`).join('')}</div>
-      <p class="note">Take your lessons and tests in any car you own — it wears L plates and drives like a learner car. No more taxi.</p>
+      <p class="note">Take your test in any car you own — it wears L plates and drives like a learner car. No more taxi.</p>
       ${inUK ? '<button class="buy wide" data-act="gohome">Fly home</button>' : ''}
-      <h3>Lessons · Herne Bay</h3>${rows}
-      <h3>Driving test · 15 minutes</h3>
-      <p class="note">A new route every time from the test centre you pick: roundabouts, a dual carriageway or 40 road, junctions, a crossing, independent driving (sat nav, or following signs about one test in five), one manoeuvre, pull-ups and sometimes an emergency stop. Marked on the DVSA DL25.</p>
+      <h3>The driving test</h3>
+      <p class="note">One full test. A new route every time from the centre you pick — it rolls everything into one drive: roundabouts, traffic lights and crossings, junctions, a dual carriageway or 40 road, independent driving (sat nav, or following the signs about one test in five), a manoeuvre, pull-ups and sometimes an emergency stop. I'll direct you the whole way and bring you back on if you miss a turn. Marked on the DVSA DL25: 15 driving faults or fewer and no serious faults to pass. A pass pays €5m and gets you your licence.</p>
       <div class="seg" style="flex-wrap:wrap"><button data-act="test15" data-id="herne">Herne Bay</button><button data-act="test15" data-id="canterbury">Canterbury</button><button data-act="test15" data-id="london">Mill Hill</button><button data-act="test15" data-id="birmingham">Kings Heath</button><button data-act="test15" data-id="manchester">West Didsbury</button><button data-act="test15" data-id="any">Surprise me</button></div>
       <p class="note">Kent's routes were written by hand; the city ones are planned off the real map around the centre the moment you press the button.</p>
       ${this.testHistory()}
-      <h3>Full-length mock tests</h3>${tests}
       <h3>Study</h3><div class="row"><div class="grow"><div class="t">Road signs</div><div class="s">Name ten Highway Code signs. Not marked: just practice.</div></div><button class="buy" data-act="signs">Start</button></div>
-      <h3>Practice</h3>${wm}
-      <p class="note">Lessons start outside the Herne Bay test centre, tests at Herne Bay or Canterbury. Marked like the real DVSA test: 15 or fewer driving faults and no serious or dangerous faults to pass. First pass of each lesson pays €250k; passing a driving test pays €5m and gets you your licence.</p>`;
+      <h3>Practise a skill</h3>
+      <div class="row"><div class="grow"><div class="t">Individual lessons</div><div class="s">Moving off, junctions, roundabouts, crossings and lights, dual carriageways, manoeuvres — one at a time. Optional.</div></div>
+        <button class="buy" data-act="practice">${open ? 'Hide' : 'Show'}</button></div>
+      ${practiceBlock}`;
   }
 
   /** your tests: the last five, the trend in driving faults, the fault that keeps coming up, retry a route */
