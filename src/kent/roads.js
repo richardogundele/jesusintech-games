@@ -888,6 +888,9 @@ export function buildRoadTile(net, tile, { lod = 'near', mats, materials, ground
 
   // ---- junction nodes: patch, fillets, give-way / stop lines, minis, dead ends ----
   mark(null);
+  // a point inside a roundabout's circulating carriageway (the ring owns its own kerb + footways):
+  // a junction fillet that sweeps in here would lay raised kerb and pavement across the lane
+  const inRing = (x, z) => { const rbg = view.net?.rbGrid; if (!rbg) return false; for (const rb of rbg.near(x, z, 16)) if ((x - rb.x) ** 2 + (z - rb.z) ** 2 < (rb.r + 1) ** 2) return true; return false; };
   for (const nid of cell.nodes) {
     const info = nodeInfo(view, nid);
     mark({ nid });
@@ -900,6 +903,7 @@ export function buildRoadTile(net, tile, { lod = 'near', mats, materials, ground
         const arc = filletArc(f);
         J.fan(f.C, arc, Y_ROAD, uvWorld);
         if (!near || !f.pave) continue;
+        if (inRing(f.TA[0], f.TA[1]) || inRing(f.TB[0], f.TB[1]) || inRing(f.O[0], f.O[1])) continue; // don't lay a bell-mouth kerb inside a roundabout
         // kerb round the bell mouth and the pavement behind it
         const K = batch('kerb');
         strokeTop(K, arc, KERB_W, KERB_H, 1);
