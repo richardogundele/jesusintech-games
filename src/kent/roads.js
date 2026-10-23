@@ -648,7 +648,7 @@ export function makeRoadMaterials({ pbr, decal = null, planting = null } = {}) {
     gravelTop: tex('leafy_grass', 0xb0a083),       // gravel and unsurfaced tracks
     concreteTop: tex('clean_asphalt', 0xc8c6c0),   // concrete carriageway: pale slabs
     paving: tex('rectangular_paving', 0xc9c4ba),
-    grass: tex('leafy_grass', 0xa6c48a),
+    grass: tex('leafy_grass', 0x8fab74),
     white: flat(0xf2f2ee),
     yellow: flat(0xe8c23a),
     kerb: new THREE.MeshStandardMaterial({ color: 0xa9a59c, roughness: 0.9 }),

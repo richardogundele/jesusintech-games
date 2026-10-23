@@ -502,7 +502,7 @@ const KIND_COLOURS = {
 const ROOF_COLOURS = [0x3c4148, 0x4a4e55, 0x8a4a3a, 0x7a4336, 0x55504a];
 const FIELD = {
   residential: { col: [0x7f9a62], y: 0 }, industrial: { col: [0x9ea3a0], y: 0 }, retail: { col: [0xa5a9a3], y: 0 },
-  farmland: { col: [0xc9b36a, 0x9bb968, 0xb5a85c, 0xa7b76a], y: 1 }, grass: { col: [0x8fbf6a, 0x86b562], y: 2 },
+  farmland: { col: [0xc9b36a, 0x9bb968, 0xb5a85c, 0xa7b76a], y: 1 }, grass: { col: [0x83a35f, 0x7b9a56], y: 2 },
   wood: { col: [0x3e6b2f], y: 3 }, beach: { col: [0xc8bda2], y: 4 }, water: { col: [0x3f6f8c], y: 4 },
 };
 
@@ -740,7 +740,7 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
     }
     if (ground) {
       const lg = landGeometry(0);
-      if (lg) { const m = new THREE.Mesh(lg, (() => { try { return A.pbr('leafy_grass', { repeat: [1, 1], color: 0x9fbf86 }); } catch { return new THREE.MeshStandardMaterial({ color: 0x8fb46e, roughness: 1 }); } })()); m.receiveShadow = true; statics.add(m); }
+      if (lg) { const m = new THREE.Mesh(lg, (() => { try { return A.pbr('leafy_grass', { repeat: [1, 1], color: 0x8aa66f }); } catch { return new THREE.MeshStandardMaterial({ color: 0x819c66, roughness: 1 }); } })()); m.receiveShadow = true; statics.add(m); }
     }
   }
   /** The region's land as one flat geometry (the rectangle minus the sea), for the world's ground plane. */
