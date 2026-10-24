@@ -40,6 +40,7 @@
         <div id="mirror" class="hidden"></div>
         <div id="trial" class="hidden"></div>
         <div id="lesson" class="hidden"><div class="l-title"></div><div class="l-text"></div><div class="l-coach"></div></div>
+        <div id="ai-coach" class="hidden" role="status" aria-live="polite"></div>
       </div>
 
       <!-- top right: money and reward pops (GTA keeps cash top right) -->
@@ -180,5 +181,20 @@
     </div>
 
     <script type="module" src="/src/main.js"></script>
+
+    <!-- AI coach API key setup overlay -->
+    <div id="coach-setup" class="hidden" role="dialog" aria-modal="true" aria-label="AI Driving Instructor setup">
+      <div class="coach-box">
+        <div class="coach-icon">🎓</div>
+        <h2 class="coach-title">AI Driving Instructor</h2>
+        <p class="coach-desc">Enter your Claude API key to get real-time coaching as you drive — tips, fault explanations, and praise when you do well.</p>
+        <input id="coach-key-in" type="password" placeholder="sk-ant-api03-…" autocomplete="off" spellcheck="false" />
+        <div class="coach-btns">
+          <button id="coach-save" type="button">Enable coaching</button>
+          <button id="coach-cancel" type="button" class="ghost">Not now</button>
+        </div>
+        <p class="coach-note">Your key is stored only in this browser and only sent to api.anthropic.com.</p>
+      </div>
+    </div>
   </body>
 </html>

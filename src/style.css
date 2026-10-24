@@ -144,7 +144,7 @@ h1 { font-family: var(--font-display); font-size: clamp(40px, 9vw, 112px); lette
 @keyframes hud-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 @keyframes hud-out { from { opacity: 1; } to { opacity: 0; transform: translateY(4px); } }
 @keyframes hud-pop { from { opacity: 0; transform: translateY(6px) scale(0.98); } to { opacity: 1; transform: none; } }
-.capsule, #toast, #lesson, #satnav, #dt-warn, #goals, #ctl-tip, #trial, #indicators { animation: hud-in var(--dur-2) var(--ease) both; }
+.capsule, #toast, #lesson, #satnav, #dt-warn, #goals, #ctl-tip, #trial, #indicators, #ai-coach { animation: hud-in var(--dur-2) var(--ease) both; }
 #reward { animation: hud-pop var(--dur-2) var(--ease) both; }
 .leaving { animation: hud-out var(--dur-1) ease-in forwards !important; }
 
@@ -195,6 +195,23 @@ h1 { font-family: var(--font-display); font-size: clamp(40px, 9vw, 112px); lette
 #lesson .l-text { font-size: var(--fs-lg); font-weight: 600; line-height: 1.35; margin-top: 3px; letter-spacing: -0.005em; }
 #lesson .l-coach { font-size: var(--fs-sm); color: var(--text-2); line-height: 1.4; margin-top: 5px; padding-top: 5px; border-top: 1px solid var(--hairline); }
 #toast { max-width: min(560px, calc(100vw - 2 * (var(--edge) + 290px))); min-width: 0; padding: 7px 16px; border-radius: 18px; font-size: var(--fs-sm); font-weight: 500; line-height: 1.4; text-align: center; }
+/* AI coach message — sits below the lesson card in the top-centre column */
+#ai-coach { max-width: min(500px, calc(100vw - 2 * (var(--edge) + 290px))); min-width: 240px; padding: 8px 16px 9px; border-radius: var(--r-lg); font-size: var(--fs-sm); font-weight: 500; line-height: 1.45; text-align: center; background: rgba(30, 140, 255, 0.14); border: 1px solid rgba(80, 160, 255, 0.28); color: var(--text); animation: hud-in var(--dur-2) var(--ease) both; }
+/* AI coach setup overlay */
+#coach-setup { position: fixed; inset: 0; z-index: 200; display: flex; align-items: center; justify-content: center; background: rgba(0, 0, 0, 0.7); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+.coach-box { background: var(--glass-strong); border: 1px solid rgba(255,255,255,0.16); border-radius: var(--r-xl); padding: 28px 28px 24px; max-width: 400px; width: 90%; text-align: center; }
+.coach-icon { font-size: 36px; margin-bottom: 10px; }
+.coach-title { font: 700 var(--fs-xl)/1.2 var(--font-display); margin: 0 0 10px; color: var(--text); }
+.coach-desc { font-size: var(--fs-sm); color: var(--text-2); line-height: 1.5; margin: 0 0 16px; }
+#coach-key-in { width: 100%; padding: 9px 13px; border-radius: var(--r-md); border: 1px solid rgba(255,255,255,0.22); background: rgba(255,255,255,0.07); color: var(--text); font: var(--fs-sm)/1.4 var(--font); outline: none; margin-bottom: 14px; }
+#coach-key-in:focus { border-color: rgba(80,160,255,0.7); box-shadow: 0 0 0 3px rgba(80,160,255,0.15); }
+.coach-btns { display: flex; gap: var(--sp-3); justify-content: center; }
+.coach-btns button { padding: 8px 20px; border-radius: var(--r-pill); font: 600 var(--fs-sm)/1 var(--font); cursor: pointer; border: none; }
+#coach-save { background: rgba(80,160,255,0.85); color: #fff; }
+#coach-save:hover { background: rgba(80,160,255,1); }
+.coach-btns .ghost { background: transparent; color: var(--text-2); border: 1px solid rgba(255,255,255,0.18); }
+.coach-btns .ghost:hover { color: var(--text); }
+.coach-note { font-size: var(--fs-xs); color: var(--text-3); margin: 12px 0 0; line-height: 1.4; }
 
 /* time trial */
 #trial { text-align: center; padding: 8px 22px 10px; border-radius: var(--r-lg); background: var(--glass); border: 1px solid var(--hairline);

@@ -60,7 +60,7 @@ const GROUPS = {
   manual: ['Gearbox <small>· manual</small>', [[k('Shift'), 'Clutch (hold)'], [`${k('1')}–${k('5')}`, 'Gears'], [k('R'), 'Reverse'], [k('0'), 'Neutral'], [k('I'), 'Engine on · off'], [k('Space'), 'Parking brake on · off']]],
   auto: ['Gearbox <small>· automatic</small>', [[k('1'), 'Drive'], [k('R'), 'Reverse'], [k('0'), 'Neutral'], [k('9'), 'Park'], [k('I'), 'Engine on · off'], [k('Space'), 'Parking brake on · off']]],
   lesson: ['Lessons', [[k('Z'), 'Left indicator'], [k('X'), 'Right indicator'], [k('Q'), 'Check your mirrors']]],
-  game: ['Game', [[k('P'), 'Phone'], [k('M'), 'Sound on · off'], [k('N'), 'Next song'], [k('F'), 'Radio (in a car)'], [k('H'), 'These controls']]],
+  game: ['Game', [[k('P'), 'Phone'], [k('M'), 'Sound on · off'], [k('N'), 'Next song'], [k('F'), 'Radio (in a car)'], [k('J'), 'AI instructor hint (in a car)'], [k('H'), 'These controls']]],
 };
 
 // sat nav arrows (stroked, currentColor)
@@ -113,8 +113,10 @@ export class Hud {
     this.map = this.mapCanvas.getContext('2d');
     this.mapS = 0;
     window.addEventListener('resize', () => { this.mapS = 0; });
+    this.coachEl = $('ai-coach');
     this.last = {};
     this.toastTimer = null;
+    this._coachTimer = null;
     this.mode = 'menu';
     this.inLesson = false;
     this.coachOn = false;
@@ -507,6 +509,18 @@ export class Hud {
     reveal(this.toastEl, esc(text));
     clearTimeout(this.toastTimer);
     this.toastTimer = setTimeout(() => conceal(this.toastEl), ms);
+  }
+
+  /** Show an AI coach message (blue panel above the toast). Streaming-safe: call repeatedly with growing text. */
+  coach(text, ms = 9000) {
+    if (!text) { conceal(this.coachEl); return; }
+    if (this.coachEl._html !== text) {
+      this.coachEl.textContent = text;
+      this.coachEl._html = text;
+    }
+    if (!this.coachEl._shown) reveal(this.coachEl);
+    clearTimeout(this._coachTimer);
+    this._coachTimer = setTimeout(() => conceal(this.coachEl), ms);
   }
 
   /** Heading-up radar centred on the player. GTA V's is a RECTANGLE (the round one was GTA IV),

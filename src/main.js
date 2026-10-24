@@ -18,6 +18,7 @@ import { buildArena } from './worlds/arena.js';
 import { buildUK, lPlateTex, MPH } from './worlds/uk.js';
 import { LESSONS, LessonRun, carefulDriver, TELL_ME, randomPlate, plateOptions, testDef } from './lessons.js';
 import { FreeExam } from './freedrive.js';
+import { ClaudeCoach } from './claudeCoach.js';
 import { KENT_ROUTES } from './kent/lesson-routes.js';
 import { generateTest, signsOnRoute } from './kent/test-routes.js';
 import { autoPool } from './kent/auto-pool.js';
@@ -77,8 +78,29 @@ const draw = () => {
 
 const hud = new Hud();
 const audio = new EngineAudio();
+const aiCoach = new ClaudeCoach();
+// context snapshot for Claude: speed, limit, gear, indicator
+const coachCtx = () => {
+  if (!car) return {};
+  return {
+    speedMph: Math.round(car.speedKmh * 0.621371),
+    limitMph: world?.speedLimitAt?.(car.pos.x, car.pos.z) ?? 30,
+    gear: car.drive?.gear,
+    indicator: drive?.indicator ?? null,
+  };
+};
+const coachReply = (t, done) => { if (t) hud.coach(t, done ? 10000 : 20000); };
 // the examiner that's always on while you free-drive (route-based lessons use LessonRun instead)
-const freeExam = new FreeExam({ flash: (text) => { hud.toast(text, 2600); audio.sfx('spend'); }, tip: (text) => hud.toast(text, 2600) });
+const freeExam = new FreeExam({
+  flash: (text, sev) => {
+    hud.toast(text, 2600); audio.sfx('spend');
+    aiCoach.ask({ type: 'fault', text, sev }, coachCtx(), coachReply);
+  },
+  tip: (text) => {
+    hud.toast(text, 2600);
+    aiCoach.ask({ type: 'tip', text }, coachCtx(), coachReply);
+  },
+});
 const $ = (id) => document.getElementById(id);
 
 // ---------- worlds ----------
@@ -143,6 +165,27 @@ function togglePause() {
   document.getElementById('pausescreen')?.classList.toggle('hidden', paused);
 }
 hud.onControlsClose = () => { if (controlsOpen) toggleControls(); };
+// ---- AI coach setup modal ----
+const coachSetupEl = document.getElementById('coach-setup');
+const coachKeyIn = document.getElementById('coach-key-in');
+function showCoachSetup() {
+  if (!coachSetupEl) return;
+  coachKeyIn.value = aiCoach.key || '';
+  coachSetupEl.classList.remove('hidden');
+  setTimeout(() => coachKeyIn.focus(), 50);
+}
+document.getElementById('coach-save')?.addEventListener('click', () => {
+  const k = coachKeyIn?.value?.trim();
+  if (k) { aiCoach.setKey(k); hud.toast('AI instructor enabled — press J while driving for advice', 3500); }
+  coachSetupEl?.classList.add('hidden');
+});
+document.getElementById('coach-cancel')?.addEventListener('click', () => {
+  coachSetupEl?.classList.add('hidden');
+});
+coachKeyIn?.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') document.getElementById('coach-save')?.click();
+  if (e.key === 'Escape') coachSetupEl?.classList.add('hidden');
+});
 // the "goals today" chip opens the phone on Today
 hud.onGoals = () => { if (mode === 'foot' || mode === 'car') { phone.tab = 'today'; togglePhone(); } };
 
@@ -195,6 +238,10 @@ window.addEventListener('keydown', (e) => {
     drive.turned = 0;
   }
   if (mode === 'car' && e.code === 'KeyQ') { drive.mirrorPressed = true; drive.mirrorFlash = 0.6; }
+  if (mode === 'car' && e.code === 'KeyJ') {
+    if (!aiCoach.ready()) { showCoachSetup(); }
+    else { aiCoach.ask({ type: 'hint' }, coachCtx(), coachReply); }
+  }
   if (e.code === 'KeyF' && mode === 'car') { // the radio is F in every car (R is reverse in the learner car)
     state.radio = !state.radio;
     save();
