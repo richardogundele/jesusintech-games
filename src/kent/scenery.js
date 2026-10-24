@@ -436,21 +436,22 @@ function shared() {
   gb.tri([-0.5, 0, 0.5], [0.5, 0, 0.5], [0, 1, 0.5], w);
   gb.tri([0.5, 0, -0.5], [-0.5, 0, -0.5], [0, 1, -0.5], w);
   const gable = gb.build();
-  // A broadleaf tree: a trunk that forks, and a crown of seven overlapping lobes at one level of
-  // subdivision, jittered so the silhouette is ragged rather than three balls on a stick. The old
-  // three-blob crown was the single thing that most made the world read as a tech demo. Still one
-  // geometry, still instanced, ~560 triangles.
+  // A broadleaf tree: a trunk that forks, and a crown of seven overlapping lobes. The three largest
+  // lobes use detail=2 (180 tris each) for smooth silhouettes; four smaller stay at detail=1 (80 tris).
+  // Total: 3×180 + 4×80 + 34 trunk/branches = 894 triangles. Still one geometry, still instanced.
   const tg = new GB({ uv: false, color: true });
   const trunkCol = new THREE.Color(0x4e3b2a), crownCol = new THREE.Color(0x4a6e34), crownLight = new THREE.Color(0x5e8540);
   const addGeo = (geo, col) => { const p = geo.toNonIndexed().attributes.position; for (let i = 0; i < p.count; i += 3) tg.tri([p.getX(i), p.getY(i), p.getZ(i)], [p.getX(i + 1), p.getY(i + 1), p.getZ(i + 1)], [p.getX(i + 2), p.getY(i + 2), p.getZ(i + 2)], col); };
   addGeo(new THREE.CylinderGeometry(0.16, 0.34, 3.6, 7, 1, true).translate(0, 1.8, 0), trunkCol);
   addGeo(new THREE.CylinderGeometry(0.08, 0.15, 2.2, 5, 1, true).rotateZ(0.5).translate(0.55, 4.0, 0.2), trunkCol);
   addGeo(new THREE.CylinderGeometry(0.08, 0.15, 2.0, 5, 1, true).rotateZ(-0.45).rotateY(1.2).translate(-0.45, 4.1, -0.3), trunkCol);
+  // r >= 1.7 → detail 2 (320 tris, smooth spheres); smaller lobes stay at detail 1 (80 tris)
   const lobes = [[0, 5.6, 0, 2.3], [1.5, 5.0, 0.6, 1.7], [-1.4, 5.2, -0.4, 1.8], [0.4, 4.4, -1.5, 1.6], [-0.6, 4.6, 1.5, 1.5], [0.9, 6.8, -0.3, 1.5], [-0.9, 6.5, 0.7, 1.4]];
   lobes.forEach(([x, y, z, r], i) => {
-    const g = new THREE.IcosahedronGeometry(r, 1);
+    const detail = r >= 1.7 ? 2 : 1;
+    const g = new THREE.IcosahedronGeometry(r, detail);
     const p = g.attributes.position;
-    for (let k = 0; k < p.count; k++) { // ragged edge: push each vertex in or out a little
+    for (let k = 0; k < p.count; k++) {
       const j = 0.82 + 0.3 * Math.abs(Math.sin(k * 12.9898 + i * 78.233));
       p.setXYZ(k, p.getX(k) * j, p.getY(k) * (0.9 + 0.15 * j), p.getZ(k) * j);
     }
@@ -468,6 +469,9 @@ function shared() {
   const lamp = lg.build();
   const sleeper = new THREE.BoxGeometry(2.5, 0.14, 0.24);
   sleeper.translate(0, 0.07, 0);
+  // chimney pot: a short octagonal cylinder, base at y=0 so it sits on top of the stack
+  const potGeo = new THREE.CylinderGeometry(0.11, 0.14, 0.38, 8);
+  potGeo.translate(0, 0.19, 0);
   S = {
     brick, plain, walls,
     front: new THREE.MeshStandardMaterial({ map: atlas, color: atlas ? 0xffffff : 0xb98a6e, roughness: 0.9 }),
@@ -491,7 +495,7 @@ function shared() {
     cliff: new THREE.MeshStandardMaterial({ color: 0x8c7b63, roughness: 1, flatShading: true }),
     concrete: new THREE.MeshStandardMaterial({ color: 0xc9c3b8, roughness: 0.9 }),
     sign: new THREE.MeshStandardMaterial({ color: 0x8a8d91, metalness: 0.6, roughness: 0.4 }),
-    geoBox: unitBox, geoGable: gable, geoTree: tree, geoLamp: lamp, geoSleeper: sleeper,
+    geoBox: unitBox, geoGable: gable, geoTree: tree, geoLamp: lamp, geoSleeper: sleeper, geoPot: potGeo,
   };
   return S;
 }
@@ -1070,7 +1074,7 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
       }
       return lo;
     };
-    const boxesBrick = [], boxesPlain = [], gables = [], chimneys = [], hedges = [];
+    const boxesBrick = [], boxesPlain = [], gables = [], chimneys = [], pots = [], hedges = [];
     const walls = new GB({ uv: true, color: true });
     const roofs = new GB({ uv: false, color: true });
     const fronts = new GB({ uv: true, color: false });
@@ -1097,7 +1101,7 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
           // ridge along the long side
           const long = o.w >= o.d;
           gables.push({ x: o.cx, z: o.cz, y: gy + b.h, w: (long ? o.d : o.w) + 0.5, d: (long ? o.w : o.d) + 0.4, h: roofH, yaw: o.yaw + (long ? Math.PI / 2 : 0), col: b.roofCol });
-          if (near && b.kind !== 'church' && rng() < 0.6) {
+          if (near && b.kind !== 'church' && rng() < 0.78) {
             const L = (long ? o.w : o.d) / 2 - 0.8, c = Math.cos(o.yaw), s = Math.sin(o.yaw);
             const lx = long ? L * (rng() < 0.5 ? 1 : -1) : 0.4, lz = long ? 0.4 : L * (rng() < 0.5 ? 1 : -1);
             chimneys.push({ x: o.cx + lx * c + lz * s, z: o.cz - lx * s + lz * c, y: gy + b.h + roofH * 0.7, yaw: o.yaw });
@@ -1142,7 +1146,17 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
     inst(boxesBrick, M.geoBox, M.brick);
     inst(boxesPlain, M.geoBox, M.plain);
     inst(gables, M.geoGable, M.roofInst);
-    if (chimneys.length) inst(chimneys.map((c) => ({ ...c, w: 0.7, h: 1.4, d: 1.2 })), M.geoBox, M.chimney, { color: false });
+    if (chimneys.length) {
+      inst(chimneys.map((c) => ({ ...c, w: 0.7, h: 2.0, d: 1.2 })), M.geoBox, M.chimney, { color: false });
+      const potItems = chimneys.flatMap((c) => {
+        const cs = Math.cos(c.yaw), sn = Math.sin(c.yaw);
+        return [
+          { x: c.x + cs * 0.22, y: c.y + 2.0, z: c.z - sn * 0.22, s: 1 },
+          { x: c.x - cs * 0.22, y: c.y + 2.0, z: c.z + sn * 0.22, s: 1 },
+        ];
+      });
+      inst(potItems, M.geoPot, M.chimney, { color: false });
+    }
     const merged = (gb, mat, cast = true) => { if (!gb.tris) return; const m = new THREE.Mesh(gb.build(), mat); m.castShadow = cast; m.receiveShadow = true; m.geometry.userData.owned = true; out.add(m); };
     merged(walls, M.walls);
     merged(roofs, M.roof);

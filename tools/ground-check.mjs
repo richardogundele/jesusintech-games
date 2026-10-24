@@ -52,7 +52,7 @@ const identify = (o) => {
   const bb = g.boundingBox, tris = (g.index ? g.index.count / 3 : g.attributes.position.count / 3) | 0;
   const h = bb.max.y - bb.min.y;
   if (tris === 32 && Math.abs(h - 8) < 0.2) return 'lamp';
-  if (tris === 594) return 'tree';
+  if (tris === 894) return 'tree';
   // the hedge material is textured (0x5b7f3a) in the game and a plain green fallback (0x3f6b2e) with no assets, as here in Node
   if (tris === 12 && Math.abs(bb.max.x - bb.min.x - 1) < 0.01 && Math.abs(h - 1) < 0.01 && o.material?.color && ['5b7f3a', '3f6b2e'].includes(o.material.color.getHexString())) return 'hedge';
   return null;
