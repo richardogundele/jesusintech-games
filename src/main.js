@@ -1107,6 +1107,10 @@ async function startLesson(id) {
     camera.lookAt(spot.x, groundAt(spot.x, spot.z) + 0.6, spot.z);
     if (tiled) { hud.show(true); await fade(0); }
     draw();
+    if (!window.__game?.autoQuiz) {
+      hud.toast('Look at the dark blue car ahead — read the number plate (about 20 m away)', 3200);
+      await wait(3400);
+    }
     const eyes = await quiz({ title: 'Eyesight check', q: `Read the number plate on the dark blue car ${centre === 'canterbury' ? 'parked in front of the test centre' : 'in the bay ahead'} (about 20 metres away). Which is it?`, a: plateOptions(world.plate), plate: true });
     if (!eyes) {
       $('res-name').textContent = 'Driving test result';
