@@ -239,8 +239,7 @@ window.addEventListener('keydown', (e) => {
   }
   if (mode === 'car' && e.code === 'KeyQ') { drive.mirrorPressed = true; drive.mirrorFlash = 0.6; }
   if (mode === 'car' && e.code === 'KeyJ') {
-    if (!aiCoach.ready()) { showCoachSetup(); }
-    else { aiCoach.ask({ type: 'hint' }, coachCtx(), coachReply); }
+    aiCoach.ask({ type: 'hint' }, coachCtx(), coachReply);
   }
   if (e.code === 'KeyF' && mode === 'car') { // the radio is F in every car (R is reverse in the learner car)
     state.radio = !state.radio;

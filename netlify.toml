@@ -5,6 +5,9 @@
 [build.environment]
   NODE_VERSION = "22"
 
+[functions]
+  directory = "netlify/functions"
+
 # served from the root of games.jesusintech.com; jesusintech.com/games redirects here
 [[headers]]
   for = "/*"
