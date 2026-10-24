@@ -465,6 +465,7 @@ function ringArm(view, rb, way, nid) {
   trim = Math.min(25, Math.max(0, trim));
   const data = (rb.arms || []).find((a) => a.node === nid) || null;
   const entryLanes = Math.max(1, num(data?.entryLanes, d.oneway ? d.lanesF : 1));
+  const markLanes = Math.max(entryLanes, d.oneway ? 0 : Math.min(2, lanes));
   const splitter = !d.oneway && (entryLanes >= 2 || r >= 12) && r >= 7;
   const ghost = !d.oneway && !splitter && r >= 7;
   const wMax = splitter ? (r >= 18 ? 1.6 : 1.2) : ghost ? 0.8 : 0;
@@ -472,7 +473,7 @@ function ringArm(view, rb, way, nid) {
   const sN = prepWay(view, way).nodeS.get(nid) ?? 0;
   const bearing = (Math.atan2(ax, -az) / DEG + 360) % 360; // clockwise from north
   const ringPave = (rb.ringWays || []).some((id) => { const w = view.ways.get(id); return w && descOf(view, w).pave; });
-  return { rb, way, d, node, nid, dir, ax, az, bearing, trim, ringPave, entryLanes, exitLanes: Math.max(1, num(data?.exitLanes, 1)), splitter, ghost, wMax, Ls, sN, data, lanes, isEntry: !d.oneway || dir === -1, isExit: !d.oneway || dir === 1 };
+  return { rb, way, d, node, nid, dir, ax, az, bearing, trim, ringPave, entryLanes, markLanes, exitLanes: Math.max(1, num(data?.exitLanes, 1)), splitter, ghost, wMax, Ls, sN, data, lanes, isEntry: !d.oneway || dir === -1, isExit: !d.oneway || dir === 1 };
 }
 
 /**
@@ -1460,22 +1461,22 @@ function drawRoundabout(view, rb, { batch, near, obb, laneArrow, wordDecal, uvWo
         obb(fm.x, fm.z, Math.max(0.6, 2 * (a.wMax - 0.45) * 0.8), Ls * 0.6, Math.atan2(dir * fm.tx, dir * fm.tz), true);
       }
       // lane lines between the entry lanes over the flare
-      if (a.entryLanes >= 2) {
+      if (a.markLanes >= 2) {
         const sLine = sN + dir * trim, sFar = sN + dir * FLARE_LEN;
-        for (let k = 1; k < a.entryLanes; k++) {
+        for (let k = 1; k < a.markLanes; k++) {
           const off = (f) => {
             const t = Math.abs(f.s - s0) / Ls;
             const inner = wH(Math.min(1, Math.max(0, t))) + 0.3;
             const hw = dir === -1 ? f.hwL : f.hwR;
-            return entrySign * (inner + ((hw - inner) * k) / a.entryLanes);
+            return entrySign * (inner + ((hw - inner) * k) / a.markLanes);
           };
           dashesAlong(W, p.frames, Math.min(sLine, sFar), Math.max(sLine, sFar), hazardPattern(limit), off, sLine, Y_MARK);
         }
       }
     }
     // lane arrows and destinations on 2-3 lane entries (arrow farther, legend nearer the line)
-    if (a.entryLanes >= 2) {
-      const kinds = a.entryLanes === 2 ? ['ahead_left', 'ahead_right'] : ['ahead_left', 'ahead', 'right'];
+    if (a.markLanes >= 2) {
+      const kinds = a.markLanes === 2 ? ['ahead_left', 'ahead_right'] : ['ahead_left', 'ahead', 'right'];
       const sLine = sN + dir * trim;
       const dests = exitDestinations(rb, a, sense);
       const laneCentre = (back, k) => {
@@ -1483,10 +1484,10 @@ function drawRoundabout(view, rb, { batch, near, obb, laneArrow, wordDecal, uvWo
         const hw = dir === -1 ? f.hwL : f.hwR;
         const inner = a.wMax ? a.wMax * Math.max(0, 1 - (back - trim - 0.6) / a.Ls) + 0.3 : 0;
         // lane 0 = nearside (kerb side): one-way counts from the way's left edge, two-way from the kerb inward
-        const o = d.oneway ? hw - (hw * 2 * (k + 0.5)) / a.entryLanes : entrySign * (inner + ((hw - inner) * (a.entryLanes - k - 0.5)) / a.entryLanes);
+        const o = d.oneway ? hw - (hw * 2 * (k + 0.5)) / a.markLanes : entrySign * (inner + ((hw - inner) * (a.markLanes - k - 0.5)) / a.markLanes);
         return { f, pt: offsetPt(f, o) };
       };
-      for (let k = 0; k < a.entryLanes; k++) {
+      for (let k = 0; k < a.markLanes; k++) {
         for (const back of [20, 50]) {
           const { f, pt } = laneCentre(back, k);
           laneArrow(kinds[k] || 'ahead', limit, pt[0], pt[1], -dir * f.tx, -dir * f.tz);
