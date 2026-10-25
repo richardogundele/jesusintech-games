@@ -7,7 +7,7 @@
 
 const STORE = 'dreamlife.coach.key';
 const RATE_MS = 8000;
-const MODEL = 'claude-haiku-4-5';
+const MODEL = 'claude-haiku-5-5';
 const MAX_TOKENS = 100;
 
 const SYSTEM = `You are a friendly UK driving instructor coaching a learner in a browser-based driving simulator set in Kent, UK. The learner is driving on real UK roads.
@@ -78,13 +78,13 @@ export class ClaudeCoach {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ prompt }),
       });
-      if (r.status === 404) { this._proxyOk = false; return null; } // not on Netlify
-      if (r.status === 503) { this._proxyOk = false; return null; } // key not configured on server
-      if (!r.ok) return null;
+      // 404 = not running on Netlify, 503 = no key configured: stop trying the proxy
+      if (r.status === 404 || r.status === 503) { this._proxyOk = false; return null; }
+      if (!r.ok) { console.warn('coach proxy', r.status, await r.text()); return null; }
       this._proxyOk = true;
       const data = await r.json();
       return data.text || null;
-    } catch { return null; }
+    } catch (e) { console.warn('coach proxy', e); return null; }
   }
 
   async _direct(prompt) {

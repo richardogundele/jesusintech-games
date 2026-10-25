@@ -105,7 +105,14 @@ export class RoadNet {
       // line when turning. Aim for a comfortable ~3.4 m lane, but never widen a street by over 2.5 m
       // (pavements and procedural houses are drawn from halfW, so they move out with it).
       let width = w.width;
-      if (!w.oneway && !w.rb && !w.link && w.cls !== 'service' && (RANK[w.cls] ?? 3) <= 4) width = Math.min(w.width + 2.5, Math.max(w.width, 7));
+      if (!w.rb && !w.link) {
+        if (!w.oneway && (RANK[w.cls] ?? 3) <= 4 && w.cls !== 'service') width = Math.min(w.width + 2.5, Math.max(w.width, 7));
+        // closes, mews and yards bake at 5 m, which is under two car widths once the hedges go up
+        else if (!w.oneway) width = Math.max(w.width, 6);
+        // a one-way street is baked one lane wide. A dual carriageway keeps what it has: its two
+        // halves sit about 6 m apart, so widening them would swallow the central reservation.
+        else if (!w.dual) width = Math.min(w.width + 1.3, Math.max(w.width, 5));
+      }
       const way = Object.assign({}, w, { cum, len: cum[n - 1], width, halfW: width / 2 });
       way.limit = w.limit || (w.pave ? 30 : 60);
       way.rank = RANK[w.cls] ?? 3;

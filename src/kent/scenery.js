@@ -1359,7 +1359,10 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
             if (!nearJ(mid, 14 + way.halfW)) {
               const p = pointAt(way, mid);
               const nx = p.dz * side, nz = -p.dx * side; // driver's left for side = 1
-              const off = way.halfW + 1.4 + (rng() - 0.5) * 0.3;
+              // the hedge is up to 1.8 m thick, so its inner face sits ~1.6 m off the tarmac: a real
+              // verge. At the old 1.4 m a hedgerow lane closed in to a green canyon you daren't meet
+              // anything on, which read as a much narrower road than it was.
+              const off = way.halfW + 2.5 + (rng() - 0.5) * 0.4;
               const x = p.x + nx * off, z = p.z + nz * off;
               if (inside(x, z) && !excluded(x, z)) {
                 // a hedge runs up or down the hill: plant it at the LOWEST of its two ends and middle so no end hangs in the air

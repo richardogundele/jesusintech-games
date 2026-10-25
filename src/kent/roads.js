@@ -643,12 +643,17 @@ export function makeRoadMaterials({ pbr, decal = null, planting = null } = {}) {
     // The spread is deliberately wide: a 10% tint reads as "the same road in different light", and
     // the whole point is that you can tell them apart at a glance.
     trunkTop: tex('clean_asphalt', 0xb5b7b8),      // motorway and trunk: pale, newly surfaced
-    streetTop: tex('asphalt_02', 0x8a8884),        // side streets and closes: older, patched, worn
-    laneTop: tex('asphalt_02', 0x615b4e),          // country lane: the worn set, dark, warm, dirty
+    // The patched set carries metre-wide tar-filled cracks at this UV scale. On a country lane that
+    // is the character; on a street in town it just read as filth, so side streets take the clean
+    // set a few shades down. The tiers still differ by tone, which is what tells them apart.
+    streetTop: tex('clean_asphalt', 0x76756f),     // side streets and closes: older, greyer tarmac
+    laneTop: tex('asphalt_02', 0x6b6760),          // country lane: the worn, patched set
     settsTop: tex('rectangular_paving', 0x8d8075), // setts and cobbles
     gravelTop: tex('leafy_grass', 0xb0a083),       // gravel and unsurfaced tracks
     concreteTop: tex('clean_asphalt', 0xc8c6c0),   // concrete carriageway: pale slabs
-    paving: tex('rectangular_paving', 0xc9c4ba),
+    // a UK footway is grey tarmac or grey slabs. The paving set is brown brick, which made every
+    // pavement in Kent look like a muddy driveway.
+    paving: tex('clean_asphalt', 0xb4b0a8),
     grass: tex('leafy_grass', 0x8fab74),
     white: flat(0xf2f2ee),
     yellow: flat(0xe8c23a),
@@ -663,7 +668,7 @@ export function makeRoadMaterials({ pbr, decal = null, planting = null } = {}) {
 export function flatRoadMaterials() {
   const m = (color, extra = {}) => new THREE.MeshStandardMaterial({ color, ...extra });
   return { asphalt: m(0x555555), asphaltDark: m(0x444444),
-    trunkTop: m(0x767778), streetTop: m(0x4f4e4b), laneTop: m(0x3b382f), settsTop: m(0x5e564d), gravelTop: m(0x79705c), concreteTop: m(0x8a8882),
+    trunkTop: m(0x767778), streetTop: m(0x55544f), laneTop: m(0x474338), settsTop: m(0x5e564d), gravelTop: m(0x79705c), concreteTop: m(0x8a8882),
     paving: m(0xbbb6ad), grass: m(0x6f9a52), white: m(0xf2f2ee), yellow: m(0xe8c23a), kerb: m(0xa9a59c), barrier: m(0xc4c8cc), concrete: m(0xb9b5ad), decal: null, planting: null };
 }
 
