@@ -672,6 +672,37 @@ export function flatRoadMaterials() {
     paving: m(0xbbb6ad), grass: m(0x6f9a52), white: m(0xf2f2ee), yellow: m(0xe8c23a), kerb: m(0xa9a59c), barrier: m(0xc4c8cc), concrete: m(0xb9b5ad), decal: null, planting: null };
 }
 
+/**
+ * The diagonals of a painted median (1040), between a dual carriageway's offside edge line and the
+ * opposing carriageway's: 150 mm strokes at 45 degrees, 3 m apart. They are anchored to the way's
+ * own start, so every tile the way crosses picks the same strokes and none is drawn twice.
+ * `median` is the gap sampled along the way by the net; a sample of 0 means no partner there.
+ */
+function medianHatch(W, frames, median, runs, wr, keepS) {
+  const SPACING = 3, STROKE = 0.15;
+  const widthAt = (s) => {
+    const ss = median.s, hi = ss.length - 1;
+    let i = 0;
+    while (i < hi && ss[i + 1] < s) i++;
+    const j = Math.min(hi, i + 1), span = ss[j] - ss[i];
+    const wa = median.w[i], wb = median.w[j];
+    if (!(wa > 0) || !(wb > 0)) return 0; // don't hatch across the end of the median
+    return wa + (wb - wa) * (span > 1e-6 ? Math.min(1, Math.max(0, (s - ss[i]) / span)) : 0);
+  };
+  // the edge lines sit inset inside each ribbon, so a stroke has to reach past our own edge to them
+  const nearOff = (f) => -(f.hwR - 0.225 - wr / 2);
+  for (const [a, c] of runs) {
+    for (let s = Math.ceil(a / SPACING) * SPACING; s < c; s += SPACING) {
+      const mw = widthAt(s);
+      if (mw <= 0 || !keepS(s)) continue;
+      const reach = mw + 0.45 + wr, s1 = s + reach; // 45 degrees: as far along as it is across
+      if (s1 > c) continue;
+      const f0 = frameAt(frames, s), f1 = frameAt(frames, s1);
+      strokeSeg(W, offsetPt(f0, nearOff(f0)), offsetPt(f1, nearOff(f1) - reach), STROKE, Y_MARK);
+    }
+  }
+}
+
 // ---------- the tile builder ----------
 
 /**
@@ -833,8 +864,14 @@ export function buildRoadTile(net, tile, { lod = 'near', mats, materials, ground
       }
       if (d.dual || d.link || d.limit >= 50) {
         const wl = edgeWidth(d.limit, true, true), wr = edgeWidth(d.limit, true, false);
+        const edgeRuns = subtract([[0, p.len]], union([...cuts.asphalt, ...cuts.edge[-1]]));
         for (const [a, c] of subtract([[0, p.len]], union([...cuts.asphalt, ...cuts.edge[1]]))) stripAlong(W, frames, a, c, (f) => f.hwL - 0.225 - wl / 2, wl, Y_MARK);
-        for (const [a, c] of subtract([[0, p.len]], union([...cuts.asphalt, ...cuts.edge[-1]]))) stripAlong(W, frames, a, c, (f) => -(f.hwR - 0.225 - wr / 2), wr, Y_MARK);
+        for (const [a, c] of edgeRuns) stripAlong(W, frames, a, c, (f) => -(f.hwR - 0.225 - wr / 2), wr, Y_MARK);
+        // painted median (1040): 45 degree diagonals filling the strip between this way's offside
+        // edge line and the opposing carriageway's. Those two solid lines are already its boundaries,
+        // so only the diagonals are missing. Drawn over the same runs as the offside edge line, which
+        // stops it at junction mouths where right-turners cross.
+        if (way.median) medianHatch(W, frames, way.median, edgeRuns, wr, keepS);
       }
     }
     // rural single carriageway: edge lines

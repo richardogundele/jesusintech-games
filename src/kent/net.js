@@ -93,7 +93,7 @@ export class RoadNet {
     this.grid = new GridIndex(100);
     this.crossingsByWay = new Map();
     this.calmingByWay = new Map();
-    this.#buildWays(); this.#buildNodes(); this.#widenThinDuals(); this.#buildRoundabouts(); this.#buildLinks(); this.#buildExtras();
+    this.#buildWays(); this.#buildNodes(); this.#widenThinDuals(); this.#buildMedians(); this.#buildRoundabouts(); this.#buildLinks(); this.#buildExtras();
   }
 
   // ---------- construction ----------
@@ -177,6 +177,59 @@ export class RoadNet {
       if (clear < NEED) continue;
       w.lanesF = LANES; w.width = LANES * LW; w.halfW = w.width / 2;
     }
+  }
+  /**
+   * Where a dual carriageway's two halves run within a few metres of each other there is no
+   * reservation, just bare tarmac between the two offside edge lines, which reads as a wide road
+   * with stray stripes down it. That strip is a painted median (1040) in reality, so measure its
+   * width along the way and let the renderer hatch it. Only the lower-id way of the pair carries
+   * the strip, so it gets drawn once. A gap over MAX is a kerbed or grassed reservation: left alone.
+   */
+  #buildMedians() {
+    const MIN = 0.8, MAX = 3.2, STEP = 3, ENDS = 12;
+    for (const w of this.ways.values()) {
+      if (!w.oneway || !w.dual || w.rb || w.link || w.len < 2 * ENDS) continue;
+      const ss = [], ws = [];
+      let live = 0, tested = 0;
+      for (let s = 0; ; s = Math.min(s + STEP, w.len)) {
+        // the two halves run together at the ends of a dual section, so judge the middle only
+        const end = s < ENDS || s > w.len - ENDS;
+        const hit = end ? null : this.#medianAt(w, s);
+        const ok = !!hit && hit.gap >= MIN && hit.gap <= MAX && w.id < hit.other.id;
+        ss.push(s); ws.push(ok ? hit.gap : 0);
+        if (!end) { tested++; if (ok) live++; }
+        if (s >= w.len) break;
+      }
+      // the strip has to be narrow for most of the way to be a painted median at all. A proper
+      // reservation that briefly pinches at a junction is still grass and a barrier, not paint.
+      if (tested && live >= tested * 0.7) w.median = { s: ss, w: ws };
+    }
+  }
+  /**
+   * The opposing carriageway's gap at arc length s. The partner is the nearest dual way running the
+   * other way on the driver's right. Ways that share a junction node are NOT excluded here: the two
+   * halves of a dual carriageway meet at the junctions at each end, so excluding them would hide the
+   * very way we are looking for.
+   */
+  #medianAt(w, s) {
+    const p = this.pointAt(w, s), d = this.dirAt(w, s), l = leftOf(d[0], d[1]);
+    const nx = -l[0], nz = -l[1];
+    let best = null;
+    for (let k = 0; k <= 2; k++) {
+      this.grid.ring(p[0], p[1], k, (items) => {
+        for (const { way: o, i } of items) {
+          if (o === w || !o.oneway || !o.dual || o.rb || o.link || (o.layer || 0) !== (w.layer || 0)) continue;
+          const a = o.pts[i], b = o.pts[i + 1];
+          const L = hypot(b[0] - a[0], b[1] - a[1]) || 1;
+          if ((d[0] * (b[0] - a[0]) + d[1] * (b[1] - a[1])) / L > -0.7) continue; // must run the other way
+          const [, px, pz] = projSeg(a[0], a[1], b[0], b[1], p[0], p[1]);
+          if ((px - p[0]) * nx + (pz - p[1]) * nz <= 0) continue; // and lie on the median side
+          const gap = hypot(px - p[0], pz - p[1]) - w.halfW - o.halfW;
+          if (!best || gap < best.gap) best = { gap, other: o };
+        }
+      });
+    }
+    return best;
   }
   /** how much room is left at (x, z) before the nearest other carriageway's edge, on this way's layer */
   #clearanceAt(x, z, w, skip) {
