@@ -48,7 +48,8 @@ export default async (req) => {
     }),
   });
 
-  if (!res.ok) return json({ error: 'upstream', status: res.status, detail: await res.text() }, 502);
+  // workspaceSet says whether CLAUDE_WORKSPACE_ID reached this deploy; it never reveals the key
+  if (!res.ok) return json({ error: 'upstream', status: res.status, workspaceSet: !!workspace, detail: await res.text() }, 502);
 
   const data = await res.json();
   return json({ text: data.content?.[0]?.text || '' });
