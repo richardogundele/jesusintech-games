@@ -116,6 +116,11 @@ export class RoadNet {
       const way = Object.assign({}, w, { cum, len: cum[n - 1], width, halfW: width / 2 });
       way.limit = w.limit || (w.pave ? 30 : 60);
       way.rank = RANK[w.cls] ?? 3;
+      // OSM almost never gives a service road a maxspeed, and the fallback then hands every mews,
+      // close and farm access the national speed limit. Nothing named Orchard Close is a 60 road,
+      // and an examiner marking a learner for dawdling down one at 20 is worse than merely wrong.
+      // Service roads that carry a real tag (5, 10, 20, 30 mph) keep it.
+      if (w.cls === 'service' && way.nsl) { way.limit = 30; way.nsl = false; }
       this.ways.set(w.id, way);
       for (let i = 0; i < n - 1; i++) {
         const a = w.pts[i], b = w.pts[i + 1];
