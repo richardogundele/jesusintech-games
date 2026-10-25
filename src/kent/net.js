@@ -93,7 +93,7 @@ export class RoadNet {
     this.grid = new GridIndex(100);
     this.crossingsByWay = new Map();
     this.calmingByWay = new Map();
-    this.#buildWays(); this.#buildNodes(); this.#buildRoundabouts(); this.#buildLinks(); this.#buildExtras();
+    this.#buildWays(); this.#buildNodes(); this.#widenThinDuals(); this.#buildRoundabouts(); this.#buildLinks(); this.#buildExtras();
   }
 
   // ---------- construction ----------
@@ -150,6 +150,50 @@ export class RoadNet {
       };
     }
   }
+  /**
+   * OSM leaves `lanes` off most dual carriageway halves, and the fetch then assumes one lane purely
+   * because the way is one-way (osm-fetch.mjs, lanes_src 'oneway'). That draws an A-road as a single
+   * 3.65 m ribbon: an A-road you drive like a cycle lane. A trunk, primary or secondary road split
+   * into halves is a major road whatever its limit, so give it two lanes wherever there is physically
+   * room for the wider ribbon. Measured per way, so where the two halves close up at the end of a
+   * dual section the lane simply drops, which is what the real road does.
+   */
+  #widenThinDuals() {
+    const LANES = 2, NEED = (LANES * LW) / 2 + 1.0; // new half width, plus a margin to the next ribbon
+    for (const w of this.ways.values()) {
+      if (!w.oneway || !w.dual || w.rb || w.link || w.lanesF !== 1 || w.rank < 6 || w.limit < 30) continue;
+      // anything meeting this way at a node may touch it; everything else has to stay clear
+      const skip = new Set([w.id]);
+      for (const nid of w.nodes) { const nd = nid && this.nodes.get(nid); if (nd) for (const r of nd.ways) skip.add(r.way.id); }
+      let clear = Infinity;
+      for (let i = 0; i < w.pts.length - 1 && clear >= NEED; i++) {
+        const a = w.pts[i], b = w.pts[i + 1];
+        const steps = Math.max(1, Math.ceil(hypot(b[0] - a[0], b[1] - a[1]) / 5));
+        for (let s = 0; s <= steps; s++) {
+          const t = s / steps;
+          clear = Math.min(clear, this.#clearanceAt(a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, w, skip));
+        }
+      }
+      if (clear < NEED) continue;
+      w.lanesF = LANES; w.width = LANES * LW; w.halfW = w.width / 2;
+    }
+  }
+  /** how much room is left at (x, z) before the nearest other carriageway's edge, on this way's layer */
+  #clearanceAt(x, z, w, skip) {
+    let best = Infinity;
+    const layer = w.layer || 0;
+    for (let k = 0, rings = Math.ceil(20 / this.grid.cell) + 1; k <= rings; k++) {
+      this.grid.ring(x, z, k, (items) => {
+        for (const { way: o, i } of items) {
+          if (skip.has(o.id) || (o.layer || 0) !== layer) continue;
+          const a = o.pts[i], b = o.pts[i + 1];
+          const [, px, pz] = projSeg(a[0], a[1], b[0], b[1], x, z);
+          best = Math.min(best, hypot(x - px, z - pz) - o.halfW);
+        }
+      });
+    }
+    return best;
+  }
   /** bearing from pt idx of a way towards the point about 15 m further along in direction dir */
   #armBearing(way, idx, dir) {
     const s0 = way.cum[idx], s = Math.max(0, Math.min(way.len, s0 + dir * 15));
@@ -170,6 +214,13 @@ export class RoadNet {
       // a single-lane ring's lane IS the whole carriageway, so the driving line sits in its middle
       rb.laneW = lanes <= 1 && island != null ? Math.max(3.5, r.r - island) : (r.laneW || (r.r < 12 ? 3.0 : LW));
       rb.arms = r.arms.map((a) => Object.assign({}, a)).sort((a, b) => a.bearing - b.bearing);
+      // the arm lane counts were baked from the old one-lane duals, so an approach widened above
+      // would run two lanes into a one-lane entry line. Take whichever is wider.
+      const lanesOf = (ids) => (ids || []).reduce((m, id) => Math.max(m, this.ways.get(id)?.lanesF || 1), 1);
+      for (const a of rb.arms) {
+        a.entryLanes = Math.max(a.entryLanes || 1, lanesOf(a.entryWays));
+        a.exitLanes = Math.max(a.exitLanes || 1, lanesOf(a.exitWays));
+      }
       rb.angleAt = (x, z) => Math.atan2(z - rb.z, x - rb.x);
       rb.pointAt = (ang, radius) => [rb.x + Math.cos(ang) * radius, rb.z + Math.sin(ang) * radius];
       rb.laneRadius = (k) => rb.r - (k - 0.5) * rb.laneW; // lane 1 = outer (nearside) lane
