@@ -29,12 +29,16 @@ export default async (req) => {
   try { ({ prompt } = await req.json()); } catch { return json({ error: 'bad_request' }, 400); }
   if (!prompt) return json({ error: 'missing_prompt' }, 400);
 
+  // an org-level key has to name the workspace it is billing to; a workspace-scoped key does not
+  const workspace = process.env.CLAUDE_WORKSPACE_ID;
+
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'x-api-key': key,
       'anthropic-version': '2023-06-01',
+      ...(workspace ? { 'anthropic-workspace-id': workspace } : {}),
     },
     body: JSON.stringify({
       model: MODEL,
