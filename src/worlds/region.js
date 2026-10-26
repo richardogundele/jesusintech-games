@@ -5,7 +5,7 @@
 // jet centre stands on open land south of the streets; your learner car waits at the test centre.
 // Left-hand traffic, mph. x = east, z = south.
 import * as THREE from 'three';
-import { setupSky, UK_OVERCAST, Colliders } from './common.js';
+import { setupSky, UK_DAY, Colliders } from './common.js';
 import { hdri, pbr, instanced } from '../assets.js';
 import { markingTexture } from '../signs.js';
 import { buildJet, buildCar, buildPedestrian, mesh } from '../models.js';
@@ -35,7 +35,7 @@ export function buildRegion(renderer, { id, name, data, arena = false }) {
     return (heightAt(x + dx, z + dz, prevY) - heightAt(x - dx, z - dz, prevY)) / 2;
   };
   const scene = new THREE.Scene();
-  const env = setupSky(scene, renderer, { ...UK_OVERCAST, sunAzimuth: 330 });
+  const env = setupSky(scene, renderer, { ...UK_DAY, hdri: hdri('monaco'), sunAzimuth: 182 });
   const colliders = new Colliders();
   const tickers = [];
   const interactions = [];

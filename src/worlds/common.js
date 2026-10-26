@@ -126,7 +126,21 @@ export function setupSky(scene, renderer, {
   };
 }
 
-/** The shared overcast-UK sky preset. Callers spread it and add their own sunAzimuth. */
+/**
+ * The daylight UK sky the game drives under: the partly-cloudy HDR (shared with the cabin, so it
+ * costs no extra download) with a warm sun and thin haze. Callers spread it and add sunAzimuth.
+ * A learner wants to see the road, the signs and the shadows, and a grey lid over everything made
+ * every street read the same; UK_OVERCAST below is kept for the dull-day look.
+ */
+export const UK_DAY = {
+  exposure: 1.0,
+  envIntensity: 0.9,
+  sunColor: 0xfff2dc,
+  sunIntensity: 3.0,
+  fogDensity: 0.0009,
+};
+
+/** The overcast-UK sky preset. Callers spread it and add their own sunAzimuth. */
 export const UK_OVERCAST = {
   overcast: true,
   exposure: 1.0,
