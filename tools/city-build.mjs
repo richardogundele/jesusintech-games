@@ -310,7 +310,7 @@ for (let j = 0; j < GN; j++) {
 // signals where the high street meets the two busiest cross streets, give way elsewhere in the grid
 for (const i of [2, 4]) C.mark(G0 + i * GS, 0, { signals: true });
 for (const i of [1, 5]) C.mark(G0 + i * GS, G0 + 2 * GS, { giveWay: true });
-C.place('City Centre', 0, 0, 620, 1);
+C.place('City Centre', 0, 0, 950, 1); // r >= 900 makes it a town centre: double yellows on the paved roads round it
 
 // 2. The ring road: a 40 primary box round the centre, the first fast road a learner meets, with
 //    a roundabout at three of its corners-of-entry and a signalised crossroads at the fourth, so

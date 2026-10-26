@@ -654,6 +654,8 @@ export function makeRoadMaterials({ pbr, decal = null, planting = null } = {}) {
     // a UK footway is grey tarmac or grey slabs. The paving set is brown brick, which made every
     // pavement in Kent look like a muddy driveway.
     paving: tex('clean_asphalt', 0xb4b0a8),
+    // the dressed streets of the authored city get block paving, as a high street does
+    pavingBlock: tex('rectangular_paving', 0xd6cbb8),
     grass: tex('leafy_grass', 0x8fab74),
     white: flat(0xf2f2ee),
     yellow: flat(0xe8c23a),
@@ -669,7 +671,7 @@ export function flatRoadMaterials() {
   const m = (color, extra = {}) => new THREE.MeshStandardMaterial({ color, ...extra });
   return { asphalt: m(0x555555), asphaltDark: m(0x444444),
     trunkTop: m(0x767778), streetTop: m(0x55544f), laneTop: m(0x474338), settsTop: m(0x5e564d), gravelTop: m(0x79705c), concreteTop: m(0x8a8882),
-    paving: m(0xbbb6ad), grass: m(0x6f9a52), white: m(0xf2f2ee), yellow: m(0xe8c23a), kerb: m(0xa9a59c), barrier: m(0xc4c8cc), concrete: m(0xb9b5ad), decal: null, planting: null };
+    paving: m(0xbbb6ad), pavingBlock: m(0xb9ab98), grass: m(0x6f9a52), white: m(0xf2f2ee), yellow: m(0xe8c23a), kerb: m(0xa9a59c), barrier: m(0xc4c8cc), concrete: m(0xb9b5ad), decal: null, planting: null };
 }
 
 /**
@@ -884,7 +886,7 @@ export function buildRoadTile(net, tile, { lod = 'near', mats, materials, ground
     }
     // pavements + kerbs
     if (d.pave && !d.rb) {
-      const P = batch('paving');
+      const P = batch(way.dress ? 'pavingBlock' : 'paving');
       for (const side of [1, -1]) {
         const hw = (f) => (side > 0 ? f.hwL : f.hwR);
         const paveRuns = runsFor(p, cuts.pave[side]);

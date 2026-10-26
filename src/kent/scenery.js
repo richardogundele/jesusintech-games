@@ -34,13 +34,13 @@ const SHRUB_FAR = 110, POT_FAR = 90, LAMP_FAR = 230;
 const DRESS = {
   'high-street': {
     tree: { every: 19, back: 0.3, scale: [0.82, 1.04] },
-    lamp: { model: 'street_lamp_01', every: 23, far: LAMP_FAR },
+    lamp: { model: 'street_lamp_01', every: 23, far: LAMP_FAR, basket: true },
     shrub: { models: SHRUBS, every: 17, back: 2.8, scale: [0.9, 1.4], far: SHRUB_FAR },
     pot: { models: ['potted_plant_01', 'potted_plant_02'], every: 26, scale: 1.0, far: POT_FAR },
   },
   terraced: {
     tree: { every: 26, back: 0.4, scale: [0.72, 0.92] },
-    lamp: { model: 'street_lamp_01', every: 31, far: LAMP_FAR },
+    lamp: { model: 'street_lamp_01', every: 31, far: LAMP_FAR, basket: true },
     shrub: { models: SHRUBS, every: 15, back: 2.4, scale: [0.8, 1.2], far: SHRUB_FAR },
   },
   suburban: {
@@ -524,7 +524,12 @@ function shared() {
   // chimney pot: a short octagonal cylinder, base at y=0 so it sits on top of the stack
   const potGeo = new THREE.CylinderGeometry(0.11, 0.14, 0.38, 8);
   potGeo.translate(0, 0.19, 0);
+  // a hanging basket: a squashed ball of foliage, coloured per instance so some are in flower
+  const basketGeo = new THREE.IcosahedronGeometry(0.42, 1);
+  basketGeo.scale(1, 0.8, 1);
   S = {
+    basket: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1 }),
+    geoBasket: basketGeo,
     brick, plain, walls,
     front: new THREE.MeshStandardMaterial({ map: atlas, color: atlas ? 0xffffff : 0xb98a6e, roughness: 0.9 }),
     // roof tiles and hedge leaf mapped in world space: these geometries carry no UVs, and the
@@ -923,6 +928,19 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
   /** one plot's worth: a terrace row, a pair of semis, a detached house or a bungalow */
   function makeUnit(style, r) {
     const roofCol = pickc(r, ROOF_COLOURS);
+    // the dressed streets of the authored city (way.dress): a parade of shops hard on the back of
+    // the pavement with an awning each, and terraces behind a low wall and railings with a bay
+    // window and a door canopy per house - the relief the plain fronts lack
+    if (style === 'highstreet') {
+      const n = 3 + Math.floor(r() * 4), each = rr(r, 5.2, 6.0);
+      return { kind: 'shop', w: n * each, n, d: rr(r, 11, 13), h: rr(r, 8.6, 9.6), setback: 2.5, gap: rr(r, 0, 0.5), drive: false,
+        col: pickc(r, r() < 0.6 ? PAL.brick : PAL.stucco), roofCol, edge: 'none', wallCol: 0, awning: true };
+    }
+    if (style === 'terraced') {
+      const n = 4 + Math.floor(r() * 5), each = rr(r, 5.0, 5.6), painted = r() < 0.3;
+      return { kind: 'terrace', w: n * each, n, d: rr(r, 9.5, 11), h: rr(r, 7.4, 8.4), setback: rr(r, 3.6, 4.2), gap: rr(r, 1.2, 2.0), drive: false,
+        col: pickc(r, painted ? PAL.stucco : PAL.brick), roofCol, edge: 'wall', wallCol: painted ? 0xe8e2d4 : 0x8f4a3c, rail: true, bay: true, canopy: true };
+    }
     if (style === 'victorian') {
       const n = 3 + Math.floor(r() * 6), each = rr(r, 5.0, 5.7), tall = r() < 0.2;
       const painted = r() < 0.35;
@@ -970,10 +988,12 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
     if (procCache.has(w.id)) return procCache.get(w.id);
     const out = [];
     procCache.set(w.id, out);
-    if (!PROC_CLS.has(w.cls) || w.rb || w.dual || w.link || w.bridge || w.tunnel || way.len < 30) return out;
+    const DRESS_STYLE = { 'high-street': 'highstreet', terraced: 'terraced' };
+    const dressed = DRESS_STYLE[w.dress] || null;
+    if ((!PROC_CLS.has(w.cls) && !dressed) || w.rb || w.dual || w.link || w.bridge || w.tunnel || way.len < 30) return out;
     const mid = pointAt(way, way.len / 2);
     if (w.cls === 'unclassified' && !placeAt(mid.x, mid.z)) return out;
-    const style = styleAt(mid.x, mid.z);
+    const style = dressed || styleAt(mid.x, mid.z);
     const J = 14 + way.halfW;
     const gaps = way.junctions.map((s) => [s - J, s + J]);
     const nIds = w.nodes || [];
@@ -1032,6 +1052,19 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
             if (len < 1.5) continue;
             const wall = u.edge === 'wall';
             rec.extras.push({ type: wall ? 'wall' : 'hedge', x: q.x + nx * bo - ux * 0.45, z: q.z + nz * bo - uz * 0.45, w: len, h: wall ? 0.7 : 1.05, d: wall ? 0.28 : 0.7, yaw, col: wall ? u.wallCol : 0x3f6b2e });
+            // iron railings along the top of the wall
+            if (wall && u.rail) rec.extras.push({ type: 'rail', x: q.x + nx * bo - ux * 0.45, z: q.z + nz * bo - uz * 0.45, y: 0.7, w: len, h: 0.55, d: 0.05, yaw, col: 0x1c1d1f });
+          }
+        }
+        // per house: a bay window beside the door and a canopy over it; per shop: an awning
+        if (u.bay || u.canopy || u.awning) {
+          const each = u.w / u.n, fx = -nx, fz = -nz; // fx/fz: out of the front face, towards the road
+          for (let k = 0; k < u.n; k++) {
+            const sc = s + (k + 0.5) * each, q = pointAt(way, sc);
+            const faceX = q.x + nx * front, faceZ = q.z + nz * front;
+            if (u.bay) rec.extras.push({ type: 'bay', x: faceX - ux * each * 0.2 + fx * 0.4, z: faceZ - uz * each * 0.2 + fz * 0.4, w: 2.0, h: 2.9, d: 0.8, yaw, col: u.col });
+            if (u.canopy) rec.extras.push({ type: 'canopy', x: faceX + ux * each * 0.27 + fx * 0.35, z: faceZ + uz * each * 0.27 + fz * 0.35, y: 2.35, w: 1.3, h: 0.12, d: 0.7, yaw, col: 0xe8e2d4 });
+            if (u.awning) rec.extras.push({ type: 'awning', x: faceX, z: faceZ, ux, uz, fx, fz, w: each - 0.5, col: pickc(r, [0x2f6b3a, 0x7a1f2b, 0x1d3557, 0x3b7d4f, 0x8c2f39]) });
           }
         }
         // a drive in the gap beside the house, from the pavement to halfway down the side
@@ -1130,8 +1163,10 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
     const walls = new GB({ uv: true, color: true });
     const roofs = new GB({ uv: false, color: true });
     const fronts = new GB({ uv: true, color: false });
+    const awnings = new GB({ uv: false, color: true });
     const col = new THREE.Color();
     const counts = {};
+    const SOLID = new Set(['wall', 'hedge', 'bay']); // the extras a car can hit
     for (const b of list) {
       if (b.skip) continue;
       const gy = baseY(b);
@@ -1141,8 +1176,18 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
         if (!near) { boxesBrick.push({ x: b.obb.cx, y: gy, z: b.obb.cz, w: b.obb.w, d: b.obb.d, h: b.h, yaw: b.obb.yaw, col: b.col }); continue; }
         for (const e of b.extras) {
           if (e.type === 'hedge') hedges.push({ x: e.x, y: gy, z: e.z, len: e.w, h: e.h, wd: e.d, yaw: e.yaw + Math.PI / 2, t: hash2(e.x, e.z) });
-          else (e.type === 'wall' ? boxesBrick : boxesPlain).push({ x: e.x, y: gy, z: e.z, w: e.w, d: e.d, h: e.h, yaw: e.yaw, col: e.col });
-          if (e.type !== 'drive') cs.add(e.x, e.z, e.w, e.d, e.yaw);
+          else if (e.type === 'awning') {
+            // a sloping canvas off the shop wall above the window, with a short valance on its front edge
+            const hw = e.w / 2, y0 = gy + 3.3, y1 = gy + 2.75, out = 1.15;
+            const L0 = [e.x - e.ux * hw, y0, e.z - e.uz * hw], R0 = [e.x + e.ux * hw, y0, e.z + e.uz * hw];
+            const L1 = [L0[0] + e.fx * out, y1, L0[2] + e.fz * out], R1 = [R0[0] + e.fx * out, y1, R0[2] + e.fz * out];
+            const L2 = [L1[0], y1 - 0.28, L1[2]], R2 = [R1[0], y1 - 0.28, R1[2]];
+            col.set(e.col);
+            awnings.quad(L0, R0, R1, L1, col); awnings.quad(L1, R1, R0, L0, col); // both faces: seen from the road and from under it
+            awnings.quad(L1, R1, R2, L2, col); awnings.quad(L2, R2, R1, L1, col);
+          }
+          else (e.type === 'wall' || e.type === 'bay' ? boxesBrick : boxesPlain).push({ x: e.x, y: gy + (e.y || 0), z: e.z, w: e.w, d: e.d, h: e.h, yaw: e.yaw, col: e.col });
+          if (SOLID.has(e.type)) cs.add(e.x, e.z, e.w, e.d, e.yaw);
         }
       } else counts[b.kind] = (counts[b.kind] || 0) + 1;
       const roofH = clamp(Math.min(b.obb.w, b.obb.d) * 0.45, 2.2, b.kind === 'church' ? 5 : 3.5);
@@ -1213,6 +1258,7 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
     merged(walls, M.walls);
     merged(roofs, M.roof);
     merged(fronts, M.front, false);
+    merged(awnings, M.misc);
     return { counts, hedges };
   }
   /** a canvas front on the face that looks at the nearest road */
@@ -1487,7 +1533,7 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
     const bins = new Map();                                    // model name -> { far, list }
     const put = (model, far, p) => { if (!bins.has(model)) bins.set(model, { far, list: [] }); bins.get(model).list.push(p); };
     const pick = (list) => list[Math.min(list.length - 1, (rng() * list.length) | 0)];
-    const trees = [];
+    const trees = [], baskets = [];
     let n = 0;
 
     for (const way of ways) {
@@ -1512,13 +1558,25 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
       // street trees stand at the back of the pavement, clear of the junctions
       if (spec.tree) along(spec.tree.every, kerb + spec.tree.back, (p) => trees.push({ x: p.x, z: p.z, y: p.y, rot: rng() * Math.PI * 2, scale: spec.tree.scale[0] + rng() * (spec.tree.scale[1] - spec.tree.scale[0]) }), 11);
       // lamps on the kerb edge, their arm over the road
-      if (spec.lamp) along(spec.lamp.every, kerb - 0.9, (p) => put(spec.lamp.model, spec.lamp.far, { x: p.x, z: p.z, y: p.y, rot: Math.atan2(-p.nx, -p.nz) }), 7);
+      if (spec.lamp) along(spec.lamp.every, kerb - 0.9, (p) => {
+        put(spec.lamp.model, spec.lamp.far, { x: p.x, z: p.z, y: p.y, rot: Math.atan2(-p.nx, -p.nz) });
+        // a hanging basket on the post, a little out over the pavement, some in flower
+        if (spec.basket) baskets.push({ x: p.x - p.nx * 0.45, z: p.z - p.nz * 0.45, y: (p.y || 0) + 3.0, col: rng() < 0.55 ? 0x4e8a3a : rng() < 0.5 ? 0xc94f8e : 0x8a56c9 });
+      }, 7);
       // shrubs in the front gardens behind the pavement
       if (spec.shrub) along(spec.shrub.every, kerb + spec.shrub.back, (p) => put(pick(spec.shrub.models), spec.shrub.far, { x: p.x, z: p.z, y: p.y, rot: rng() * Math.PI * 2, scale: spec.shrub.scale[0] + rng() * (spec.shrub.scale[1] - spec.shrub.scale[0]) }), 6);
       // planters at the kerb outside the shops
       if (spec.pot) along(spec.pot.every, kerb - 1.6, (p) => put(pick(spec.pot.models), spec.pot.far, { x: p.x, z: p.z, y: p.y, rot: rng() * Math.PI * 2, scale: spec.pot.scale }), 10);
     }
 
+    if (baskets.length) {
+      const im = new THREE.InstancedMesh(M.geoBasket, M.basket, baskets.length);
+      const o = new THREE.Object3D(), c = new THREE.Color();
+      baskets.forEach((b, i) => { o.position.set(b.x, b.y, b.z); o.rotation.set(0, 0, 0); o.scale.setScalar(1); o.updateMatrix(); im.setMatrixAt(i, o.matrix); im.setColorAt(i, c.set(b.col)); });
+      im.castShadow = true;
+      im.computeBoundingSphere();
+      out.add(im);
+    }
     if (trees.length) {
       const im = new THREE.InstancedMesh(M.geoStreetTree, M.tree, trees.length);
       const o = new THREE.Object3D();
