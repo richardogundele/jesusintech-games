@@ -114,6 +114,7 @@ export class Hud {
     this.mapS = 0;
     window.addEventListener('resize', () => { this.mapS = 0; });
     this.coachEl = $('ai-coach');
+    this.signPopEl = $('sign-pop');
     this.last = {};
     this.toastTimer = null;
     this._coachTimer = null;
@@ -521,6 +522,23 @@ export class Hud {
     if (!this.coachEl._shown) reveal(this.coachEl);
     clearTimeout(this._coachTimer);
     this._coachTimer = setTimeout(() => conceal(this.coachEl), ms);
+  }
+
+  /** A sign card: the sign you are passing, its name and what to do about it. */
+  signPop({ image, name, text }, ms = 6000) {
+    const el = this.signPopEl; if (!el) return;
+    const cv = el.querySelector('.sp-img'), ctx = cv.getContext('2d');
+    ctx.clearRect(0, 0, cv.width, cv.height);
+    if (image && image.width) {
+      // fit the sign in the square, whatever its shape
+      const k = Math.min(cv.width / image.width, cv.height / image.height), w = image.width * k, h = image.height * k;
+      ctx.drawImage(image, (cv.width - w) / 2, (cv.height - h) / 2, w, h);
+    }
+    el.querySelector('.sp-name').textContent = name;
+    el.querySelector('.sp-text').textContent = text;
+    reveal(el);
+    clearTimeout(this._signTimer);
+    this._signTimer = setTimeout(() => conceal(el), ms);
   }
 
   /** Heading-up radar centred on the player. GTA V's is a RECTANGLE (the round one was GTA IV),

@@ -19,6 +19,7 @@ import { buildUK, lPlateTex, MPH } from './worlds/uk.js';
 import { LESSONS, LessonRun, carefulDriver, TELL_ME, randomPlate, plateOptions, testDef } from './lessons.js';
 import { FreeExam } from './freedrive.js';
 import { ClaudeCoach } from './claudeCoach.js';
+import { SignTeacher } from './signTeach.js';
 import { KENT_ROUTES } from './kent/lesson-routes.js';
 import { generateTest, signsOnRoute } from './kent/test-routes.js';
 import { autoPool } from './kent/auto-pool.js';
@@ -79,6 +80,7 @@ const draw = () => {
 const hud = new Hud();
 const audio = new EngineAudio();
 const aiCoach = new ClaudeCoach();
+const signTeach = new SignTeacher(hud);
 // context snapshot for Claude: speed, limit, gear, indicator
 const coachCtx = () => {
   if (!car) return {};
@@ -1457,6 +1459,8 @@ function step(dt) {
         const ectx = { indicator: drive.indicator, mirrorPressed: drive.mirrorPressed };
         freeExam.update(dt, car, world, res, ectx);
         freeExam.coach(dt, car, world, ectx);
+        // the sign cards: free driving and mocks, never the real test (an examiner does not teach)
+        signTeach.update(dt, car, world, mode === 'car' && !lesson?.def?.real);
         hud.exam(freeExam.counts, true, careerRating());
       }
       // the motorway leg ends at the exit for your destination

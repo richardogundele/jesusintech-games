@@ -126,7 +126,7 @@ export function buildRegion(renderer, { id, name, data, arena = false }) {
   let last = 0;
   return {
     id, name: name.toUpperCase(), units: 'mph', scene, env, colliders, tickers, interactions, net, tiles, air,
-    signals, trafficSystem: traffic, rbs, rbSenseSign: rbs.every((r) => r.sense === rbs[0]?.sense) ? rbs[0]?.sense ?? 1 : 1,
+    signals, signsBuilder: signs, trafficSystem: traffic, rbs, rbSenseSign: rbs.every((r) => r.sense === rbs[0]?.sense) ? rbs[0]?.sense ?? 1 : 1,
     get roads() { return tiles.roadsNear(); },
     bounds: data.bounds,
     tick(t) {
