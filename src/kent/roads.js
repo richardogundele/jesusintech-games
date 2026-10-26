@@ -886,7 +886,7 @@ export function buildRoadTile(net, tile, { lod = 'near', mats, materials, ground
     }
     // pavements + kerbs
     if (d.pave && !d.rb) {
-      const P = batch(way.dress ? 'pavingBlock' : 'paving');
+      const P = batch(way.dress === 'high-street' ? 'pavingBlock' : 'paving'); // side streets keep tarmac footways
       for (const side of [1, -1]) {
         const hw = (f) => (side > 0 ? f.hwL : f.hwR);
         const paveRuns = runsFor(p, cuts.pave[side]);

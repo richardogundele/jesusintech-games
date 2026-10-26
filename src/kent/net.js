@@ -93,7 +93,7 @@ export class RoadNet {
     this.grid = new GridIndex(100);
     this.crossingsByWay = new Map();
     this.calmingByWay = new Map();
-    this.#buildWays(); this.#buildNodes(); this.#widenThinDuals(); this.#buildMedians(); this.#buildRoundabouts(); this.#buildLinks(); this.#buildExtras();
+    this.#buildWays(); this.#buildNodes(); this.#widenThinDuals(); this.#buildMedians(); this.#buildRoundabouts(); this.#buildLinks(); this.#buildExtras(); this.#dressWays();
   }
 
   // ---------- construction ----------
@@ -235,6 +235,28 @@ export class RoadNet {
       });
     }
     return best;
+  }
+  /**
+   * Which streets scenery.js dresses (trees, lamps with baskets, bays and railings, shop awnings).
+   * The authored city tags its own ways; the real-map cities get the tags by rule, from where a
+   * street sits in its town: the through roads of a town centre are a high street, the residential
+   * streets near the centre are terraces, those further out are suburban. The radii are deliberate:
+   * dressing roughly doubles a street's draw calls, so it stops where a town's heart does.
+   */
+  #dressWays() {
+    const towns = this.placesIn.filter((p) => (p.rank ?? 2) <= 1 && p.r > 0);
+    if (!towns.length) return;
+    for (const way of this.ways.values()) {
+      if (way.dress || !way.pave || way.rb || way.link || way.dual || way.len < 20) continue;
+      const m = this.pointAt(way, way.len / 2);
+      let town = null, d = Infinity;
+      for (const t of towns) { const k = hypot(m[0] - t.x, m[1] - t.z); if (k < t.r && k < d) { town = t; d = k; } }
+      if (!town) continue;
+      const highStreet = /\bHigh Street\b/.test(way.name || '');
+      if (!way.oneway && (way.rank >= 5 || highStreet) && (d < 350 || highStreet)) way.dress = 'high-street';
+      else if (way.cls === 'residential' && d < 800) way.dress = 'terraced';
+      else if (way.cls === 'residential' && d < 1800) way.dress = 'suburban';
+    }
   }
   /** how much room is left at (x, z) before the nearest other carriageway's edge, on this way's layer */
   #clearanceAt(x, z, w, skip) {
