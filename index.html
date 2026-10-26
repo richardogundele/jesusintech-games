@@ -28,11 +28,10 @@
 
     <!-- HUD -->
     <div id="hud" class="hidden">
-      <!-- top left: the objective line (exam tally, sat nav in a test) and today's goals -->
+      <!-- top left: the objective line (exam tally, sat nav in a test) -->
       <div class="hud-top-left">
         <div id="exam" class="hidden" role="status" aria-live="polite"></div>
         <div id="satnav" class="hidden"></div>
-        <button id="goals" class="chip" type="button" aria-label="Today's goals: open the phone"></button>
       </div>
 
       <!-- top centre: the rear-view mirror (learner car), time trial, the instructor, toasts -->
@@ -60,7 +59,6 @@
       <!-- bottom left: the radar, with the examiner's tally as the strip along its foot (where GTA
            puts health and armour), then the radio card and the H tip. Sits above the controls dock. -->
       <div class="hud-bottom-left">
-        <div id="ytradio" class="hidden"><div id="yt-host"></div><div id="yt-title"></div></div>
         <div id="radar">
           <canvas id="minimap" width="296" height="210" aria-hidden="true"></canvas>
           <div id="faultbar" class="hidden" aria-hidden="true"><i></i></div>

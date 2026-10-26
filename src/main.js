@@ -5,16 +5,14 @@ import { Car } from './vehicle.js';
 import { buildPlayer, buildJet } from './models.js';
 import { EngineAudio } from './audio.js';
 import { Hud } from './hud.js';
-import { state, save, recordDrive, careerRating, lifeScore } from './state.js';
-import { JETS, CITIES, otherCities, fuelStop, flightTime, roadBetween, talkFee, LEARNER, CARS, RADIO_STATION } from './catalog.js';
+import { state, save, recordDrive, careerRating } from './state.js';
+import { JETS, CITIES, otherCities, fuelStop, flightTime, roadBetween, LEARNER, CARS } from './catalog.js';
 import { buildKent, setKentHooks } from './worlds/kent.js';
 import * as P from './progress.js';
 import { Phone } from './phone.js';
-import { Songs } from './songs.js';
-import { YtRadio } from './ytradio.js';
-import { setupTrials, MEDAL_PAY } from './trials.js';
 import { buildCabin } from './worlds/cabin.js';
-import { buildArena } from './worlds/arena.js';
+// Whitmore (uk) is no longer a place you can go: it stays built only so tools/lesson-check.mjs can
+// drive its fixture routes headless
 import { buildUK, lPlateTex, MPH } from './worlds/uk.js';
 import { LESSONS, LessonRun, carefulDriver, TELL_ME, randomPlate, plateOptions, testDef } from './lessons.js';
 import { FreeExam } from './freedrive.js';
@@ -109,7 +107,7 @@ const $ = (id) => document.getElementById(id);
 // The three cities are built from the real map around their driving test centres (worlds/region.js);
 // their road data is fetched on the way there (loadRegion), so the first visit awaits it
 const cityBuilder = (id, name, extra = {}) => (r) => buildRegion(r, { id, name, data: misc(`${id}Region`), ...extra });
-const builders = { kent: buildKent, driveuk: cityBuilder('driveuk', 'Drive UK'), london: cityBuilder('london', 'London', { arena: true }), birmingham: cityBuilder('birmingham', 'Birmingham'), manchester: cityBuilder('manchester', 'Manchester'), motorway: buildMotorway, arena: buildArena, uk: buildUK };
+const builders = { kent: buildKent, driveuk: cityBuilder('driveuk', 'Drive UK'), london: cityBuilder('london', 'London'), birmingham: cityBuilder('birmingham', 'Birmingham'), manchester: cityBuilder('manchester', 'Manchester'), motorway: buildMotorway, uk: buildUK };
 // driveuk is the authored teaching city (tools/city-build.mjs); the rest are the real map
 const REGION_WORLDS = ['driveuk', 'london', 'birmingham', 'manchester'];
 const ensureWorldData = (id) => (REGION_WORLDS.includes(id) && !worlds[id] ? loadRegion(id) : Promise.resolve());
@@ -134,12 +132,8 @@ function getWorld(id) {
     w.traffic = w.trafficSystem || new Traffic(w.scene, w.life || {});
     if (!w.trafficSystem && w.signalHeads) w.traffic.heads = w.signalHeads; // the cities' lights: traffic stops on red
     w.interactions = w.interactions || [];
-    w.trials = setupTrials(w, trialHooks);
     if (w.terminal) w.interactions.push({ ...w.terminal, car: true, label: () => `Fly or drive to ${otherCities(w.id).map((c) => CITIES[c].name).join(', ')}`, action: openJets });
     if (w.jetPark) w.interactions.push({ ...w.jetPark, car: true, label: () => `Open the jet park (${P.ownedJetIds().length} aircraft)`, action: openJets });
-    if (w.arenaDoor) w.interactions.push({ ...w.arenaDoor, car: true, label: () => 'Enter the London Arena', action: enterArena });
-    if (w.exit) w.interactions.push({ ...w.exit, r: 1.6, label: () => 'Leave the arena', action: leaveArena });
-    if (w.stageMark) w.interactions.push({ ...w.stageMark, r: 1.2, label: () => 'Start your talk', action: startTalk });
     worlds[id] = w;
   }
   return worlds[id];
@@ -244,15 +238,8 @@ window.addEventListener('keydown', (e) => {
   if (mode === 'car' && e.code === 'KeyJ') {
     aiCoach.ask({ type: 'hint' }, coachCtx(), coachReply);
   }
-  if (e.code === 'KeyF' && mode === 'car') { // the radio is F in every car (R is reverse in the learner car)
-    state.radio = !state.radio;
-    save();
-    hud.toast(state.radio ? 'Radio on · Dream Life FM' : 'Radio off', 1400);
-  }
-  if (mode === 'talk' && (e.code === 'ArrowRight' || e.code === 'ArrowLeft')) world.nextSlide(e.code === 'ArrowRight' ? 1 : -1);
   if (e.code === 'KeyC' && mode === 'car') camMode = (camMode + 1) % 3;
-  if (e.code === 'KeyM') { const m = audio.toggleMute(); songs.setMuted(m); ytradio.setMuted(m); hud.toast(m ? 'Sound off' : 'Sound on', 1200); }
-  if (e.code === 'KeyN' && !e.repeat) { if (ytradio.on) ytradio.next(); else if (songs.available) songs.next(); }
+  if (e.code === 'KeyM') { const m = audio.toggleMute(); hud.toast(m ? 'Sound off' : 'Sound on', 1200); }
   if (e.code === 'Escape' && mode === 'jets') closeJets();
 });
 window.addEventListener('keyup', (e) => keys.delete(e.code));
@@ -295,7 +282,6 @@ function activeInteraction() {
 }
 
 function currentPrompt() {
-  if (mode === 'talk') return `<kbd>←</kbd><kbd>→</kbd> Change slide · <kbd>E</kbd> Finish your talk`;
   const it = activeInteraction();
   if (it) return `<kbd>E</kbd> ${it.label()}`;
   if (mode === 'foot') {
@@ -306,7 +292,6 @@ function currentPrompt() {
 }
 
 function interact() {
-  if (mode === 'talk') return finishTalk();
   const it = activeInteraction();
   if (it && (mode !== 'car' || car.speedKmh < 40)) {
     if (car) car.park();
@@ -566,61 +551,13 @@ async function land() {
     : `Welcome to ${CITIES[dest.id]?.name || dest.name}. Your cars are in the car park by the terminal.`, 5200);
 }
 
-// ---------- the arena ----------
-let talkT = 0;
-async function enterArena() {
-  mode = 'cutscene';
-  if (car) { car.park(); car = null; }
-  await fade(1);
-  enterWorld('arena');
-  arenaMusic = 0.4;
-  await fade(0);
-  hud.toast('Backstage at the London Arena. Thousands are waiting. Walk out to the glowing mark on the catwalk.', 5000);
-}
-async function leaveArena() {
-  mode = 'cutscene';
-  await fade(1);
-  const ldn = getWorld('london'), door = ldn.arenaDoor;
-  enterWorld('london', door ? { x: door.x - 8, z: door.z, heading: -Math.PI / 2 } : ldn.spawn);
-  await fade(0);
-}
-function startTalk() {
-  mode = 'talk';
-  talkT = 0;
-  player.pos.set(world.stageMark.x, 0, world.stageMark.z);
-  player.heading = 0; // face the crowd
-  player.speed = 0;
-  player.mesh.position.copy(player.pos);
-  player.mesh.rotation.y = 0;
-  world.startTalk();
-  arenaMusic = 1;
-  setTimeout(() => { if (mode === 'talk') arenaMusic = 0.12; }, 7000);
-  hud.toast('You are live. Use the arrow keys to move through your slides.', 3500);
-}
-function finishTalk() {
-  world.endTalk();
-  mode = 'foot';
-  const reached = world.crowdSize;
-  const fee = talkFee(state.reached, reached);
-  P.recordTalk(reached, fee);
-  arenaMusic = 1;
-  setTimeout(() => { if (world.id === 'arena') arenaMusic = 0.4; }, 14000);
-  snapCamera();
-  hud.toast(`Standing ovation. ${reached.toLocaleString('en-GB')} people heard you tonight · ${state.reached.toLocaleString('en-GB')} reached so far.`, 6000);
-  hud.reward({ kind: 'talk', title: 'Speaking fee', amount: fee });
-  audio.sfx('cash');
-}
-
 // ---------- the reward loop ----------
 let lastPlace = '';
 let hudSlow = 0;
-let arenaMusic = 0;
 let prevMode = 'foot';
 const homeId = () => (HOMES.includes(world.id) ? world.id : HOMES.includes(state.world) ? state.world : 'kent');
 
-function refreshHudExtras() {
-  hud.goals(P.dailyGoals()); // a "2/3 goals today" chip; fame lives in the phone
-}
+function refreshHudExtras() {}
 
 P.onNotify((r) => {
   hud.reward(r);
@@ -629,24 +566,8 @@ P.onNotify((r) => {
   refreshHudExtras();
 });
 
-// your own music: files from your computer, kept in this browser
-const songs = new Songs({
-  settings: state.songs,
-  onTrack: (song, msg) => { if (song && ytradio?.on) ytradio.stop(); hud.toast(song ? `♪ ${song.title}` : msg || 'Music paused', 2600); save(); if (phone?.open && phone.tab === 'music') phone.render(); },
-  onList: () => { if (phone?.open && phone.tab === 'music') phone.render(); },
-});
-
-// the Tribe Fuego YouTube radio: on while a song from it plays; your own songs and it take turns
-const ytradio = new YtRadio({
-  el: $('ytradio'), host: 'yt-host', station: RADIO_STATION,
-  onState: (info) => { $('yt-title').textContent = info?.title || (ytradio.on ? 'Tuning in…' : ''); if (info) { if (songs.playing) songs.toggle(); hud.toast(`♪ ${info.title}`, 2600); } state.songs.yt = ytradio.on; save(); if (phone?.open && phone.tab === 'music') phone.render(); },
-});
-
 const phone = new Phone({
   homeId,
-  songs,
-  ytradio,
-  crowdSize: () => worlds.arena?.crowdSize ?? 11_500,
   sfx: (k) => audio.sfx(k),
   close: () => togglePhone(),
   onCarBought(carId, home) {
@@ -672,10 +593,8 @@ const phone = new Phone({
   setTrans: (t) => setLearnerTrans(t),
   setLessonCar: (id) => setLessonCar(id),
   lessonCars: () => lessonCarList(),
-  goUK: () => goUK(),
   inKent: () => world.id === 'kent',
   goHome: () => goHome(),
-  inUK: () => world.id === 'uk',
   toast: (t, ms) => hud.toast(t, ms),
   save,
 });
@@ -694,27 +613,6 @@ function togglePhone() {
   phone.show(true);
 }
 
-const trialHooks = {
-  getCar: () => car,
-  toast: (t, ms) => hud.toast(t, ms),
-  beep: (k) => audio.sfx(k),
-  hud: (html) => hud.trial(html),
-  snap: () => snapCamera(),
-  result(r) {
-    const medal = r.medal ? r.medal.toUpperCase() : 'NO MEDAL';
-    $('res-name').textContent = r.name;
-    $('res-medal').textContent = medal;
-    $('res-medal').style.color = { gold: '#ffd36b', silver: '#d9dde3', bronze: '#d08a52' }[r.medal] || 'var(--muted)';
-    $('res-time').textContent = r.time;
-    const m = r.medals, f = (s) => `${Math.floor(s / 60)}:${(s % 60).toFixed(1).padStart(4, '0')}`;
-    $('res-sub').innerHTML = `${r.pb ? (r.prev ? `New personal best (was ${r.prev})` : 'First time set') : 'Personal best stands'} · +€${r.pay.toLocaleString('en-GB')}<br>
-      Gold ${f(m.gold)} · Silver ${f(m.silver)} · Bronze ${f(m.bronze)}`;
-    prevMode = mode;
-    mode = 'result';
-    if (car) car.park();
-    $('result').classList.remove('hidden');
-  },
-};
 function closeResult() {
   if (mode !== 'result') return;
   $('result').classList.add('hidden');
@@ -728,10 +626,9 @@ function showDriveResult(r, title = 'Drive report') {
   $('res-medal').textContent = r.passed ? 'TEST PASSED' : (r.serious + r.dangerous > 0 ? 'TEST FAILED · SERIOUS FAULT' : 'TEST FAILED · TOO MANY FAULTS');
   $('res-medal').style.color = r.passed ? 'var(--green-soft)' : 'var(--red-soft)';
   $('res-time').textContent = `${r.minor}`;
-  const life = lifeScore({ ownedCars: state.owned.cars.length, ownedJets: state.owned.jets.length });
   const career = rating.score != null
     ? `<div class="career">Driver rating <b>${rating.score}</b> · grade <b>${rating.grade}</b> · ${rating.passes} of ${rating.drives} drives passed · ${rating.km} km
-       <div class="life">Life Score <b>${life.total}</b> / 1000 · <b>${life.grade}</b> · ${life.title}</div></div>`
+</div>`
     : '';
   $('res-sub').innerHTML = `driving fault${r.minor === 1 ? '' : 's'} · ${r.serious} serious · ${r.dangerous} dangerous · ${(r.dist / 1000).toFixed(1)} km driven${career}`;
   $('res-retry').classList.add('hidden');
@@ -1052,6 +949,7 @@ function addFundsUI(amount, title) {
   hud.reward({ kind: 'win', title, amount });
 }
 
+// Whitmore is not a place you can go any more; this stays so tools/lesson-check.mjs can drive its fixtures
 async function goUK() {
   if (world.id === 'uk') return;
   mode = 'cutscene';
@@ -1062,7 +960,6 @@ async function goUK() {
   renderer.compile(world.scene, camera);
   hud.show(true);
   await fade(0);
-  hud.toast('Whitmore, England. Your instructor is at the test centre. Open the phone (P) to start a lesson.', 6000);
 }
 async function goHome() {
   mode = 'cutscene';
@@ -1251,10 +1148,7 @@ function writeOffCurrentCar() {
 let musicKey = '';
 function updateSoundscape() {
   if (!audio.ctx) return;
-  let track = null, level = 1;
-  if (world.id === 'arena') { track = 'arena'; level = arenaMusic; }
-  else if (mode === 'car' && state.radio) { track = 'radio'; level = 0.9; }
-  if (songs.playing || ytradio.on) track = null; // your own songs and the YouTube radio outrank the synthesised radio and the arena anthem
+  const track = null, level = 1; // no music: the engine, the road and the instructor are the sound
   const key = `${track}:${level}`;
   if (key !== musicKey) { musicKey = key; audio.music.play(track, level); }
   const p = car ? car.pos : player.pos;
@@ -1375,8 +1269,6 @@ function updateMenuCamera(dt) {
 
 $('start').onclick = () => {
   audio.start();
-  if (state.songs.yt) ytradio.start(); // carry on where your music left off
-  else if (state.songs.on && songs.available) songs.start();
   $('title').classList.add('hidden');
   enterWorld(state.world in builders ? state.world : 'kent');
   hud.show(true);
@@ -1407,14 +1299,12 @@ function step(dt) {
   world.tick(elapsed);
   P.tick(dt);
   updateSoundscape();
-  if (world.trials?.active && mode !== 'car') world.trials.cancel('Time trial cancelled');
   if (lesson && mode !== 'car') lesson.cancel('Lesson stopped: you got out of the car');
   if (mode !== 'car') { drive.indicator = null; hud.indicators(false); hud.mirror(false); hud.limit(null); }
   const obstacle = mode === 'car' ? { x: car.pos.x, z: car.pos.z, r: car.model.radius * 0.6, heading: car.heading, L: car.model.length, W: car.model.width }
     : mode === 'foot' ? { x: player.pos.x, z: player.pos.z, r: 0.5 } : null;
   world.traffic?.update(dt, obstacle, camera.position);
   world.player = obstacle;
-  audio.crowd(world.id === 'arena' ? world.excite : 0);
   const input = readInput();
 
   if (mode === 'menu') {
@@ -1441,7 +1331,6 @@ function step(dt) {
     }
   } else {
     if (mode === 'car') {
-      if (world.trials?.update(dt, car)) { input.up = false; input.down = false; input.brake = true; }
       if (lesson && window.__game?.autoDrive) {
         const o = carefulDriver(lesson, car, autoState, window.__game.badDriver);
         Object.assign(input, o.input);
@@ -1498,7 +1387,7 @@ function step(dt) {
     world.env.follow(p);
     hud.update({ world, x: p.x, z: p.z, car, balance: state.balance, prompt: mode === 'jets' ? '' : currentPrompt(), mode, gas: input.up, trans: state.uk.trans, mirror: mirrorThisFrame });
     mirrorThisFrame = false;
-    hud.minimap(world, p.x, p.z, car ? car.heading : player.heading, world.cars.filter((c) => c !== car), world.trials?.marks() || [], lesson?.path());
+    hud.minimap(world, p.x, p.z, car ? car.heading : player.heading, world.cars.filter((c) => c !== car), [], lesson?.path());
     const inLearner = mode === 'car' && !!car?.drive; // the rear-view mirror is the learner car's
     hud.limit(world.units === 'mph' ? world.speedLimitAt(p.x, p.z) : null, world.units === 'mph' && world.nslAt?.(p.x, p.z));
     hud.mirror(inLearner, drive.mirrorFlash > 0);
@@ -1520,7 +1409,6 @@ setKentHooks({
   toast: (t, ms) => hud.toast(t, ms),
   openPhone: (tab) => { if (mode !== 'phone') togglePhone(); phone.tab = tab; phone.render(); },
   quiz: (item) => quiz(item),
-  logWin: (id) => P.logWin(id),
   sfx: (k) => audio.sfx(k),
 });
 getWorld('kent'); // home first; the other cities build on demand (travel compiles them during the flight)
@@ -1533,7 +1421,7 @@ frame();
 // debug handle for testing in the console
 window.__game = {
   get world() { return world; }, get car() { return car; }, get mode() { return mode; }, player, keys, camera, pipeline, renderer,
-  state, P, phone, audio, songs, ytradio, worlds, freeExam, togglePhone, interact, enterWorld, ensureWorldData, hud, startLesson, startTest, setLearnerTrans, setLessonCar, goUK, goHome,
+  state, P, phone, audio, worlds, freeExam, togglePhone, interact, enterWorld, ensureWorldData, hud, startLesson, startTest, setLearnerTrans, setLessonCar, goHome,
   get lesson() { return lesson; }, drive, autoDrive: false,
   // dev: render the current frame and save it to shots/<name>.jpg via the Vite dev server
   async shot(name = 'live', w = 1280, h = 800) {

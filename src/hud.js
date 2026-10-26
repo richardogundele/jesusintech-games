@@ -60,7 +60,7 @@ const GROUPS = {
   manual: ['Gearbox <small>· manual</small>', [[k('Shift'), 'Clutch (hold)'], [`${k('1')}–${k('5')}`, 'Gears'], [k('R'), 'Reverse'], [k('0'), 'Neutral'], [k('I'), 'Engine on · off'], [k('Space'), 'Parking brake on · off']]],
   auto: ['Gearbox <small>· automatic</small>', [[k('1'), 'Drive'], [k('R'), 'Reverse'], [k('0'), 'Neutral'], [k('9'), 'Park'], [k('I'), 'Engine on · off'], [k('Space'), 'Parking brake on · off']]],
   lesson: ['Lessons', [[k('Z'), 'Left indicator'], [k('X'), 'Right indicator'], [k('Q'), 'Check your mirrors']]],
-  game: ['Game', [[k('P'), 'Phone'], [k('M'), 'Sound on · off'], [k('N'), 'Next song'], [k('F'), 'Radio (in a car)'], [k('J'), 'AI instructor hint (in a car)'], [k('H'), 'These controls']]],
+  game: ['Game', [[k('P'), 'Phone'], [k('M'), 'Sound on · off'], [k('J'), 'AI instructor hint (in a car)'], [k('H'), 'These controls']]],
 };
 
 // sat nav arrows (stroked, currentColor)
@@ -92,7 +92,6 @@ export class Hud {
     this.speed = $('speed');
     this.carName = $('car-name');
     this.speedo = $('speedo');
-    this.goalsEl = $('goals');
     this.trialEl = $('trial');
     this.rewardEl = $('reward');
     this.rewardQ = [];
@@ -133,9 +132,7 @@ export class Hud {
     this.footShown = false;
     this.hCar = undefined;
     // hooks main.js sets
-    this.onGoals = null;
     this.onControlsClose = null;
-    this.goalsEl.addEventListener('click', () => { this.goalsEl.blur(); this.onGoals?.(); });
     $('controls-close').addEventListener('click', (e) => { e.currentTarget.blur(); this.onControlsClose?.(); });
     this.controlsEl.addEventListener('click', (e) => { if (e.target === this.controlsEl) this.onControlsClose?.(); });
   }
@@ -279,14 +276,6 @@ export class Hud {
     }
   }
 
-  // ---------- today's goals: a chip that opens the phone ----------
-  goals(goals) {
-    const n = goals.length, done = goals.filter((g) => g.done).length, all = n > 0 && done === n;
-    const html = `<span class="ring" style="--p:${n ? done / n : 0}">${all ? '✓' : ''}</span>${all ? 'All goals done today' : `${done}/${n} goals today`}`;
-    this.set('goals', this.goalsEl, html, 'innerHTML');
-    this.flag(this.goalsEl, 'all', all);
-  }
-
   /** UK speed-limit roundel (null hides it) */
   limit(n, nsl = false) {
     this.flag(this.limitEl, 'hidden', !n);
@@ -298,7 +287,6 @@ export class Hud {
   lesson(info) {
     this.inLesson = !!info;
     this.coachOn = !!info?.coach;
-    this.flag(this.goalsEl, 'hidden', !!info); // keep the screen clear while the instructor talks
     if (!info) { conceal(this.lessonEl); return; }
     const f = info.faults || {};
     const parts = [];

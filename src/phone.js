@@ -1,15 +1,13 @@
 // The phone (P or Tab): today's goals, logging real wins, the dealer, the hangar, giving, your profile.
-import { state, formatMoney, lifeScore } from './state.js';
-import { CARS, JETS, WINS, GIVING, fameLevel, talkFee, flightTime, fuelStop, RADIO_STATION } from './catalog.js';
+import { state, formatMoney } from './state.js';
+import { CARS, JETS, flightTime, fuelStop } from './catalog.js';
 import * as P from './progress.js';
-import { fmtTime } from './trials.js';
 import { DL25_ROWS } from './dl25.js';
 import { LOOKS, CIVILIANS } from './character.js';
 
 const $ = (id) => document.getElementById(id);
 const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-const TABS = [['today', 'Today'], ['wins', 'Log a win'], ['lessons', 'Driving test'], ['dealer', 'Dealer'], ['hangar', 'Hangar'], ['giving', 'Giving'], ['music', 'Music'], ['wardrobe', 'Wardrobe'], ['me', 'Profile']];
-const TRIAL_NAMES = { 'monaco-loop': 'Monte Carlo Grand Loop', 'dubai-szr': 'Sheikh Zayed Sprint', 'ring-road': 'Ring Road Lap' };
+const TABS = [['lessons', 'Driving test'], ['dealer', 'Dealer'], ['hangar', 'Hangar'], ['wardrobe', 'Wardrobe'], ['me', 'Profile']];
 
 export class Phone {
   /** hooks: { homeId(), crowdSize(), onCarBought(id, home), onJetBought(id), sfx(kind) } */
@@ -17,7 +15,7 @@ export class Phone {
     this.hooks = hooks;
     this.el = $('phone');
     this.body = $('phone-body');
-    this.tab = 'today';
+    this.tab = 'lessons';
     $('phone-tabs').innerHTML = TABS.map(([id, label]) => `<button data-tab="${id}">${label}</button>`).join('');
     this.el.addEventListener('click', (e) => {
       const b = e.target.closest('button');
@@ -25,7 +23,6 @@ export class Phone {
       if (b.dataset.tab) { this.tab = b.dataset.tab; this.render(); }
       if (b.dataset.close !== undefined) this.hooks.close();
       const act = b.dataset.act, id = b.dataset.id;
-      if (act === 'win' && P.logWin(id)) this.hooks.sfx('cash');
       if (act === 'car') {
         const home = this.hooks.homeId();
         if (P.buyCar(id, home)) { this.hooks.sfx('spend'); this.hooks.onCarBought(id, home); }
@@ -33,7 +30,6 @@ export class Phone {
       }
       if (act === 'repair') { if (P.repairCar(id)) { this.hooks.sfx('spend'); this.hooks.onCarRepaired?.(id); } this.render(); }
       if (act === 'jet' && P.buyJet(id)) { this.hooks.sfx('spend'); this.hooks.onJetBought(id); }
-      if (act === 'give' && P.give(id)) this.hooks.sfx('level');
       // these leave the phone: close it first so the game mode is restored before travelling
       // the driving test: the gearbox you learn in, a mock or the real thing, retrying a route
       if (act === 'trans') { this.hooks.setTrans(id); this.render(); return; }
@@ -42,48 +38,11 @@ export class Phone {
       if (act === 'real') { this.hooks.close(); this.hooks.startTest(id, null, 'real'); return; }
       if (act === 'signs') { this.hooks.signDrill(); return; }
       if (act === 'retest') { const [c, sd] = id.split(':'); this.hooks.close(); this.hooks.startTest(c, +sd, 'mock'); return; }
-      if (act === 'gouk') { this.hooks.close(); this.hooks.goUK(); return; }
       if (act === 'gohome') { this.hooks.close(); this.hooks.goHome(); return; }
       if (act === 'look') { state.look[b.dataset.part] = id; this.hooks.setLook(state.look); }
-      if (act?.startsWith('song-')) { this.song(act.slice(5), id, b); return; }
       if (act) this.render();
     });
-    // your own music: a hidden file picker (opened from the Music tab) and the volume slider
-    this.file = document.createElement('input');
-    this.file.type = 'file'; this.file.accept = 'audio/*,.mp3,.m4a,.aac,.wav,.ogg,.flac,.opus'; this.file.multiple = true; this.file.hidden = true;
-    this.el.appendChild(this.file);
-    this.file.addEventListener('change', async () => {
-      const n = await this.hooks.songs.add(this.file.files);
-      this.file.value = '';
-      this.hooks.toast?.(n ? `${n} song${n === 1 ? '' : 's'} added` : 'No audio files in that selection', 2200);
-      if (n && !this.hooks.songs.playing) this.hooks.songs.start();
-      this.render();
-    });
-    this.el.addEventListener('input', (e) => {
-      if (e.target.dataset.vol !== undefined) { this.hooks.songs.setVolume(+e.target.value); }
-    });
-    this.el.addEventListener('change', (e) => { if (e.target.dataset.vol !== undefined) this.hooks.save?.(); });
   }
-
-  /** Music tab actions */
-  song(what, id, btn) {
-    const S = this.hooks.songs;
-    if (what === 'add') { this.file.click(); return; }
-    if (what === 'play') S.play(+id);
-    if (what === 'toggle') S.toggle();
-    if (what === 'next') S.next();
-    if (what === 'prev') S.prev();
-    if (what === 'shuffle') { S.settings.shuffle = !S.settings.shuffle; this.hooks.save?.(); }
-    if (what === 'remove') S.remove(+id);
-    if (what === 'clear' && confirm('Remove all your songs from the game?')) S.clear();
-    const Y = this.hooks.ytradio;
-    if (what === 'yt') { if (Y.on) Y.stop(); else { if (S.playing) S.toggle(); Y.start(); } }
-    if (what === 'ytnext') Y.next();
-    if (what === 'ytprev') Y.prev();
-    if (what === 'ytshuffle') Y.setShuffle(!Y.shuffle);
-    this.render();
-  }
-
   get open() { return !this.el.classList.contains('hidden'); }
   show(v) {
     this.el.classList.toggle('hidden', !v);
@@ -101,48 +60,8 @@ export class Phone {
     this.body.scrollTop = 0;
   }
 
-  today() {
-    const goals = P.dailyGoals();
-    const mult = P.streakMultiplier();
-    const fame = fameLevel(state.reached);
-    const score = lifeScore({ ownedCars: P.boughtCarsIn('kent').length + P.boughtCarsIn('london').length + P.boughtCarsIn('birmingham').length + P.boughtCarsIn('manchester').length, ownedJets: P.ownedJetIds().length - 2 /* starter jets */ });
-    const scoreRows = score.parts.map((p) => `
-      <div class="row"><div class="grow"><div class="t">${p.k} <span class="s">${p.hint}</span></div><div class="bar"><i style="width:${Math.round((p.v / p.max) * 100)}%"></i></div></div>
-        <div class="amt">${p.v}<small>/ ${p.max}</small></div></div>`).join('');
-    const goalRows = goals.map((g, i) => `
-      <div class="row ${g.done ? 'done' : ''}">
-        <div class="tick">${g.done ? '✓' : i + 1}</div>
-        <div class="grow"><div class="t">${g.text}</div>${g.shown ? `<div class="s">${g.shown}</div>` : ''}</div>
-        <div class="amt">${P.shortMoney(Math.round(P.GOAL_REWARD * mult))}</div>
-      </div>`).join('');
-    return `
-      <div class="hero">
-        <div class="big">${score.total}<span>Life Score · ${score.grade}</span></div>
-        <div class="s">${score.title} · ${state.streak.count}-day streak · rewards ×${mult.toFixed(1)}</div>
-      </div>
-      <h3>What's scoring you</h3>${scoreRows}
-      <h3>Today's goals</h3>${goalRows}
-      <h3>On stage</h3>
-      <div class="row"><div class="grow"><div class="t">${fame.title}</div>
-        <div class="s">${state.reached.toLocaleString('en-GB')} people reached${fame.next ? ` · ${(fame.next.at - state.reached).toLocaleString('en-GB')} more to ${fame.next.title}` : ''}</div>
-        ${fame.next ? `<div class="bar"><i style="width:${Math.min(100, ((state.reached - fame.at) / (fame.next.at - fame.at)) * 100)}%"></i></div>` : ''}</div>
-        <div class="amt">${P.shortMoney(talkFee(state.reached, this.hooks.crowdSize()))}<small>next fee</small></div></div>
-      <p class="note">Log your real wins in <b>Log a win</b>. Daily goals reset at midnight; miss a day and the streak starts again.</p>`;
-  }
-
-  wins() {
-    const counts = P.winsToday();
-    return `<p class="note">Honour system. Did it happen today in real life? Log it and get paid in here. Up to ${P.WIN_CAP} of each per day.</p>` +
-      WINS.map((w) => {
-        const n = counts[w.id] || 0;
-        return `<div class="row"><div class="grow"><div class="t">${w.label}</div><div class="s">${n} / ${P.WIN_CAP} today</div></div>
-          <button class="buy" data-act="win" data-id="${w.id}" ${n >= P.WIN_CAP ? 'disabled' : ''}>+${P.shortMoney(w.amount)}</button></div>`;
-      }).join('');
-  }
-
   lessons() {
     const uk = state.uk, trans = uk.trans;
-    const inUK = this.hooks.inUK();
     // As in real life: you drive, you take mocks, then you take the test. No lesson ladder.
     const h = uk.history || [];
     const mocks = h.filter((t) => t.kind !== 'real'), mocksPassed = mocks.filter((t) => t.passed).length;
@@ -159,7 +78,6 @@ export class Phone {
       <h3>Lesson car</h3>
       <div class="seg" style="flex-wrap:wrap">${this.hooks.lessonCars().map((c) => `<button class="${c.sel ? 'on' : ''}" data-act="lessoncar" data-id="${c.id}">${c.name}</button>`).join('')}</div>
       <p class="note">Take your test in any car you own — it wears L plates and drives like a learner car. No more taxi.</p>
-      ${inUK ? '<button class="buy wide" data-act="gohome">Fly home</button>' : ''}
       <h3>Mock test</h3>
       <p class="note">The real format, marked the way the examiner marks it, but nothing rides on it: a new route from the centre you pick with roundabouts, lights and crossings, a dual carriageway or 40 road, independent driving, a manoeuvre and sometimes an emergency stop. Each fault is shown as it happens so you learn on the way round.${mocks.length ? ` You've taken ${mocks.length} mock${mocks.length === 1 ? '' : 's'} and passed ${mocksPassed}.` : ''}</p>
       ${centres('mock')}
@@ -226,41 +144,6 @@ export class Phone {
       }).join('');
   }
 
-  giving() {
-    return `<div class="hero"><div class="big">${state.stats.impact.toLocaleString('en-GB')}<span>lives impacted</span></div></div>` +
-      GIVING.map((g) => `<div class="row"><div class="grow"><div class="t">${g.label}</div><div class="s">${g.impact.toLocaleString('en-GB')} lives</div></div>
-        <button class="buy" data-act="give" data-id="${g.id}" ${state.balance < g.price ? 'disabled' : ''}>${P.shortMoney(g.price)}</button></div>`).join('');
-  }
-
-  music() {
-    const S = this.hooks.songs, cur = S.current, on = S.playing;
-    const mb = (what, label, cls = '') => `<button class="pb ${cls}" data-act="song-${what}" title="${label}">${label}</button>`;
-    const rows = S.list.map((s) => `
-      <div class="row ${cur?.id === s.id ? 'now' : ''}">
-        <button class="pb small" data-act="song-play" data-id="${s.id}" title="Play">${cur?.id === s.id && on ? '❚❚' : '▶'}</button>
-        <div class="grow"><div class="t">${esc(s.title)}</div><div class="s">${(s.size / 1e6).toFixed(1)} MB</div></div>
-        <button class="pb small ghost" data-act="song-remove" data-id="${s.id}" title="Remove">✕</button></div>`).join('');
-    const Y = this.hooks.ytradio;
-    const radio = `
-      <div class="hero player radio">
-        <div class="m">${Y.on ? 'On air' : 'Radio'} · ${RADIO_STATION.name}</div>
-        <div class="np">${Y.on ? esc(Y.title || 'Tuning in…') : RADIO_STATION.note}</div>
-        <div class="pbs">${mb('ytprev', '⏮')}${mb('yt', Y.on ? '■' : '▶', 'main')}${mb('ytnext', '⏭')}${mb('ytshuffle', 'Shuffle', Y.shuffle ? 'on' : 'ghost')}</div>
-        <p class="note">The whole <a href="${RADIO_STATION.url}" target="_blank" rel="noopener">Tribe Fuego</a> channel through YouTube's own player, shuffled. Needs internet; the small player stays on screen while it plays.</p>
-      </div>`;
-    return radio + `
-      <div class="hero player">
-        <div class="m">${cur ? (on ? 'Now playing' : 'Paused') : 'Your music'}</div>
-        <div class="np">${cur ? esc(cur.title) : (S.list.length ? 'Press play to start your playlist' : 'Add songs from your computer')}</div>
-        <div class="pbs">${mb('prev', '⏮')}${mb('toggle', on ? '❚❚' : '▶', 'main')}${mb('next', '⏭')}${mb('shuffle', 'Shuffle', S.settings.shuffle ? 'on' : 'ghost')}</div>
-        <label class="vol">Volume <input type="range" min="0" max="1" step="0.02" value="${S.settings.volume ?? 0.8}" data-vol></label>
-      </div>
-      <div class="row"><div class="grow"><div class="t">Add songs</div><div class="s">MP3, M4A, WAV, FLAC or OGG files. They stay in this browser on this computer; nothing is uploaded.</div></div>
-        <button class="buy" data-act="song-add">Choose files</button></div>
-      <h3>Playlist (${S.list.length})</h3>${rows || '<p class="note">No songs yet.</p>'}
-      ${S.list.length ? '<p class="note"><b>N</b> skips to the next song while you play. Your songs replace the game\'s radio while they play; press <b>F</b> in a car for Dream Life FM instead.</p><button class="buy ghost wide" data-act="song-clear">Remove all songs</button>' : ''}`;
-  }
-
   wardrobe() {
     const row = (part, label) => `<h3>${label}</h3><div class="swatches">${Object.entries(LOOKS[part]).map(([name, hex]) =>
       `<button class="sw ${state.look[part] === name ? 'on' : ''}" data-act="look" data-part="${part}" data-id="${name}" title="${name}" style="background:#${hex.toString(16).padStart(6, '0')}"></button>`).join('')}</div>
@@ -275,13 +158,9 @@ export class Phone {
 
   me() {
     const s = state.stats;
-    const fame = fameLevel(state.reached);
     const cars = Object.keys(CARS).filter(P.ownsCar).length, jets = P.ownedJetIds().length;
     const line = (k, v) => `<div class="row"><div class="grow"><div class="t">${k}</div></div><div class="amt">${v}</div></div>`;
-    return `<div class="hero"><div class="big">${P.shortMoney(P.netWorth())}<span>net worth</span></div><div class="s">${fame.title}</div></div>` +
-      line('People reached on stage', state.reached.toLocaleString('en-GB')) +
-      line('Talks given', s.talks) +
-      line('Lives impacted', s.impact.toLocaleString('en-GB')) +
+    return `<div class="hero"><div class="big">${P.shortMoney(P.netWorth())}<span>net worth</span></div></div>` +
       line('Cars', `${cars} / ${Object.keys(CARS).length}`) +
       line('Jets', `${jets} / ${Object.keys(JETS).length}`) +
       line('Distance driven', `${s.km.toFixed(1)} km`) +
@@ -289,7 +168,6 @@ export class Phone {
       line('Flights', s.flights) +
       line('UK driving licence', state.uk.licence === 'full' ? 'Full (manual)' : state.uk.licence === 'auto' ? 'Automatic only' : 'Provisional') +
       line('Learning in', state.uk.trans === 'auto' ? 'Automatic' : 'Manual') +
-      line('Driving tests', `${(state.uk.history || []).filter((t) => t.passed).length} passed of ${(state.uk.history || []).length}`) +
-      Object.entries(TRIAL_NAMES).map(([id, n]) => line(n, state.best[id] ? fmtTime(state.best[id]) : 'Not set')).join('');
+      line('Driving tests', `${(state.uk.history || []).filter((t) => t.passed).length} passed of ${(state.uk.history || []).length}`);
   }
 }
