@@ -38,7 +38,7 @@ const PLAY = [
   { id: 'downtown', text: 'Drive a motorway leg to another city', evt: 'roadtrip' },
   { id: 'give', text: 'Fund a giving project', evt: 'give' },
   { id: 'jetpark', text: 'Visit your Kent jet park', evt: 'place', test: (p) => p === 'Jet Park' },
-  { id: 'lesson', text: 'Pass a UK driving lesson', evt: 'lesson' },
+  { id: 'lesson', text: 'Pass a driving test, mock or real', evt: 'lesson' },
 ];
 const ALL = Object.fromEntries([...REAL, ...PLAY].map((g) => [g.id, g]));
 export const GOAL_REWARD = 500_000;

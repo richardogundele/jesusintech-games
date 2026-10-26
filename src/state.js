@@ -51,6 +51,9 @@ function load() {
   if (uk.licence !== 'auto' && uk.licence !== 'full') uk.licence = false;
   uk.trans = uk.trans === 'auto' ? 'auto' : 'manual';
   uk.history = Array.isArray(uk.history) ? uk.history.slice(-60) : [];
+  // the lessons went (2026-10-26): there are mock tests and the real test now. Every test driven
+  // before that was a practice of the same format, so it reads as a mock
+  for (const t of uk.history) if (t.kind !== 'real') t.kind = 'mock';
   uk.hints = uk.hints && typeof uk.hints === 'object' ? uk.hints : {};
   return out;
 }
@@ -110,12 +113,13 @@ export function lifeScore(ctx = {}) {
   const jets = (ctx.ownedJets != null ? ctx.ownedJets : (state.owned.jets || []).length);
   const trialsCount = state.stats?.trials || 0;
   const flights = state.stats?.flights || 0, talks = state.stats?.talks || 0;
-  const lessonsTotal = ctx.lessonsTotal || 17; // the full curriculum (KENT + WHITMORE)
-  const lessonsPassed = Object.values(uk.lessons || {}).filter((l) => l?.passed).length;
+  // the tests you have passed: mocks count a little each, the real one counts a lot
+  const mocksPassed = (uk.history || []).filter((t) => t.kind !== 'real' && t.passed).length;
+  const realPassed = (uk.history || []).some((t) => t.kind === 'real' && t.passed) || !!uk.licence;
   const driver = careerRating();
   const driving = Math.round((driver.score ?? 0) * 3);                          // 300
   const licence = uk.licence === 'full' ? 120 : uk.licence === 'auto' ? 60 : 0; // 120
-  const lessons = Math.round((lessonsPassed / lessonsTotal) * 200);             // 200
+  const lessons = Math.min(200, mocksPassed * 25 + (realPassed ? 75 : 0));      // 200
   const fleet = Math.min(100, owned * 20 + jets * 25);                           // 100
   const trials = Math.min(100, trialsCount * 15 + Math.min(60, (state.best ? Object.keys(state.best).length : 0) * 20)); // 100
   const streakPts = Math.min(120, (state.streak?.count || 0) * 12);
@@ -129,7 +133,7 @@ export function lifeScore(ctx = {}) {
     parts: [
       { k: 'Driving', v: driving, max: 300, hint: driver.score != null ? `${driver.score}/100 ${driver.grade}` : 'drive to be scored' },
       { k: 'Licence', v: licence, max: 120, hint: uk.licence === 'full' ? 'Full' : uk.licence === 'auto' ? 'Automatic' : 'Provisional' },
-      { k: 'Lessons', v: lessons, max: 200, hint: `${lessonsPassed} of ${lessonsTotal} passed` },
+      { k: 'Tests', v: lessons, max: 200, hint: `${mocksPassed} mock${mocksPassed === 1 ? '' : 's'} passed${realPassed ? ' · real test passed' : ''}` },
       { k: 'Fleet', v: fleet, max: 100, hint: `${owned} car${owned === 1 ? '' : 's'} · ${jets} jet${jets === 1 ? '' : 's'} bought` },
       { k: 'Trials', v: trials, max: 100, hint: `${trialsCount} finished` },
       { k: 'Life', v: life, max: 180, hint: `${state.streak?.count || 0}-day streak · ${flights} flight${flights === 1 ? '' : 's'} · ${talks} talk${talks === 1 ? '' : 's'}` },

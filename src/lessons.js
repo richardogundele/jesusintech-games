@@ -170,11 +170,15 @@ const WHITMORE = [
 ];
 
 export const LESSONS = [...KENT, ...WHITMORE];
-/** the lesson def for a generated 15-minute test (kent/test-routes.js generateTest) */
-export function testDef(gen) {
-  const m = gen.meta;
+/**
+ * The def for a generated test (kent/test-routes.js generateTest). Both kinds are driven and marked
+ * the same way, as a real mock is: `real` is the one that counts - it awards the licence, and the
+ * examiner says nothing about a fault until the debrief. A mock flashes each fault as it happens.
+ */
+export function testDef(gen, kind = 'mock') {
+  const m = gen.meta, real = kind === 'real';
   return {
-    id: `test-${m.centre}`, world: m.world || 'kent', title: `Driving test: ${m.centreName}`, mock: true, checks: true, centre: m.centre,
+    id: `test-${m.centre}`, world: m.world || 'kent', title: `${real ? 'Driving test' : 'Mock test'}: ${m.centreName}`, mock: true, real, checks: true, centre: m.centre,
     blurb: '15 minutes on a route made for this test.', generated: m, spec: gen.spec, seed: m.seed, indepSpec: m.indep, estop: 1 / 7, showMe: 0.55,
     intro: DT1_START, signs: gen.signs || null,
   };
@@ -294,7 +298,7 @@ export class LessonRun {
     if (cooldown) this.cool[coolKey] = this.t + cooldown;
     this.faults.push({ sev, cat, s: this.s, at: this.carPos && { x: +this.carPos.x.toFixed(1), z: +this.carPos.z.toFixed(1) }, extra: this.lastExtra });
     this.lastExtra = null;
-    if (!this.def.mock) this.hooks.flash?.(`${SEV[sev]}: ${cat}`, sev);
+    if (!this.def.real) this.hooks.flash?.(`${SEV[sev]}: ${cat}`, sev); // the real test keeps it for the debrief
     if (sev === 'dangerous' && this.isTest()) this.endNow = true; // a dangerous fault ends the test (handled next frame in update)
   }
 
@@ -947,7 +951,7 @@ export class LessonRun {
       .sort((a, b) => ['dangerous', 'serious', 'minor'].indexOf(a.sev) - ['dangerous', 'serious', 'minor'].indexOf(b.sev));
     if (!terminated) this.say(this.def.mock ? `Please switch off the engine and give me a moment to complete my test report. ${brief.spoken}` : brief.verdict);
     const map = this.kent || this.route.pts.length ? { pts: this.route.pts.filter((q, i) => i % 6 === 0).map((q) => [+q.x.toFixed(1), +q.z.toFixed(1)]), faults: this.faults.filter((f) => f.at).map((f) => ({ x: f.at.x, z: f.at.z, sev: f.sev })) } : null;
-    this.hooks.result({ id: this.def.id, title: this.def.title, mock: !!this.def.mock, practice: !!this.def.practice, passed, counts: c, lines, time: this.t, tasks: this.tasks, trans: this.trans || car.trans,
+    this.hooks.result({ id: this.def.id, title: this.def.title, mock: !!this.def.mock, real: !!this.def.real, practice: !!this.def.practice, passed, counts: c, lines, time: this.t, tasks: this.tasks, trans: this.trans || car.trans,
       sheet, brief, map, generated: this.def.generated || null, signs: this.def.signs || null, terminated: !!terminated });
   }
 

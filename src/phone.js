@@ -3,13 +3,12 @@ import { state, formatMoney, lifeScore } from './state.js';
 import { CARS, JETS, WINS, GIVING, fameLevel, talkFee, flightTime, fuelStop, RADIO_STATION } from './catalog.js';
 import * as P from './progress.js';
 import { fmtTime } from './trials.js';
-import { LESSONS, lessonsFor } from './lessons.js';
 import { DL25_ROWS } from './dl25.js';
 import { LOOKS, CIVILIANS } from './character.js';
 
 const $ = (id) => document.getElementById(id);
 const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-const TABS = [['today', 'Today'], ['wins', 'Log a win'], ['lessons', 'Driving lessons'], ['dealer', 'Dealer'], ['hangar', 'Hangar'], ['giving', 'Giving'], ['music', 'Music'], ['wardrobe', 'Wardrobe'], ['me', 'Profile']];
+const TABS = [['today', 'Today'], ['wins', 'Log a win'], ['lessons', 'Driving test'], ['dealer', 'Dealer'], ['hangar', 'Hangar'], ['giving', 'Giving'], ['music', 'Music'], ['wardrobe', 'Wardrobe'], ['me', 'Profile']];
 const TRIAL_NAMES = { 'monaco-loop': 'Monte Carlo Grand Loop', 'dubai-szr': 'Sheikh Zayed Sprint', 'ring-road': 'Ring Road Lap' };
 
 export class Phone {
@@ -36,15 +35,14 @@ export class Phone {
       if (act === 'jet' && P.buyJet(id)) { this.hooks.sfx('spend'); this.hooks.onJetBought(id); }
       if (act === 'give' && P.give(id)) this.hooks.sfx('level');
       // these leave the phone: close it first so the game mode is restored before travelling
-      if (act === 'lesson') { this.hooks.close(); this.hooks.startLesson(id); return; }
-      // the driving school: the gearbox you learn in, a 15-minute test, retrying a test's route
+      // the driving test: the gearbox you learn in, a mock or the real thing, retrying a route
       if (act === 'trans') { this.hooks.setTrans(id); this.render(); return; }
       if (act === 'lessoncar') { this.hooks.setLessonCar(id); this.render(); return; }
-      if (act === 'test15') { this.hooks.close(); this.hooks.startTest(id); return; }
+      if (act === 'mock') { this.hooks.close(); this.hooks.startTest(id, null, 'mock'); return; }
+      if (act === 'real') { this.hooks.close(); this.hooks.startTest(id, null, 'real'); return; }
       if (act === 'signs') { this.hooks.signDrill(); return; }
-      if (act === 'retest') { const [c, sd] = id.split(':'); this.hooks.close(); this.hooks.startTest(c, +sd); return; }
+      if (act === 'retest') { const [c, sd] = id.split(':'); this.hooks.close(); this.hooks.startTest(c, +sd, 'mock'); return; }
       if (act === 'gouk') { this.hooks.close(); this.hooks.goUK(); return; }
-      if (act === 'practice') { this.practiceOpen = !this.practiceOpen; this.render(); return; }
       if (act === 'gohome') { this.hooks.close(); this.hooks.goHome(); return; }
       if (act === 'look') { state.look[b.dataset.part] = id; this.hooks.setLook(state.look); }
       if (act?.startsWith('song-')) { this.song(act.slice(5), id, b); return; }
@@ -107,7 +105,7 @@ export class Phone {
     const goals = P.dailyGoals();
     const mult = P.streakMultiplier();
     const fame = fameLevel(state.reached);
-    const score = lifeScore({ ownedCars: P.boughtCarsIn('kent').length + P.boughtCarsIn('london').length + P.boughtCarsIn('birmingham').length + P.boughtCarsIn('manchester').length, ownedJets: P.ownedJetIds().length - 2 /* starter jets */, lessonsTotal: LESSONS.length });
+    const score = lifeScore({ ownedCars: P.boughtCarsIn('kent').length + P.boughtCarsIn('london').length + P.boughtCarsIn('birmingham').length + P.boughtCarsIn('manchester').length, ownedJets: P.ownedJetIds().length - 2 /* starter jets */ });
     const scoreRows = score.parts.map((p) => `
       <div class="row"><div class="grow"><div class="t">${p.k} <span class="s">${p.hint}</span></div><div class="bar"><i style="width:${Math.round((p.v / p.max) * 100)}%"></i></div></div>
         <div class="amt">${p.v}<small>/ ${p.max}</small></div></div>`).join('');
@@ -145,28 +143,11 @@ export class Phone {
   lessons() {
     const uk = state.uk, trans = uk.trans;
     const inUK = this.hooks.inUK();
-    const row = (l, n) => {
-      const r = uk.lessons[l.id];
-      const status = r?.passed ? `<div class="badge">Passed · best ${r.best} driving fault${r.best === 1 ? '' : 's'}</div>` : r ? `<div class="s">Tried ${r.tries}× · not passed yet</div>` : '';
-      return `<div class="row"><div class="tick">${r?.passed ? '✓' : l.mock ? 'T' : n}</div>
-        <div class="grow"><div class="t">${l.title}${l.trans ? ` <span class="badge">${l.trans === 'manual' ? 'Manual' : 'Automatic'}</span>` : ''}</div><div class="s">${l.blurb}</div>${status}</div>
-        <button class="buy" data-act="lesson" data-id="${l.id}">${r?.passed ? 'Again' : 'Start'}</button></div>`;
-    };
-    // One full test is the main event. The old per-skill lessons and fixed mocks fold into a
-    // collapsible "Practise a skill" section, so the headline is a single comprehensive drive.
-    const mine = lessonsFor(trans);
-    const kent = mine.filter((l) => l.world === 'kent');
-    const skills = kent.filter((l) => !l.mock);                    // moving off, junctions, roundabouts, crossings, dual, manoeuvres…
-    const mocks = kent.filter((l) => l.mock);                      // the fixed full-length mock routes
-    const town = mine.filter((l) => l.world !== 'kent');           // Whitmore practice town
-    const open = this.practiceOpen;
-    const practiceBlock = !open ? '' : `
-      <p class="note">Practise one part of the test on its own. Not needed to take the test — the full test covers all of it.</p>
-      ${skills.map((l, i) => row(l, i + 1)).join('')}
-      <h4>Full-length mock routes</h4>${mocks.map((l) => row(l, 'T')).join('')}
-      <h4>Whitmore practice town</h4>
-      <p class="note">The made-up town the lessons started in: quiet roads to practise on. No pay, no licence.</p>
-      ${town.map((l, i) => row(l, l.mock ? 'T' : i + 1)).join('')}`;
+    // As in real life: you drive, you take mocks, then you take the test. No lesson ladder.
+    const h = uk.history || [];
+    const mocks = h.filter((t) => t.kind !== 'real'), mocksPassed = mocks.filter((t) => t.passed).length;
+    const reals = h.filter((t) => t.kind === 'real');
+    const centres = (act) => `<div class="seg" style="flex-wrap:wrap"><button data-act="${act}" data-id="herne">Herne Bay</button><button data-act="${act}" data-id="canterbury">Canterbury</button><button data-act="${act}" data-id="london">Mill Hill</button><button data-act="${act}" data-id="birmingham">Kings Heath</button><button data-act="${act}" data-id="manchester">West Didsbury</button><button data-act="${act}" data-id="any">Surprise me</button></div>`;
     const lic = uk.licence === 'full' ? 'Full' : uk.licence === 'auto' ? 'Automatic' : 'Provisional';
     return `<div class="hero"><div class="big">${lic}<span>UK licence</span></div>
         <div class="s">${uk.licence === 'auto' ? 'Automatic cars only: pass a test in a manual for a full licence. ' : uk.licence === 'full' ? 'Manual and automatic. ' : ''}Real UK rules on real roads: drive on the left, mph limits, give way to the right at roundabouts. Z and X are the indicators, Q checks your mirrors.</div></div>
@@ -179,16 +160,15 @@ export class Phone {
       <div class="seg" style="flex-wrap:wrap">${this.hooks.lessonCars().map((c) => `<button class="${c.sel ? 'on' : ''}" data-act="lessoncar" data-id="${c.id}">${c.name}</button>`).join('')}</div>
       <p class="note">Take your test in any car you own — it wears L plates and drives like a learner car. No more taxi.</p>
       ${inUK ? '<button class="buy wide" data-act="gohome">Fly home</button>' : ''}
+      <h3>Mock test</h3>
+      <p class="note">The real format, marked the way the examiner marks it, but nothing rides on it: a new route from the centre you pick with roundabouts, lights and crossings, a dual carriageway or 40 road, independent driving, a manoeuvre and sometimes an emergency stop. Each fault is shown as it happens so you learn on the way round.${mocks.length ? ` You've taken ${mocks.length} mock${mocks.length === 1 ? '' : 's'} and passed ${mocksPassed}.` : ''}</p>
+      ${centres('mock')}
       <h3>The driving test</h3>
-      <p class="note">One full test. A new route every time from the centre you pick — it rolls everything into one drive: roundabouts, traffic lights and crossings, junctions, a dual carriageway or 40 road, independent driving (sat nav, or following the signs about one test in five), a manoeuvre, pull-ups and sometimes an emergency stop. I'll direct you the whole way and bring you back on if you miss a turn. Marked on the DVSA DL25: 15 driving faults or fewer and no serious faults to pass. A pass pays €5m and gets you your licence.</p>
-      <div class="seg" style="flex-wrap:wrap"><button data-act="test15" data-id="herne">Herne Bay</button><button data-act="test15" data-id="canterbury">Canterbury</button><button data-act="test15" data-id="london">Mill Hill</button><button data-act="test15" data-id="birmingham">Kings Heath</button><button data-act="test15" data-id="manchester">West Didsbury</button><button data-act="test15" data-id="any">Surprise me</button></div>
+      <p class="note">The one that counts. Same route maker, same DL25 marking: 15 driving faults or fewer and no serious faults to pass. The examiner says nothing about a fault until the debrief. A pass gets you your licence and pays €5m.${reals.length ? ` ${reals.length} attempt${reals.length === 1 ? '' : 's'} so far.` : mocksPassed ? '' : ' Take a mock first if you want to see how you are marked.'}</p>
+      ${centres('real')}
       <p class="note">Kent's routes were written by hand; the city ones are planned off the real map around the centre the moment you press the button.</p>
       ${this.testHistory()}
-      <h3>Study</h3><div class="row"><div class="grow"><div class="t">Road signs</div><div class="s">Name ten Highway Code signs. Not marked: just practice.</div></div><button class="buy" data-act="signs">Start</button></div>
-      <h3>Practise a skill</h3>
-      <div class="row"><div class="grow"><div class="t">Individual lessons</div><div class="s">Moving off, junctions, roundabouts, crossings and lights, dual carriageways, manoeuvres — one at a time. Optional.</div></div>
-        <button class="buy" data-act="practice">${open ? 'Hide' : 'Show'}</button></div>
-      ${practiceBlock}`;
+      <h3>Study</h3><div class="row"><div class="grow"><div class="t">Road signs</div><div class="s">Name ten Highway Code signs. Not marked: just practice.</div></div><button class="buy" data-act="signs">Start</button></div>`;
   }
 
   /** your tests: the last five, the trend in driving faults, the fault that keeps coming up, retry a route */
@@ -204,11 +184,11 @@ export class Phone {
     const bars = recent.map((t) => `<i class="${t.passed ? '' : 'fail'}" style="height:${Math.max(4, (t.minor / max) * 100)}%" title="${t.minor} driving faults"></i>`).join('');
     const a = recent.slice(0, Math.ceil(recent.length / 2)), b = recent.slice(Math.ceil(recent.length / 2));
     const avg = (x) => x.reduce((s, t) => s + t.minor, 0) / Math.max(1, x.length);
-    const trend = recent.length >= 4 ? (avg(b) < avg(a) - 0.5 ? 'Fewer driving faults lately: keep it up.' : avg(b) > avg(a) + 0.5 ? 'More driving faults lately: book a lesson on your weak spot.' : 'Steady.') : '';
+    const trend = recent.length >= 4 ? (avg(b) < avg(a) - 0.5 ? 'Fewer driving faults lately: keep it up.' : avg(b) > avg(a) + 0.5 ? 'More driving faults lately: run a mock on the roads that catch you out.' : 'Steady.') : '';
     const rows = last.map((t) => {
       const d = new Date(t.at), when = `${d.getDate()}/${d.getMonth() + 1} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
       return `<div class="row"><div class="tick">${t.passed ? '✓' : '✕'}</div>
-        <div class="grow"><div class="t">${t.centreName || (t.centre === 'canterbury' ? 'Canterbury' : 'Herne Bay')} · ${t.kind === 'test15' ? '15 min' : 'full mock'} · ${t.trans === 'auto' ? 'automatic' : 'manual'}</div>
+        <div class="grow"><div class="t">${t.centreName || (t.centre === 'canterbury' ? 'Canterbury' : 'Herne Bay')} · ${t.kind === 'real' ? 'driving test' : 'mock'} · ${t.trans === 'auto' ? 'automatic' : 'manual'}</div>
         <div class="s">${when} · ${t.minor} driving · ${t.serious} serious · ${t.dangerous} dangerous${t.main ? ` · ${esc(t.main)}` : ''}</div></div>
         ${t.seed != null ? `<button class="buy ghost" data-act="retest" data-id="${t.centre}:${t.seed}">Retry route</button>` : ''}</div>`;
     }).join('');

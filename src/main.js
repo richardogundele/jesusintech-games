@@ -665,7 +665,7 @@ const phone = new Phone({
   onJetBought(jetId) { for (const id of ['kent', 'london', 'birmingham', 'manchester']) worlds[id]?.addJet?.(jetId); },
   setLook: (l) => { player.mesh.userData.setLook?.(l); save(); },
   startLesson: (id) => startLesson(id),
-  startTest: (centre, seed) => startTest(centre, seed),
+  startTest: (centre, seed, kind) => startTest(centre, seed, kind),
   signDrill: () => signDrill(10),
   setTrans: (t) => setLearnerTrans(t),
   setLessonCar: (id) => setLessonCar(id),
@@ -953,12 +953,14 @@ const lessonHooks = {
     const firstPass = r.passed && !rec.passed;
     rec.tries += 1;
     if (r.passed) { rec.passed = true; rec.best = rec.best == null ? r.counts.minor : Math.min(rec.best, r.counts.minor); }
-    if (r.mock && !r.practice) uk.tests += 1;
+    // only the real test counts: the licence, the money and the tally. A mock is practice of the same
+    // format, and it goes in the history so you can see yourself improve
+    if (r.real) uk.tests += 1;
     let reward = 0;
-    if (firstPass && !r.practice) reward = r.mock ? 5_000_000 : 250_000;
+    if (r.real && r.passed && !uk.licence) reward = 5_000_000;
     // the real UK rule: pass in an automatic, drive automatics only; pass in a manual, drive both
     let licenceNews = null;
-    if (r.passed && r.mock && !r.practice) {
+    if (r.passed && r.real) {
       if (r.trans === 'manual' && uk.licence !== 'full') { uk.licence = 'full'; licenceNews = 'Full UK driving licence (manual and automatic). Well done.'; }
       else if (r.trans === 'auto' && !uk.licence) { uk.licence = 'auto'; licenceNews = 'UK driving licence: automatic cars only. Pass in a manual to upgrade it.'; }
     }
@@ -967,15 +969,18 @@ const lessonHooks = {
     if (r.mock && !r.practice && r.sheet) {
       const rows = {};
       for (const R of r.sheet.rows) if (R.d || R.s || R.x) rows[R.key] = [R.d, R.s, R.x];
-      uk.history.push({ at: new Date().toISOString(), id: r.id, title: r.title, kind: r.generated ? 'test15' : 'mock', centre: r.generated?.centre || (r.id === 'mock-canterbury' ? 'canterbury' : 'herne'), centreName: r.generated?.centreName || null,
+      uk.history.push({ at: new Date().toISOString(), id: r.id, title: r.title, kind: r.real ? 'real' : 'mock', centre: r.generated?.centre || (r.id === 'mock-canterbury' ? 'canterbury' : 'herne'), centreName: r.generated?.centreName || null,
         trans: r.trans, seed: r.generated?.seed ?? null, passed: r.passed, minor: r.counts.minor, serious: r.counts.serious, dangerous: r.counts.dangerous, rows, main: r.brief?.main || '', minutes: +(r.time / 60).toFixed(1) });
       if (uk.history.length > 60) uk.history.splice(0, uk.history.length - 60);
     }
     save();
-    if (reward) { addFundsUI(reward, r.mock ? 'Passed your UK driving test' : `Lesson passed: ${r.title}`); }
+    if (reward) { addFundsUI(reward, 'Passed your UK driving test'); }
     if (r.passed) P.emit('lesson');
     $('res-name').textContent = r.mock ? `${r.title} · ${r.trans === 'manual' ? 'manual' : 'automatic'}` : `Lesson · ${r.title}`;
-    $('res-medal').textContent = r.terminated ? 'TEST STOPPED · DANGEROUS FAULT' : r.passed ? (r.mock ? (uk.licence === 'full' ? 'PASSED · FULL UK LICENCE' : 'PASSED · AUTOMATIC LICENCE') : 'PASSED') : 'NOT PASSED';
+    $('res-medal').textContent = r.terminated ? 'TEST STOPPED · DANGEROUS FAULT'
+      : !r.passed ? 'NOT PASSED'
+      : r.real ? (uk.licence === 'full' ? 'PASSED · FULL UK LICENCE' : 'PASSED · AUTOMATIC LICENCE')
+      : r.mock ? 'MOCK PASSED · READY FOR THE REAL TEST' : 'PASSED';
     $('res-medal').style.color = r.passed ? 'var(--green-soft)' : 'var(--red-soft)';
     // a generated test can be driven again on the same seed: offer it in the action row, not buried in the sheet
     const retry = $('res-retry');
@@ -1006,7 +1011,7 @@ function sheetHtml(r) {
   const S = r.sheet, B = r.brief || { improve: [] };
   const rows = S.rows.map((R) => `<tr class="${R.d || R.s || R.x ? 'hit' : ''}"><td>${esc(R.label)}${Object.keys(R.subs).length ? `<small>${Object.entries(R.subs).map(([k, n]) => `${k}${n > 1 ? ' ×' + n : ''}`).join(' · ')}</small>` : ''}</td><td>${tally(R.d)}</td><td class="s">${R.s ? (R.habitual ? 'S*' : 'S'.repeat(R.s)) : ''}</td><td class="x">${R.x ? 'D'.repeat(R.x) : ''}</td></tr>`).join('');
   const improve = B.improve.map((i) => `<div class="imp"><b>${esc(i.row)}</b>${i.s || i.x ? ` <em>${i.x ? 'dangerous' : 'serious'}</em>` : ''} <span>${i.d ? `${i.d} driving fault${i.d === 1 ? '' : 's'}` : ''}</span>
-      ${i.where.map((w) => `<div class="where">${esc(w)}</div>`).join('')}<div class="why">${esc(i.why)}</div><div class="tip">Practise: ${esc(i.tip)}</div>${i.lesson ? `<button class="mini" data-lesson="${i.lesson}">Book: ${esc(i.lessonTitle)}</button>` : ''}</div>`).join('');
+      ${i.where.map((w) => `<div class="where">${esc(w)}</div>`).join('')}<div class="why">${esc(i.why)}</div><div class="tip">Practise: ${esc(i.tip)}</div></div>`).join('');
   const g = r.generated;
   return `<div class="dl25">
       <div class="verdict">${esc(B.spoken || B.verdict || '')}</div>
@@ -1036,8 +1041,7 @@ function drawResultMap(map) {
 }
 $('result').addEventListener('click', (e) => {
   const b = e.target.closest('button'); if (!b) return;
-  if (b.dataset.retest) { const [c, sd] = b.dataset.retest.split(':'); closeResult(); startTest(c, +sd); }
-  if (b.dataset.lesson) { closeResult(); startLesson(b.dataset.lesson); }
+  if (b.dataset.retest) { const [c, sd] = b.dataset.retest.split(':'); closeResult(); startTest(c, +sd, 'mock'); } // a route driven again is practice
 });
 function addFundsUI(amount, title) {
   state.balance += amount;
@@ -1088,7 +1092,7 @@ async function goKent() {
  * A 15-minute driving test from a test centre ('herne' | 'canterbury' | 'any') on a route made from a
  * seed (a new one each time, or the seed of a test you want to retry).
  */
-async function startTest(centre = 'any', seed = null) {
+async function startTest(centre = 'any', seed = null, kind = 'mock') {
   if (centre === 'any') centre = Math.random() < 0.5 ? 'herne' : 'canterbury';
   // Kent's two centres have hand-authored route pools; a city's is read off its map on the spot
   const city = REGION_WORLDS.includes(centre);
@@ -1099,7 +1103,7 @@ async function startTest(centre = 'any', seed = null) {
   let gen;
   try { gen = generateTest(w.net, pool, seed); } catch (err) { hud.toast(`Couldn't plan a test route there (${err.message}). Try again.`, 4000); return; }
   gen.signs = signsOnRoute(w.net, gen.route);
-  return startLesson(testDef(gen));
+  return startLesson(testDef(gen, kind));
 }
 /** to a city for its test: like goKent, with the region's map loaded first */
 async function goCity(id) {
@@ -1378,7 +1382,7 @@ $('start').onclick = () => {
   if (!state.welcomed) {
     // a cold save: say what this is and where to start, once
     state.welcomed = true; save();
-    hud.toast('Your learner car is outside. Get in with E and the game will walk you through your first drive. Lessons and tests are on your phone (P).', 9000);
+    hud.toast('Your learner car is outside. Get in with E and drive: the game shows you the controls as you go. Mock and real driving tests are on your phone (P).', 9000);
   } else {
     const hello = { kent: 'Welcome home to Kent.', london: 'Welcome to London.', birmingham: 'Welcome to Birmingham.', manchester: 'Welcome to Manchester.' }[world.id] || 'Welcome back.';
     hud.toast(`${hello} Press P for your phone: today's goals are waiting.`, 5000);
