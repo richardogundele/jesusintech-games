@@ -21,6 +21,33 @@ const CLIFF_X0 = 2400, CLIFF_X1 = 2700;
 const SEA_SHELF = -0.3, SEA_DEEP = -18;
 const BEACH_W = 25, SEA_WALL_H = 1.5;
 const LAMP_EVERY = 34, HEDGE_LEN = 7, PAVE = 2.0;
+
+/**
+ * How a tagged street is dressed (way.dress, set by tools/city-build.mjs). The models are the ones
+ * every world already loads, so a dressed street costs instances, not downloads.
+ */
+// The scanned shrubs are 16-23k triangles each - hero props, not street dressing. shrub2_lo is the
+// low-poly one, and everything placed from a model is distance-culled: dressing only has to hold up
+// where the driver is looking, and a street of 20k-triangle bushes costs tens of millions of them.
+const SHRUBS = ['shrub2_lo'];
+const SHRUB_FAR = 110, POT_FAR = 90, LAMP_FAR = 230;
+const DRESS = {
+  'high-street': {
+    tree: { every: 19, back: 0.3, scale: [0.82, 1.04] },
+    lamp: { model: 'street_lamp_01', every: 23, far: LAMP_FAR },
+    shrub: { models: SHRUBS, every: 17, back: 2.8, scale: [0.9, 1.4], far: SHRUB_FAR },
+    pot: { models: ['potted_plant_01', 'potted_plant_02'], every: 26, scale: 1.0, far: POT_FAR },
+  },
+  terraced: {
+    tree: { every: 26, back: 0.4, scale: [0.72, 0.92] },
+    lamp: { model: 'street_lamp_01', every: 31, far: LAMP_FAR },
+    shrub: { models: SHRUBS, every: 15, back: 2.4, scale: [0.8, 1.2], far: SHRUB_FAR },
+  },
+  suburban: {
+    tree: { every: 21, back: 0.8, scale: [0.8, 1.05] },
+    shrub: { models: SHRUBS, every: 14, back: 3.0, scale: [0.9, 1.4], far: SHRUB_FAR },
+  },
+};
 const FRONT_W = 5.4, FRONT_H = 6; // the canvas fronts are drawn for a 5.4 x 6 m face
 const MAX_TREES = { near: 1400, far: 700 };
 
@@ -458,6 +485,31 @@ function shared() {
     addGeo(g.translate(x, y, z), i % 3 === 0 ? crownLight : crownCol);
   });
   const tree = tg.build();
+  // A street tree, for the dressed streets: a lime or plane as a council plants it, not the
+  // hedgerow tree above. The trunk is straight and clear to well over head height so the canopy
+  // sits above the pavement instead of leaning into the road, and the crown is a tall dome rather
+  // than a cluster of blobs. ~1100 triangles, one geometry, instanced like everything else.
+  const sg = new GB({ uv: false, color: true });
+  const barkCol = new THREE.Color(0x5b4a39), leafCol = new THREE.Color(0x44682f), leafLight = new THREE.Color(0x5d8a3c);
+  const addTo = (b) => (geo, col) => { const p = geo.toNonIndexed().attributes.position; for (let i = 0; i < p.count; i += 3) b.tri([p.getX(i), p.getY(i), p.getZ(i)], [p.getX(i + 1), p.getY(i + 1), p.getZ(i + 1)], [p.getX(i + 2), p.getY(i + 2), p.getZ(i + 2)], col); };
+  const addS = addTo(sg);
+  addS(new THREE.CylinderGeometry(0.19, 0.33, 5.2, 8, 1, true).translate(0, 2.6, 0), barkCol);
+  for (const [ang, lean] of [[0, 0.42], [2.1, 0.38], [4.2, 0.4]]) {
+    addS(new THREE.CylinderGeometry(0.07, 0.13, 2.1, 5, 1, true).rotateZ(lean).rotateY(ang).translate(Math.cos(ang) * 0.5, 5.6, Math.sin(ang) * 0.5), barkCol);
+  }
+  // a dome of lobes: one broad centre, a ring below it, two on top to round the silhouette off
+  const crown = [[0, 7.4, 0, 2.5], [1.7, 6.7, 0.5, 1.7], [-1.6, 6.8, -0.6, 1.7], [0.5, 6.6, -1.7, 1.6], [-0.5, 6.7, 1.7, 1.6],
+    [0.8, 8.6, 0.3, 1.5], [-0.8, 8.5, -0.4, 1.4], [0, 9.4, 0, 1.0]];
+  crown.forEach(([x, y, z, r], i) => {
+    const g = new THREE.IcosahedronGeometry(r, r >= 1.6 ? 2 : 1);
+    const p = g.attributes.position;
+    for (let k = 0; k < p.count; k++) {
+      const j = 0.84 + 0.26 * Math.abs(Math.sin(k * 12.9898 + i * 78.233));
+      p.setXYZ(k, p.getX(k) * j, p.getY(k) * (0.86 + 0.14 * j), p.getZ(k) * j);
+    }
+    addS(g.translate(x, y, z), i % 3 === 0 ? leafLight : leafCol);
+  });
+  const streetTree = sg.build();
   // street lamp: tapered post, short arm, lantern (about 36 triangles)
   const lg = new GB({ uv: false, color: true });
   const postCol = new THREE.Color(0x4f5459), lanternCol = new THREE.Color(0xf1ead2);
@@ -495,7 +547,7 @@ function shared() {
     cliff: new THREE.MeshStandardMaterial({ color: 0x8c7b63, roughness: 1, flatShading: true }),
     concrete: new THREE.MeshStandardMaterial({ color: 0xc9c3b8, roughness: 0.9 }),
     sign: new THREE.MeshStandardMaterial({ color: 0x8a8d91, metalness: 0.6, roughness: 0.4 }),
-    geoBox: unitBox, geoGable: gable, geoTree: tree, geoLamp: lamp, geoSleeper: sleeper, geoPot: potGeo,
+    geoBox: unitBox, geoGable: gable, geoTree: tree, geoStreetTree: streetTree, geoLamp: lamp, geoSleeper: sleeper, geoPot: potGeo,
   };
   return S;
 }
@@ -1421,6 +1473,67 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
     return { hedges: hedges.length, lamps: lamps.length };
   }
 
+  /**
+   * Dress a street the authored city has tagged (way.dress). The procedural tree and lamp are
+   * built for a whole county at sixty frames: cheap, and from the driving seat they read as green
+   * blobs on sticks. A tagged street instead gets the real Poly Haven models, which are already
+   * loaded for every world, so this costs instances rather than downloads. Only near LOD, and only
+   * where a street actually carries the tag, so the frame cost stays where the player is looking.
+   */
+  function buildDressing(tile, lod, rng, out, M) {
+    if (lod !== 'near') return 0;
+    const ways = idx.ways.get(tileKey(tile.tx, tile.tz)) || [];
+    const inside = (x, z) => x >= tile.x0 && x < tile.x1 && z >= tile.z0 && z < tile.z1;
+    const bins = new Map();                                    // model name -> { far, list }
+    const put = (model, far, p) => { if (!bins.has(model)) bins.set(model, { far, list: [] }); bins.get(model).list.push(p); };
+    const pick = (list) => list[Math.min(list.length - 1, (rng() * list.length) | 0)];
+    const trees = [];
+    let n = 0;
+
+    for (const way of ways) {
+      const spec = DRESS[way.w.dress];
+      if (!spec || way.w.rb) continue;
+      const nearJ = (s, d) => way.junctions.some((j) => Math.abs(j - s) < d);
+      // a run along one side of the street, `every` metres apart, `off` metres out from the kerb
+      const along = (every, off, place, clear = 9) => {
+        for (const side of [1, -1]) {
+          for (let s = 10 + rng() * every; s < way.len - 10; s += every * (0.75 + rng() * 0.5)) {
+            if (nearJ(s, clear)) continue;
+            const p = pointAt(way, s);
+            const nx = p.dz * side, nz = -p.dx * side;
+            const x = p.x + nx * off, z = p.z + nz * off;
+            if (!inside(x, z) || excluded(x, z)) continue;
+            place({ x, z, y: groundY ? groundY(x, z) : 0, nx, nz, side });
+            n++;
+          }
+        }
+      };
+      const kerb = way.halfW + PAVE;
+      // street trees stand at the back of the pavement, clear of the junctions
+      if (spec.tree) along(spec.tree.every, kerb + spec.tree.back, (p) => trees.push({ x: p.x, z: p.z, y: p.y, rot: rng() * Math.PI * 2, scale: spec.tree.scale[0] + rng() * (spec.tree.scale[1] - spec.tree.scale[0]) }), 11);
+      // lamps on the kerb edge, their arm over the road
+      if (spec.lamp) along(spec.lamp.every, kerb - 0.9, (p) => put(spec.lamp.model, spec.lamp.far, { x: p.x, z: p.z, y: p.y, rot: Math.atan2(-p.nx, -p.nz) }), 7);
+      // shrubs in the front gardens behind the pavement
+      if (spec.shrub) along(spec.shrub.every, kerb + spec.shrub.back, (p) => put(pick(spec.shrub.models), spec.shrub.far, { x: p.x, z: p.z, y: p.y, rot: rng() * Math.PI * 2, scale: spec.shrub.scale[0] + rng() * (spec.shrub.scale[1] - spec.shrub.scale[0]) }), 6);
+      // planters at the kerb outside the shops
+      if (spec.pot) along(spec.pot.every, kerb - 1.6, (p) => put(pick(spec.pot.models), spec.pot.far, { x: p.x, z: p.z, y: p.y, rot: rng() * Math.PI * 2, scale: spec.pot.scale }), 10);
+    }
+
+    if (trees.length) {
+      const im = new THREE.InstancedMesh(M.geoStreetTree, M.tree, trees.length);
+      const o = new THREE.Object3D();
+      trees.forEach((t, i) => { o.position.set(t.x, t.y || 0, t.z); o.rotation.set(0, t.rot, 0); o.scale.setScalar(t.scale); o.updateMatrix(); im.setMatrixAt(i, o.matrix); });
+      im.castShadow = im.receiveShadow = true;
+      im.computeBoundingSphere();
+      out.add(im);
+    }
+    // small chunks so the distance cull bites per group of a few trees' worth, not per tile
+    if (A) for (const [model, { far, list }] of bins) {
+      try { out.add(A.instanced(model, list, { chunk: 130, maxDist: far ?? 140 })); } catch { /* model missing: the street keeps what it has */ }
+    }
+    return n;
+  }
+
   // ---- railways and level crossings ----
   function buildRails(tile, lod, out, M, cs) {
     const rails = idx.rails.get(tileKey(tile.tx, tile.tz)) || [];
@@ -1684,6 +1797,7 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
     st.fields = buildFields(tile, lod, group, M);
     st.trees = buildTrees(tile, lod, rng, group, M, all);
     Object.assign(st, buildWayside(tile, lod, rng, group, M, bb.hedges));
+    st.dressing = buildDressing(tile, lod, rng, group, M);
     st.hedges -= bb.hedges.length;
     st.gardenHedges = bb.hedges.length;
     Object.assign(st, buildRails(tile, lod, group, M, cs));

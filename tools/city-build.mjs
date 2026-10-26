@@ -158,6 +158,7 @@ class City {
         width: opts.width ?? (oneway ? r1(lanesF * 3.65) : d.width),
         pave: opts.pave ?? d.pave, rural: opts.rural ?? !(opts.pave ?? d.pave),
         turnLanes: opts.turnLanes ?? null,
+        ...(opts.dress ? { dress: opts.dress } : {}), // how scenery.js dresses this street
         pts: pts.map(([x, z]) => [r1(x), r1(z)]), nodes,
       });
     }
@@ -299,12 +300,12 @@ const GS = 160, GN = 7, G0 = -((GN - 1) / 2) * GS; // -480 .. 480 through 0
 const NS = ['Albion', 'Bridge', 'Castle', 'Dover', 'Elm', 'Foundry', 'Granary'];
 const EW = ['Kiln', 'Linden', 'Market', 'North', 'Orchard', 'Priory', 'Quay'];
 const G1 = G0 + (GN - 1) * GS;
-for (let i = 0; i < GN; i++) C.road('residential', [[G0 + i * GS, G0], [G0 + i * GS, G1]], { name: `${NS[i]} Street`, limit: 20 });
+for (let i = 0; i < GN; i++) C.road('residential', [[G0 + i * GS, G0], [G0 + i * GS, G1]], { name: `${NS[i]} Street`, limit: 20, dress: 'terraced' });
 for (let j = 0; j < GN; j++) {
   const z = G0 + j * GS;
   // the middle row is the high street: wider, 30, and it runs clear across the city
-  if (j === (GN - 1) / 2) C.road('secondary', [[-HALF + 100, z], [HALF - 100, z]], { name: 'High Street', ref: 'A41', limit: 30 });
-  else C.road('residential', [[G0, z], [G1, z]], { name: `${EW[j]} Road`, limit: 20 });
+  if (j === (GN - 1) / 2) C.road('secondary', [[-HALF + 100, z], [HALF - 100, z]], { name: 'High Street', ref: 'A41', limit: 30, dress: 'high-street' });
+  else C.road('residential', [[G0, z], [G1, z]], { name: `${EW[j]} Road`, limit: 20, dress: 'terraced' });
 }
 // signals where the high street meets the two busiest cross streets, give way elsewhere in the grid
 for (const i of [2, 4]) C.mark(G0 + i * GS, 0, { signals: true });
