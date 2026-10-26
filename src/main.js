@@ -107,8 +107,9 @@ const $ = (id) => document.getElementById(id);
 // The three cities are built from the real map around their driving test centres (worlds/region.js);
 // their road data is fetched on the way there (loadRegion), so the first visit awaits it
 const cityBuilder = (id, name, extra = {}) => (r) => buildRegion(r, { id, name, data: misc(`${id}Region`), ...extra });
-const builders = { kent: buildKent, london: cityBuilder('london', 'London', { arena: true }), birmingham: cityBuilder('birmingham', 'Birmingham'), manchester: cityBuilder('manchester', 'Manchester'), motorway: buildMotorway, arena: buildArena, uk: buildUK };
-const REGION_WORLDS = ['london', 'birmingham', 'manchester'];
+const builders = { kent: buildKent, driveuk: cityBuilder('driveuk', 'Drive UK'), london: cityBuilder('london', 'London', { arena: true }), birmingham: cityBuilder('birmingham', 'Birmingham'), manchester: cityBuilder('manchester', 'Manchester'), motorway: buildMotorway, arena: buildArena, uk: buildUK };
+// driveuk is the authored teaching city (tools/city-build.mjs); the rest are the real map
+const REGION_WORLDS = ['driveuk', 'london', 'birmingham', 'manchester'];
 const ensureWorldData = (id) => (REGION_WORLDS.includes(id) && !worlds[id] ? loadRegion(id) : Promise.resolve());
 const HOMES = ['kent']; // the world you live in: the save remembers it
 const worlds = {};
