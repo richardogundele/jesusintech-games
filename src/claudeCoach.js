@@ -1,6 +1,6 @@
 // Real-time AI driving instructor.
 //
-// On games.jesusintech.com the request goes through /.netlify/functions/coach so the
+// On driveuk.jesusintech.com the request goes through /.netlify/functions/coach so the
 // Anthropic key stays server-side (set in Netlify env as CLAUDE_API_KEY).
 // As a local-dev fallback the user can paste their own key in the in-game setup panel;
 // it is stored in localStorage and sent directly to api.anthropic.com only in that case.
@@ -55,7 +55,7 @@ export class ClaudeCoach {
     try {
       let text = null;
 
-      // 1. Try the server-side proxy (works on games.jesusintech.com)
+      // 1. Try the server-side proxy (works on driveuk.jesusintech.com)
       if (this._proxyOk !== false) {
         text = await this._proxy(prompt);
       }

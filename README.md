@@ -57,4 +57,4 @@ first (and delete `dist/`), or the upload is several hundred MB and can fail.
 
 ## Deploys
 
-Live at https://games.jesusintech.com. Netlify builds and deploys automatically on every push to `main` (`npm run build` → `dist/`).
+Live at https://driveuk.jesusintech.com. Netlify builds and deploys automatically on every push to `main` (`npm run build` → `dist/`).
