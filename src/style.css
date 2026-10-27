@@ -304,15 +304,20 @@ h1 { font-family: var(--font-display); font-size: clamp(40px, 9vw, 112px); lette
 #dt-warn.red { background: rgba(196, 36, 28, 0.94); color: #fff; }
 #dt-warn.amber { background: rgba(255, 179, 64, 0.95); color: #1d1404; }
 
-/* the controls card (H) */
-#controls { background: rgba(0, 0, 0, 0.4); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); z-index: 22; animation: hud-in var(--dur-2) var(--ease) both; }
+/* the controls card (H) — anchored to the bottom, like the always-on dock, and laid out wide
+   so every group sits side by side with nothing to scroll */
+#controls { background: rgba(0, 0, 0, 0.4); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); z-index: 22; animation: hud-in var(--dur-2) var(--ease) both;
+  align-items: end; padding-bottom: var(--edge); }
 .sheet { width: min(780px, calc(100% - 32px)); max-height: min(88vh, 780px); overflow-y: auto; border-radius: var(--r-xl); padding: var(--sp-5) var(--sp-6) var(--sp-4);
   background: var(--glass-strong); border: 1px solid var(--hairline); box-shadow: 0 30px 80px rgba(0, 0, 0, 0.5); animation: hud-pop var(--dur-2) var(--ease) both; }
+#controls .sheet { width: calc(100% - 2 * var(--edge)); max-width: 1400px; max-height: 52vh; overflow-y: auto; padding: var(--sp-4) var(--sp-5) var(--sp-3); }
+#controls .sheet .ctl-row { padding: 3px 0; }
 .sheet-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--sp-3); }
 .sheet-head h2 { margin: 0; font: 700 var(--fs-xl) var(--font-display); letter-spacing: -0.01em; }
 .btn-close { background: rgba(255, 255, 255, 0.1); border: 0; color: var(--gold); font: 600 var(--fs-sm) var(--font); padding: 7px 14px; border-radius: var(--r-pill); cursor: pointer; }
 .btn-close:hover { background: rgba(255, 255, 255, 0.16); }
 #controls-body { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: var(--sp-4) var(--sp-6); }
+#controls .sheet #controls-body { grid-template-columns: repeat(5, 1fr); gap: 0 var(--sp-4); }
 .ctl-group h3 { margin: 0 0 var(--sp-1); font-size: var(--fs-xs); font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-2); }
 .ctl-group h3 small { font-size: inherit; color: var(--gold); letter-spacing: inherit; }
 .ctl-row { display: flex; align-items: center; gap: var(--sp-3); padding: 6px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.06); font-size: var(--fs-sm); }
@@ -320,6 +325,11 @@ h1 { font-family: var(--font-display); font-size: clamp(40px, 9vw, 112px); lette
 .ctl-row .keys { display: flex; align-items: center; gap: 3px; min-width: 96px; color: var(--text-3); font-size: var(--fs-xs); }
 .ctl-row kbd { min-width: 24px; height: 24px; font-size: var(--fs-xs); }
 .sheet-foot { text-align: center; color: var(--text-3); font-size: var(--fs-xs); margin: var(--sp-4) 0 0; }
+/* narrow screens: five columns won't fit side by side, so fall back to wrapping + a scroll safety net */
+@media (max-width: 1000px) {
+  #controls .sheet #controls-body { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: var(--sp-3) var(--sp-5); }
+  #controls .sheet { max-height: 60vh; overflow-y: auto; }
+}
 
 /* larger screens: a touch bigger; narrow screens: tighter, and the bottom capsules clear the dashboard */
 @media (min-width: 1900px) and (min-height: 1050px) {
