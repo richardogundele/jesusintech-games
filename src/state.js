@@ -63,7 +63,22 @@ function load() {
 
 export const state = load();
 
+const saveHooks = [];
+/** run f after every save (the cloud copy, see cloud.js) */
+export const onSave = (f) => saveHooks.push(f);
+
 export function save() {
+  state.savedAt = Date.now();
+  try { localStorage.setItem(KEY, JSON.stringify(state)); } catch { /* private mode etc. */ }
+  for (const f of saveHooks) f();
+}
+
+/** swap in a save from the cloud (same shape as the localStorage one) and keep it; the caller reloads the game */
+export function replaceState(data) {
+  for (const k of Object.keys(state)) delete state[k];
+  const d = DEFAULTS();
+  Object.assign(state, d, data);
+  for (const k of ['owned', 'stats', 'uk', 'look', 'career', 'cars']) state[k] = { ...d[k], ...(data[k] && typeof data[k] === 'object' ? data[k] : {}) };
   try { localStorage.setItem(KEY, JSON.stringify(state)); } catch { /* private mode etc. */ }
 }
 
