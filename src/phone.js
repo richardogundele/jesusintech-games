@@ -8,7 +8,7 @@ import { LOOKS, CIVILIANS } from './character.js';
 
 const $ = (id) => document.getElementById(id);
 const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-const TABS = [['lessons', 'Driving test'], ['dealer', 'Dealer'], ['hangar', 'Hangar'], ['wardrobe', 'Wardrobe'], ['me', 'Profile']];
+const TABS = [['lessons', 'Settings'], ['dealer', 'Dealer'], ['hangar', 'Hangar'], ['wardrobe', 'Wardrobe'], ['me', 'Profile']];
 
 export class Phone {
   /** hooks: { homeId(), crowdSize(), onCarBought(id, home), onJetBought(id), sfx(kind) } */
