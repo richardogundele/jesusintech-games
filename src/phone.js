@@ -4,7 +4,6 @@ import { CARS, JETS, PAINTS, flightTime, fuelStop } from './catalog.js';
 import * as P from './progress.js';
 import { DL25_ROWS } from './dl25.js';
 import { LOOKS, CIVILIANS } from './character.js';
-import { cloudUser, onCloud, signIn, signOut } from './cloud.js';
 
 const $ = (id) => document.getElementById(id);
 const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -37,8 +36,6 @@ export class Phone {
       if (act === 'lessoncar') { this.hooks.setLessonCar(id); this.render(); return; }
       if (act === 'paint') { this.hooks.setPaint(id === 'own' ? null : parseInt(id, 16)); this.render(); return; }
       if (act === 'plate') { this.hooks.setPlate($('plate-in')?.value); this.render(); return; }
-      if (act === 'signin') { this.sendLink(); return; }
-      if (act === 'signout') { signOut().then(() => this.render()); return; }
       if (act === 'mock') { this.hooks.close(); this.hooks.startTest(id, null, 'mock'); return; }
       if (act === 'real') { this.hooks.close(); this.hooks.startTest(id, null, 'real'); return; }
       if (act === 'signs') { this.hooks.signDrill(); return; }
@@ -47,20 +44,8 @@ export class Phone {
       if (act === 'look') { state.look[b.dataset.part] = id; this.hooks.setLook(state.look); }
       if (act) this.render();
     });
-    // Enter in the plate box saves it, like the button; Enter in the email box sends the link
-    this.el.addEventListener('keydown', (e) => {
-      if (e.target?.id === 'plate-in' && e.key === 'Enter') { this.hooks.setPlate(e.target.value); this.render(); }
-      if (e.target?.id === 'email-in' && e.key === 'Enter') this.sendLink();
-    });
-    this.sent = null; // the address a sign-in link went to
-    onCloud(() => { if (this.open && this.tab === 'me') this.render(); });
-  }
-  async sendLink() {
-    const email = $('email-in')?.value || '';
-    const { error } = await signIn(email);
-    if (error) { this.hooks.toast(error, 3200); return; }
-    this.sent = email.trim();
-    this.render();
+    // Enter in the plate box saves it, like the button
+    this.el.addEventListener('keydown', (e) => { if (e.target?.id === 'plate-in' && e.key === 'Enter') { this.hooks.setPlate(e.target.value); this.render(); } });
   }
   get open() { return !this.el.classList.contains('hidden'); }
   show(v) {
@@ -185,14 +170,7 @@ export class Phone {
     const s = state.stats;
     const cars = Object.keys(CARS).filter(P.ownsCar).length, jets = P.ownedJetIds().length;
     const line = (k, v) => `<div class="row"><div class="grow"><div class="t">${k}</div></div><div class="amt">${v}</div></div>`;
-    const u = cloudUser();
-    const account = u
-      ? `<h3>Account</h3><div class="row"><div class="grow"><div class="t">${esc(u.email || 'Signed in')}</div><div class="s">Your progress is saved to your account as you play.</div></div><button class="buy ghost" data-act="signout">Sign out</button></div>`
-      : this.sent
-        ? `<h3>Account</h3><p class="note">Check your email: a sign-in link is on its way to <b>${esc(this.sent)}</b>. Open it on this device to carry on here.</p>`
-        : `<h3>Account</h3><div class="plate-row email"><input id="email-in" type="email" placeholder="you@example.com" autocomplete="email" spellcheck="false" aria-label="Your email" /><button class="buy" data-act="signin">Send link</button></div>
-          <p class="note">Optional. Sign in with an email link and your car, plate, money and test record follow you to any browser. No password.</p>`;
-    return `<div class="hero"><div class="big">${P.shortMoney(P.netWorth())}<span>net worth</span></div></div>` + account +
+    return `<div class="hero"><div class="big">${P.shortMoney(P.netWorth())}<span>net worth</span></div></div>` +
       line('Cars', `${cars} / ${Object.keys(CARS).length}`) +
       line('Jets', `${jets} / ${Object.keys(JETS).length}`) +
       line('Distance driven', `${s.km.toFixed(1)} km`) +

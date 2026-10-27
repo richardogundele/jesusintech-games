@@ -24,7 +24,6 @@ import { autoPool } from './kent/auto-pool.js';
 import { signQuestion } from './sign-quiz.js';
 import { buildCar } from './models.js';
 import { TRAFFIC } from './catalog.js';
-import { startCloud, recordTest } from './cloud.js';
 import { loadAll, updateCulling, loadRegion, misc } from './assets.js';
 import { createPipeline } from './render.js';
 import { Traffic } from './traffic.js';
@@ -603,8 +602,6 @@ const phone = new Phone({
   toast: (t, ms) => hud.toast(t, ms),
   save,
 });
-// optional sign-in: when a newer save comes down from your account, the game restarts on it
-startCloud({ onPulled: () => { hud.toast('Loading your progress from your account…', 2400); setTimeout(() => location.reload(), 1200); } });
 
 function togglePhone() {
   if (mode === 'phone') {
@@ -918,7 +915,6 @@ const lessonHooks = {
       uk.history.push({ at: new Date().toISOString(), id: r.id, title: r.title, kind: r.real ? 'real' : 'mock', centre: r.generated?.centre || (r.id === 'mock-canterbury' ? 'canterbury' : 'herne'), centreName: r.generated?.centreName || null,
         trans: r.trans, seed: r.generated?.seed ?? null, passed: r.passed, minor: r.counts.minor, serious: r.counts.serious, dangerous: r.counts.dangerous, rows, main: r.brief?.main || '', minutes: +(r.time / 60).toFixed(1) });
       if (uk.history.length > 60) uk.history.splice(0, uk.history.length - 60);
-      recordTest(uk.history[uk.history.length - 1]); // and to your account, if you have one
     }
     save();
     if (reward) { addFundsUI(reward, 'Passed your UK driving test'); }
