@@ -3,6 +3,7 @@ import { state, formatMoney } from './state.js';
 import { CARS, JETS, PAINTS, flightTime, fuelStop } from './catalog.js';
 import * as P from './progress.js';
 import { DL25_ROWS } from './dl25.js';
+import { LESSONS } from './lessons.js';
 import { LOOKS, CIVILIANS } from './character.js';
 
 const $ = (id) => document.getElementById(id);
@@ -35,6 +36,7 @@ export class Phone {
       if (act === 'trans') { this.hooks.setTrans(id); this.render(); return; }
       if (act === 'lessoncar') { this.hooks.setLessonCar(id); this.render(); return; }
       if (act === 'paint') { this.hooks.setPaint(id === 'own' ? null : parseInt(id, 16)); this.render(); return; }
+      if (act === 'lesson') { this.hooks.close(); this.hooks.startLesson(id); return; }
       if (act === 'plate') { this.hooks.setPlate($('plate-in')?.value); this.render(); return; }
       if (act === 'mock') { this.hooks.close(); this.hooks.startTest(id, null, 'mock'); return; }
       if (act === 'real') { this.hooks.close(); this.hooks.startTest(id, null, 'real'); return; }
@@ -82,6 +84,7 @@ export class Phone {
       <h3>Lesson car</h3>
       <div class="seg" style="flex-wrap:wrap">${this.hooks.lessonCars().map((c) => `<button class="${c.sel ? 'on' : ''}" data-act="lessoncar" data-id="${c.id}">${c.name}</button>`).join('')}</div>
       <p class="note">Take your test in any car you own — it wears L plates and drives like a learner car. No more taxi.</p>
+      ${this.practice(trans)}
       <h3>Your car</h3>
       <div class="swatches"><button class="sw own ${uk.paint == null ? 'on' : ''}" data-act="paint" data-id="own" title="The car's own colour"></button>${PAINTS.map(([name, hex]) =>
         `<button class="sw ${uk.paint === hex ? 'on' : ''}" data-act="paint" data-id="${hex.toString(16)}" title="${name}" style="background:#${hex.toString(16).padStart(6, '0')}"></button>`).join('')}</div>
@@ -97,6 +100,14 @@ export class Phone {
       <p class="note">Kent's routes were written by hand; the city ones are planned off the real map around the centre the moment you press the button.</p>
       ${this.testHistory()}
       <h3>Study</h3><div class="row"><div class="grow"><div class="t">Road signs</div><div class="s">Name ten Highway Code signs. Not marked: just practice.</div></div><button class="buy" data-act="signs">Start</button></div>`;
+  }
+
+  /** one thing at a time before a mock: moving off, junctions, roundabouts... in the gearbox you picked above */
+  practice(trans) {
+    const lessons = LESSONS.filter((l) => l.world === 'kent' && !l.mock && (!l.trans || l.trans === trans));
+    const rows = lessons.map((l) => `<div class="row"><div class="grow"><div class="t">${l.title}</div><div class="s">${l.blurb}</div></div>
+      <button class="buy ghost" data-act="lesson" data-id="${l.id}">Start</button></div>`).join('');
+    return `<h3>Practice lessons</h3><p class="note">Work on one thing at a time before you take a mock, with an instructor talking you through it. Shown for the gearbox you're learning in.</p>${rows}`;
   }
 
   /** your tests: the last five, the trend in driving faults, the fault that keeps coming up, retry a route */
