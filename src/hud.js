@@ -438,7 +438,7 @@ export class Hud {
   renderDock({ car = null, mode = 'menu', trans = 'manual' } = {}) {
     const show = mode === 'foot' || mode === 'car';
     this.dockEl.classList.toggle('hidden', !show);
-    if (!show) { this.dockKey = null; return; }
+    if (!show) { this.dockKey = null; document.documentElement.style.setProperty('--dockh', '0px'); return; }
     const box = car?.drive ? car.drive.kind : trans;
     // show what you can actually use now, so the whole strip is visible at a glance
     const order = car?.drive ? [box, 'drive', 'lesson', 'game']
@@ -447,11 +447,18 @@ export class Hud {
     const key = order.join(',');
     if (key === this.dockKey) return;
     this.dockKey = key;
+    // the same key never needs saying twice (Space is "parking brake" and "handbrake" at once):
+    // the group that comes first in `order` keeps it, so the gearbox's wording wins over driving's
+    const seenKeys = new Set();
     this.dockEl.innerHTML = order.map((id) => {
       const [title, rows] = GROUPS[id];
-      return `<div class="dock-group"><span class="dock-title">${title}</span>${rows
+      const items = rows.filter(([keys]) => (seenKeys.has(keys) ? false : (seenKeys.add(keys), true)));
+      if (!items.length) return '';
+      return `<div class="dock-group"><span class="dock-title">${title}</span>${items
         .map(([keys, label]) => `<span class="dock-item">${keys}<em>${label}</em></span>`).join('')}</div>`;
     }).join('');
+    // the dock can wrap onto a second row; give the rest of the HUD exactly that much room, no more
+    requestAnimationFrame(() => document.documentElement.style.setProperty('--dockh', `${this.dockEl.offsetHeight}px`));
   }
 
   // ---------- the controls card ----------
