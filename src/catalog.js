@@ -89,11 +89,18 @@ export const CARS = {
 };
 // the driving-school car in Whitmore (not for sale, so it isn't in CARS)
 export const LEARNER = {
-  gltf: 'car_polo', fit: { yaw: Math.PI / 2, wheels: /^wheel_sto/ },
+  gltf: 'car_polo', fit: { yaw: Math.PI / 2, wheels: /^wheel_sto/, paint: /^dbl_skp6854_002$/ }, // the body shell (the model ships it red)
   loft: 'sedan', maker: 'Volkswagen', model: 'Polo (learner)', type: 'sedan',
-  color: 0xf2f2f0, topSpeed: 187, accel: 4.4, grip: 7.5, steer: 0.66, engine: 'i4',
+  color: 0xb1070d, topSpeed: 187, accel: 4.4, grip: 7.5, steer: 0.66, engine: 'i4',
   dims: { L: 4.07, W: 1.75 },
 };
+// paint colours for your car (the phone's "Your car"); null in state.uk.paint means the car's own colour
+export const PAINTS = [
+  ['Arctic white', 0xf2f2f0], ['Jet black', 0x101114], ['Silver', 0xbfc5cc], ['Graphite', 0x3b3f44],
+  ['Racing red', 0xb1070d], ['Royal blue', 0x1d4fb8], ['Navy', 0x1d2b44], ['British green', 0x1f4d36],
+  ['Sunflower', 0xf2c200], ['Orange', 0xff7a00], ['Lime', 0x9fd13a], ['Teal', 0x1c8a8a],
+  ['Plum', 0x5b2a6b], ['Rose gold', 0xc99a8c], ['Sky blue', 0x7fb6e6], ['Sand', 0xd8c7a1],
+];
 // the fleet you started with: always yours
 export const STARTER_CARS = ['revuelto', 'f458', 'cullinan', 'chiron', 'g63', 'tesla', 'lexus'];
 

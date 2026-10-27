@@ -17,7 +17,8 @@ const DEFAULTS = () => ({
   welcomed: false, // the first-run toast has been shown
   // driving lessons and tests: licence false | 'auto' (passed in an automatic) | 'full' (passed in a manual);
   // trans: the gearbox you learn in; history: your driving tests (newest last); hints: key hints seen per gearbox
-  uk: { lessons: {}, licence: false, tests: 0, trans: 'manual', lessonCar: null, history: [], hints: {} },
+  // paint: a hex colour for your car (null = the car's own colour); plate: your registration (set on first run)
+  uk: { lessons: {}, licence: false, tests: 0, trans: 'manual', lessonCar: null, history: [], hints: {}, paint: null, plate: '' },
   // career: every finished drive banks into this, for the overall driver rating (see careerRating)
   career: { drives: 0, passes: 0, fails: 0, minor: 0, serious: 0, dangerous: 0, km: 0, cleanDrives: 0, last10: [] },
   // crash damage: condition 0-100 per car id, and the car ids you wrote off (undrivable until re-bought)
@@ -55,6 +56,8 @@ function load() {
   // before that was a practice of the same format, so it reads as a mock
   for (const t of uk.history) if (t.kind !== 'real') t.kind = 'mock';
   uk.hints = uk.hints && typeof uk.hints === 'object' ? uk.hints : {};
+  uk.paint = Number.isInteger(uk.paint) ? uk.paint : null;
+  uk.plate = typeof uk.plate === 'string' ? uk.plate : '';
   return out;
 }
 

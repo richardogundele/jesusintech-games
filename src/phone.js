@@ -1,6 +1,6 @@
 // The phone (P or Tab): today's goals, logging real wins, the dealer, the hangar, giving, your profile.
 import { state, formatMoney } from './state.js';
-import { CARS, JETS, flightTime, fuelStop } from './catalog.js';
+import { CARS, JETS, PAINTS, flightTime, fuelStop } from './catalog.js';
 import * as P from './progress.js';
 import { DL25_ROWS } from './dl25.js';
 import { LOOKS, CIVILIANS } from './character.js';
@@ -34,6 +34,8 @@ export class Phone {
       // the driving test: the gearbox you learn in, a mock or the real thing, retrying a route
       if (act === 'trans') { this.hooks.setTrans(id); this.render(); return; }
       if (act === 'lessoncar') { this.hooks.setLessonCar(id); this.render(); return; }
+      if (act === 'paint') { this.hooks.setPaint(id === 'own' ? null : parseInt(id, 16)); this.render(); return; }
+      if (act === 'plate') { this.hooks.setPlate($('plate-in')?.value); this.render(); return; }
       if (act === 'mock') { this.hooks.close(); this.hooks.startTest(id, null, 'mock'); return; }
       if (act === 'real') { this.hooks.close(); this.hooks.startTest(id, null, 'real'); return; }
       if (act === 'signs') { this.hooks.signDrill(); return; }
@@ -42,6 +44,8 @@ export class Phone {
       if (act === 'look') { state.look[b.dataset.part] = id; this.hooks.setLook(state.look); }
       if (act) this.render();
     });
+    // Enter in the plate box saves it, like the button
+    this.el.addEventListener('keydown', (e) => { if (e.target?.id === 'plate-in' && e.key === 'Enter') { this.hooks.setPlate(e.target.value); this.render(); } });
   }
   get open() { return !this.el.classList.contains('hidden'); }
   show(v) {
@@ -78,6 +82,12 @@ export class Phone {
       <h3>Lesson car</h3>
       <div class="seg" style="flex-wrap:wrap">${this.hooks.lessonCars().map((c) => `<button class="${c.sel ? 'on' : ''}" data-act="lessoncar" data-id="${c.id}">${c.name}</button>`).join('')}</div>
       <p class="note">Take your test in any car you own — it wears L plates and drives like a learner car. No more taxi.</p>
+      <h3>Your car</h3>
+      <div class="swatches"><button class="sw own ${uk.paint == null ? 'on' : ''}" data-act="paint" data-id="own" title="The car's own colour"></button>${PAINTS.map(([name, hex]) =>
+        `<button class="sw ${uk.paint === hex ? 'on' : ''}" data-act="paint" data-id="${hex.toString(16)}" title="${name}" style="background:#${hex.toString(16).padStart(6, '0')}"></button>`).join('')}</div>
+      <p class="note">${uk.paint == null ? 'Its own colour' : PAINTS.find(([, h]) => h === uk.paint)?.[0] || 'Custom'}. The paint goes on whichever car you take your test in.</p>
+      <div class="plate-row"><input id="plate-in" maxlength="8" value="${esc(this.hooks.myPlate())}" spellcheck="false" autocomplete="off" aria-label="Your number plate" /><button class="buy" data-act="plate">Set plate</button></div>
+      <p class="note">Your registration, front and back. Letters, numbers and a space, up to eight characters.</p>
       <h3>Mock test</h3>
       <p class="note">The real format, marked the way the examiner marks it, but nothing rides on it: a new route from the centre you pick with roundabouts, lights and crossings, a dual carriageway or 40 road, independent driving, a manoeuvre and sometimes an emergency stop. Each fault is shown as it happens so you learn on the way round.${mocks.length ? ` You've taken ${mocks.length} mock${mocks.length === 1 ? '' : 's'} and passed ${mocksPassed}.` : ''}</p>
       ${centres('mock')}
@@ -168,6 +178,7 @@ export class Phone {
       line('Flights', s.flights) +
       line('UK driving licence', state.uk.licence === 'full' ? 'Full (manual)' : state.uk.licence === 'auto' ? 'Automatic only' : 'Provisional') +
       line('Learning in', state.uk.trans === 'auto' ? 'Automatic' : 'Manual') +
+      line('Number plate', esc(this.hooks.myPlate())) +
       line('Driving tests', `${(state.uk.history || []).filter((t) => t.passed).length} passed of ${(state.uk.history || []).length}`);
   }
 }

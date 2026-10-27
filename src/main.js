@@ -210,6 +210,7 @@ const down = (...codes) => codes.some((c) => keys.has(c));
 const press = { shift: null, ignition: false, pbrakeToggle: false };
 const learnerCar = () => mode === 'car' && car?.drive;
 window.addEventListener('keydown', (e) => {
+  if (e.target?.tagName === 'INPUT') return; // typing on the phone (your number plate): the game keys stay out of it
   if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab'].includes(e.code)) e.preventDefault();
   keys.add(e.code);
   if (e.repeat) return;
@@ -593,6 +594,9 @@ const phone = new Phone({
   setTrans: (t) => setLearnerTrans(t),
   setLessonCar: (id) => setLessonCar(id),
   lessonCars: () => lessonCarList(),
+  setPaint: (hex) => setPaint(hex),
+  setPlate: (text) => setPlate(text),
+  myPlate: () => myPlate(),
   inKent: () => world.id === 'kent',
   goHome: () => goHome(),
   toast: (t, ms) => hud.toast(t, ms),
@@ -675,12 +679,31 @@ function addAutoBadge(c) {
   c.autoBadge = g;
   g.visible = c.trans === 'auto';
 }
-/** the car you learn in: your chosen car's looks, with calm learner handling so a test is still a test */
+// UK number plates: white at the front, yellow at the back, 520 x 111 mm
+function addNumberPlates(c, text) {
+  for (const z of [1, -1]) {
+    const cv = document.createElement('canvas'); cv.width = 512; cv.height = 112;
+    const ctx = cv.getContext('2d');
+    ctx.fillStyle = z > 0 ? '#f4f4f2' : '#f2d300'; ctx.fillRect(0, 0, 512, 112);
+    ctx.fillStyle = '#111'; ctx.font = '800 84px "Arial Narrow", Arial, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(text, 256, 60);
+    const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace;
+    const pl = new THREE.Mesh(new THREE.PlaneGeometry(0.52, 0.11), new THREE.MeshBasicMaterial({ map: tex }));
+    pl.position.set(0, 0.44, z * (c.model.length / 2 + 0.02));
+    pl.rotation.y = z > 0 ? 0 : Math.PI;
+    c.model.root.add(pl);
+  }
+}
+/** your registration: made up once, then yours to change on the phone */
+function myPlate() {
+  if (!state.uk.plate) { state.uk.plate = randomPlate(); save(); }
+  return state.uk.plate;
+}
+/** the car you learn in: your chosen car's looks (in your paint), with calm learner handling so a test is still a test */
 function lessonSpecFor(id) {
-  if (!id || id === 'learner' || !CARS[id] || P.isWrittenOff(id)) return LEARNER; // a written-off car can't be the lesson car
-
-  const base = CARS[id];
-  return { ...base, topSpeed: LEARNER.topSpeed, accel: LEARNER.accel, grip: LEARNER.grip, steer: LEARNER.steer };
+  const own = !id || id === 'learner' || !CARS[id] || P.isWrittenOff(id); // a written-off car can't be the lesson car
+  const base = own ? LEARNER : CARS[id];
+  return { ...base, color: state.uk.paint ?? base.color, topSpeed: LEARNER.topSpeed, accel: LEARNER.accel, grip: LEARNER.grip, steer: LEARNER.steer };
 }
 /** every car you drive is a learner car: its own looks, the learner gearbox, L plates on the back.
  *  The dedicated test car ('learner') also takes the calm handling of the chosen lesson car. */
@@ -688,14 +711,19 @@ function addLearnerCar(w, carId, at) {
   const base = carId === 'learner' ? lessonSpecFor(state.uk.lessonCar) : (CARS[carId] || LEARNER);
   const c = w.addCar(carId, at, { ...base, trans: state.uk.trans });
   addLPlates(c); addAutoBadge(c);
+  addNumberPlates(c, carId === 'learner' ? myPlate() : randomPlate()); // your plate is on your test car
   return c;
 }
-/** (re)build a world's dedicated test car from the chosen lesson car + gearbox */
+/** (re)build a world's dedicated test car from the chosen lesson car, paint, plate and gearbox.
+ *  If you are sitting in it, the new car takes its place under you. */
 function rebuildLearner(w) {
   if (!w.learnerAt) return null;
   const i = w.cars.findIndex((c) => c.id === 'learner');
-  if (i >= 0) { w.scene.remove(w.cars[i].model.root); w.cars.splice(i, 1); }
-  return addLearnerCar(w, 'learner', w.learnerAt);
+  const old = i >= 0 ? w.cars[i] : null;
+  if (old) { w.scene.remove(old.model.root); w.cars.splice(i, 1); }
+  const c = addLearnerCar(w, 'learner', old ? { x: old.pos.x, z: old.pos.z, heading: old.heading } : w.learnerAt);
+  if (old && car === old) { c.pos.copy(old.pos); c.sync(0); car = c; }
+  return c;
 }
 /** the phone's "Learning in" choice: every learner car already built changes gearbox (and badge) */
 function setLearnerTrans(t) {
@@ -705,11 +733,27 @@ function setLearnerTrans(t) {
 }
 /** the phone's "Lesson car" choice: take lessons in any car you own (it wears L plates) */
 function setLessonCar(id) {
-  if (lesson && !window.__game?.autoQuiz) { hud.toast('Finish (or stop) this lesson before you change car', 2600); return; }
+  if (lesson && !window.__game?.autoQuiz) { hud.toast('Finish (or stop) this test before you change car', 2600); return; }
   state.uk.lessonCar = !id || id === 'learner' ? null : id; save();
   for (const w of Object.values(worlds)) rebuildLearner(w);
   const base = CARS[state.uk.lessonCar];
-  hud.toast(`Lessons now in your ${base ? `${base.maker} ${base.model}` : 'VW Polo'}`, 2600);
+  hud.toast(`Tests now in your ${base ? `${base.maker} ${base.model}` : 'VW Polo'}`, 2600);
+}
+/** the phone's "Your car": a paint colour (null = the car's own) and your registration */
+function setPaint(hex) {
+  if (lesson && !window.__game?.autoQuiz) { hud.toast('Finish (or stop) this test before you repaint', 2600); return; }
+  if (car?.id === 'learner' && car.speedKmh > 5) { hud.toast('Pull over and stop before you repaint', 2400); return; }
+  state.uk.paint = Number.isInteger(hex) ? hex : null; save();
+  for (const w of Object.values(worlds)) rebuildLearner(w);
+}
+function setPlate(text) {
+  const t = String(text || '').toUpperCase().replace(/[^A-Z0-9 ]/g, '').replace(/\s+/g, ' ').trim().slice(0, 8);
+  if (t.replace(/ /g, '').length < 2) { hud.toast('A plate needs at least two letters or numbers', 2400); return; }
+  if (lesson && !window.__game?.autoQuiz) { hud.toast('Finish (or stop) this test before you change the plate', 2600); return; }
+  if (car?.id === 'learner' && car.speedKmh > 5) { hud.toast('Pull over and stop before you change the plate', 2400); return; }
+  state.uk.plate = t; save();
+  for (const w of Object.values(worlds)) rebuildLearner(w);
+  hud.toast(`Your plate is now ${t}`, 2400);
 }
 /** every car you can take a lesson in: the free learner Polo plus the cars you own */
 function lessonCarList() {

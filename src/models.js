@@ -992,10 +992,17 @@ function buildFittedCar(spec) {
     if (!o.isMesh) return;
     o.castShadow = true;
     o.receiveShadow = true;
-    for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
+    const arr = Array.isArray(o.material) ? o.material : [o.material];
+    arr.forEach((m, i) => {
       m.envMapIntensity = 1.1;
-      if (fit.paint && fit.paint.test(m.name) && (!m.map || fit.tint)) { m.color.set(spec.color); m.metalness = 0.55; m.roughness = 0.32; }
-    }
+      if (fit.paint && fit.paint.test(m.name) && (!m.map || fit.tint)) {
+        // the clone shares the loaded materials, so this car gets its own paint (two cars of the
+        // same model can wear different colours: your repainted test car and the one in the garage)
+        const p = m.clone();
+        p.color.set(spec.color); p.metalness = 0.55; p.roughness = 0.32;
+        if (Array.isArray(o.material)) o.material[i] = p; else o.material = p;
+      }
+    });
   });
 
   // wheels: the top-most nodes matching fit.wheels
