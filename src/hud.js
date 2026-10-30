@@ -104,6 +104,8 @@ export class Hud {
     this.tipEl = $('ctl-tip');
     this.controlsEl = $('controls');
     this.controlsBody = $('controls-body');
+    this.settingsEl = $('settings-btn');
+    this.onSettings = null; // main.js sets this: opens the phone's Settings tab
     this.dockEl = $('controldock');
     this.dockKey = null;
     this.examEl = $('exam');
@@ -135,6 +137,7 @@ export class Hud {
     this.onControlsClose = null;
     $('controls-close').addEventListener('click', (e) => { e.currentTarget.blur(); this.onControlsClose?.(); });
     this.controlsEl.addEventListener('click', (e) => { if (e.target === this.controlsEl) this.onControlsClose?.(); });
+    this.settingsEl?.addEventListener('click', (e) => { e.currentTarget.blur(); this.onSettings?.(); });
   }
 
   load() { try { return JSON.parse(localStorage.getItem(STORE) || '{}') || {}; } catch { return {}; } }

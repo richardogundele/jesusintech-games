@@ -185,6 +185,11 @@ coachKeyIn?.addEventListener('keydown', (e) => {
 });
 // the "goals today" chip opens the phone on Today
 hud.onGoals = () => { if (mode === 'foot' || mode === 'car') { phone.tab = 'today'; togglePhone(); } };
+// the top-left Settings button: straight to the phone's Settings tab (manual/auto, which car, tests)
+hud.onSettings = () => {
+  if (mode === 'phone') { phone.tab = 'lessons'; phone.render(); return; }
+  if (mode === 'foot' || mode === 'car') { phone.tab = 'lessons'; togglePhone(); }
+};
 
 function enterWorld(target, spawn) {
   if (lesson) lesson.cancel('Lesson stopped');
