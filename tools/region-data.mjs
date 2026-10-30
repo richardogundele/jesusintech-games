@@ -157,9 +157,15 @@ const WIDTH = (w, limit, lanesF, lanesB) => {
     default: return 7.3;
   }
 };
+// An unnamed service way is a driveway or a car-park aisle and is left out - unless it is the
+// only thing joining a named close to the street, in which case dropping it marooned the close
+// (it then fell out as an island). Keep the ones that touch other roads at two or more nodes.
+const nodeUse = new Map();
+for (const w of roads.ways) for (const n of new Set(w.nodes || [])) if (n) nodeUse.set(n, (nodeUse.get(n) || 0) + 1);
+const bridges = (w) => new Set((w.nodes || []).filter((n) => n && nodeUse.get(n) >= 2)).size >= 2;
 const pieces = [];
 for (const w of roads.ways) {
-  if (w.class === 'service' && !w.name) continue;
+  if (w.class === 'service' && !w.name && !bridges(w)) continue;
   const parts = clipLine(w.pts, w.nodes);
   parts.forEach((part, k) => {
     const limitTag = w.maxspeed_mph && w.maxspeed_src === 'tag' ? w.maxspeed_mph : null;
@@ -209,6 +215,41 @@ function addSynthetic(id, name, gate, join) {
   synthNotes.push(`${name} (way ${id}): ${Math.round(dist(gate, q))} m from (${gate}) to ${p.name || p.cls} at (${r1(q[0])}, ${r1(q[1])}), ${best.d.toFixed(1)} m from the requested join point`);
 }
 addSynthetic(9000000002, 'Jet Centre Road', JET_GATE, JET_JOIN);
+/**
+ * A way that ends within SNAP metres of another road without sharing a node with it is an OSM
+ * digitising slip, not a cul-de-sac: join it, splitting the other way at the foot of the
+ * perpendicular (the same split addSynthetic uses). Bbox cuts ('e' nodes) and gates are left alone.
+ */
+function snapLooseEnds(SNAP = 1.5) {
+  const use = new Map();
+  for (const p of pieces) for (const n of new Set(p.nodes)) if (n) use.set(n, (use.get(n) || 0) + 1);
+  const CELL = 20, grid = new Map(), key = (x, z) => `${Math.floor(x / CELL)}:${Math.floor(z / CELL)}`;
+  pieces.forEach((p, pi) => { for (let i = 0; i < p.pts.length - 1; i++) { const a = p.pts[i], b = p.pts[i + 1]; for (let gx = Math.floor(Math.min(a[0], b[0]) / CELL); gx <= Math.floor(Math.max(a[0], b[0]) / CELL); gx++) for (let gz = Math.floor(Math.min(a[1], b[1]) / CELL); gz <= Math.floor(Math.max(a[1], b[1]) / CELL); gz++) { const k = `${gx}:${gz}`; if (!grid.has(k)) grid.set(k, []); grid.get(k).push([pi, i]); } } });
+  let seq = 0, joined = 0;
+  for (const p of pieces) for (const end of [0, p.pts.length - 1]) {
+    const n = p.nodes[end];
+    if (!n || use.get(n) !== 1 || (typeof n === 'string' && /^[eg]/.test(n))) continue;
+    const q0 = p.pts[end];
+    let best = null;
+    for (let gx = -1; gx <= 1; gx++) for (let gz = -1; gz <= 1; gz++) for (const [pi, i] of grid.get(key(q0[0] + gx * CELL, q0[1] + gz * CELL)) || []) {
+      const o = pieces[pi]; if (o === p) continue;
+      const a = o.pts[i], b = o.pts[i + 1], dx = b[0] - a[0], dz = b[1] - a[1], L2 = dx * dx + dz * dz;
+      let t = L2 > 0 ? ((q0[0] - a[0]) * dx + (q0[1] - a[1]) * dz) / L2 : 0; t = Math.max(0, Math.min(1, t));
+      const q = [a[0] + dx * t, a[1] + dz * t], d = dist(q, q0);
+      if (d <= SNAP && (!best || d < best.d)) best = { o, i, t, q, d };
+    }
+    if (!best) continue;
+    const { o, i, t, q } = best;
+    let id;
+    if (t < 0.02 || dist(q, o.pts[i]) < SNAP) { id = o.nodes[i]; if (!id) { id = 's' + ++seq; o.nodes[i] = id; } p.pts[end] = [...o.pts[i]]; }
+    else if (t > 0.98 || dist(q, o.pts[i + 1]) < SNAP) { id = o.nodes[i + 1]; if (!id) { id = 's' + ++seq; o.nodes[i + 1] = id; } p.pts[end] = [...o.pts[i + 1]]; }
+    else { id = 's' + ++seq; const pt = [r1(q[0]), r1(q[1])]; o.pts.splice(i + 1, 0, pt); o.nodes.splice(i + 1, 0, id); p.pts[end] = [...pt]; }
+    p.nodes[end] = id; use.set(id, (use.get(id) || 0) + 1); joined++;
+    synthNotes.push(`snapped ${p.name || p.cls} (${p.id}) onto ${o.name || o.cls} at (${r1(q[0])}, ${r1(q[1])}), ${best.d.toFixed(2)} m`);
+  }
+  return joined;
+}
+const snapped = snapLooseEnds();
 // ring membership from roundabouts.json (rings are one-way by definition)
 const ringOf = new Map();
 for (const rb of rbsIn) if (!rb.mini) for (const id of rb.ways) ringOf.set(id, rb.id);
@@ -267,6 +308,15 @@ for (const p of kept) {
     if (!nd.ways.includes(p.id)) nd.ways.push(p.id);
   });
 }
+// The streets were fetched for the square ±half, but the bounds run 1.1 km further south for the
+// jet centre, so a road leaving the square southwards is not clipped and never got an 'e' node:
+// it ended mid-field with no closure. Any dead end within 30 m of the fetched square's edge IS the
+// edge of the data, and gets the same No Entry closure as a clipped one.
+{
+  const EDGE = R.half - 30, touch = new Map();
+  for (const p of kept) p.nodes.forEach((n, i) => { if (n) touch.set(n, (touch.get(n) || 0) + (i > 0 && i < p.nodes.length - 1 ? 2 : 1)); });
+  for (const [n, nd] of Object.entries(nodesOut)) if (touch.get(+n) === 1 && (Math.abs(nd.x) >= EDGE || Math.abs(nd.z) >= EDGE)) nd.edge = true;
+}
 const osmToNode = (id) => nodeMap.get(id) || 0;
 const nodeXZ = (n) => [nodesOut[n].x, nodesOut[n].z];
 const wayById = new Map(kept.map((p) => [p.id, p]));
@@ -274,7 +324,9 @@ const cumOf = (p) => { const c = [0]; for (let i = 1; i < p.pts.length; i++) c.p
 
 // ---------- 5. roundabouts ----------
 // Lower lanes thresholds: more small rings become 2-lane, and the tightest 1-lane rings stay 1 lane
-const LANE_RULE = (tag, r, maxEntry) => (tag ? tag : maxEntry >= 3 ? 3 : (maxEntry >= 2 && r >= 8) || r >= 18 ? 2 : 1);
+// an untagged ring gets exactly as many lanes as its widest approach: a big radius alone used to
+// make a ring 2-lane while every road into it had one, and that put arrows on one-lane streets
+const LANE_RULE = (tag, r, maxEntry) => (tag ? tag : r < 10 ? 1 : Math.max(1, Math.min(3, maxEntry)));
 const roundabouts = [], stitched = [], skippedRb = [], demoted = [];
 let synthSeq = 0;
 for (const rb of rbsIn) {

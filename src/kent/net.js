@@ -287,12 +287,6 @@ export class RoadNet {
     const MIN_RING = 5.5;
     for (const r of this.data.roundabouts || []) {
       const rb = Object.assign({}, r);
-      const lanes = Math.max(1, r.lanes || 1);
-      let island = r.island;
-      if (lanes <= 1) { const want = Math.min(MIN_RING, r.r - 1.5); if (island == null || r.r - island < want) island = r.r - want; }
-      rb.island = island;
-      // a single-lane ring's lane IS the whole carriageway, so the driving line sits in its middle
-      rb.laneW = lanes <= 1 && island != null ? Math.max(3.5, r.r - island) : (r.laneW || (r.r < 12 ? 3.0 : LW));
       rb.arms = r.arms.map((a) => Object.assign({}, a)).sort((a, b) => a.bearing - b.bearing);
       // the arm lane counts were baked from the old one-lane duals, so an approach widened above
       // would run two lanes into a one-lane entry line. Take whichever is wider.
@@ -301,6 +295,25 @@ export class RoadNet {
         a.entryLanes = Math.max(a.entryLanes || 1, lanesOf(a.entryWays));
         a.exitLanes = Math.max(a.exitLanes || 1, lanesOf(a.exitWays));
       }
+      // An untagged ring has exactly as many lanes as its widest approach, decided HERE because the
+      // dual-carriageway widening above is what makes some approaches two lanes. (The bake applies
+      // the same rule to what it can see; a small ring, r < 10, stays one lane whatever feeds it.)
+      let lanes = Math.max(1, r.lanes || 1);
+      if (r.lanesSrc !== 'tag') {
+        const widest = Math.max(1, ...rb.arms.filter((a) => a.entry).map((a) => a.entryLanes || 1));
+        const want = r.r < 10 ? 1 : Math.min(3, widest);
+        if (want !== lanes) {
+          lanes = want; rb.lanes = want;
+          const laneW = r.laneW || (r.r < 12 ? 3.0 : LW);
+          rb.island = Math.max(1.5, r.r - lanes * laneW);
+          for (const id of r.ringWays || []) { const w = this.ways.get(id); if (w) { w.lanesF = lanes; w.width = lanes * laneW; w.halfW = w.width / 2; } }
+        }
+      }
+      let island = rb.island;
+      if (lanes <= 1) { const want = Math.min(MIN_RING, r.r - 1.5); if (island == null || r.r - island < want) island = r.r - want; }
+      rb.island = island;
+      // a single-lane ring's lane IS the whole carriageway, so the driving line sits in its middle
+      rb.laneW = lanes <= 1 && island != null ? Math.max(3.5, r.r - island) : (r.laneW || (r.r < 12 ? 3.0 : LW));
       rb.angleAt = (x, z) => Math.atan2(z - rb.z, x - rb.x);
       rb.pointAt = (ang, radius) => [rb.x + Math.cos(ang) * radius, rb.z + Math.sin(ang) * radius];
       rb.laneRadius = (k) => rb.r - (k - 0.5) * rb.laneW; // lane 1 = outer (nearside) lane
@@ -578,7 +591,7 @@ export class RoadNet {
    * Exits up to and including straight ahead take the left-hand lane, exits past straight ahead the
    * right-hand lane; on a 3-lane approach the middle lane is for straight ahead when the lanes are signed.
    */
-  rbExitIndex(rb, inArm, outArm) {
+  rbExitIndex(rb, inArm, outArm, inLeg = null) {
     if (typeof rb === 'string') rb = this.roundabouts.get(rb);
     const approach = norm180(inArm.bearing + 180);
     const turnOf = (arm) => norm180(arm.bearing - approach);
@@ -597,7 +610,11 @@ export class RoadNet {
     const uTurn = Math.abs(turn) > 150 && outArm === inArm;
     const dir = uTurn ? 'right' : turn < -35 ? 'left' : turn > 35 ? 'right' : 'none';
     const pastStraight = straightN != null ? exit > straightN : turn > 35;
-    const entryLanes = Math.max(1, inArm.entryLanes || 1), signed = !!inArm.signed;
+    // the arm's entryLanes is the max over every way merged into that arm (a 1-lane side road next
+    // to a 2-lane slip inherits 2), so clamp to the lanes the road we are actually on really has -
+    // the examiner must never demand lane 2 of a one-lane street
+    const ownLanes = inLeg ? Math.max(1, this.laneCount(inLeg.way, inLeg.dir) || 1) : Infinity;
+    const entryLanes = Math.max(1, Math.min(ownLanes, inArm.entryLanes || 1)), signed = !!inArm.signed;
     let approachLane = 1;
     if (entryLanes >= 3) approachLane = pastStraight || uTurn ? entryLanes : exit === straightN && signed ? 2 : 1;
     else if (entryLanes === 2) approachLane = pastStraight || uTurn ? 2 : 1;
@@ -885,7 +902,7 @@ export class RoadNet {
         const inLeg = legs[i - 1], outLeg = legs[j + 1];
         const inArm = this.rbArmAt(rb, entryNode.id, inLeg.way.id, this.#legHeading(inLeg, 'end') + 180);
         const outArm = this.rbArmAt(rb, exitNode.id, outLeg.way.id, this.#legHeading(outLeg, 'start'));
-        const decision = inArm && outArm ? this.rbExitIndex(rb, inArm, outArm) : { exit: 1, dir: 'none', approachLane: 1, ringLane: 1, exitLane: 1 };
+        const decision = inArm && outArm ? this.rbExitIndex(rb, inArm, outArm, inLeg) : { exit: 1, dir: 'none', approachLane: 1, ringLane: 1, exitLane: 1 };
         rbInfo.push({ startLeg: i, endLeg: j, rb, entryNode, exitNode, inArm, outArm, decision, inLeg, outLeg });
         // approach lane: the leg before the ring; exit lane on the leg after
         inLeg.wantLane = decision.approachLane; outLeg.lane = Math.min(decision.exitLane, this.laneCount(outLeg.way, outLeg.dir) || 1);

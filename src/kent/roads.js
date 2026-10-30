@@ -468,8 +468,14 @@ function ringArm(view, rb, way, nid) {
   // arm list doesn't match), fall back to the approach road's own real lane count instead of
   // silently assuming one lane - a genuinely two- or three-lane approach was losing its lane
   // arrows and dividing lines entirely because of this.
-  const entryLanes = Math.max(1, num(data?.entryLanes, d.oneway ? d.lanesF : dir === 1 ? d.lanesB : d.lanesF));
-  const markLanes = Math.max(entryLanes, d.oneway ? 0 : Math.min(2, lanes));
+  // The arm's entryLanes is the max over every way the bake merged into that arm, so a one-lane
+  // side road beside a two-lane slip inherits 2: clamp to what THIS way really has.
+  const ownLanes = Math.max(1, d.oneway ? d.lanesF : dir === 1 ? d.lanesB : d.lanesF);
+  const entryLanes = Math.max(1, Math.min(ownLanes, num(data?.entryLanes, ownLanes)));
+  // the flare is painted with exactly as many lanes as the approach road really has. It used to be
+  // forced up to the ring's lane count, which put a dividing line and two or three lane arrows on
+  // every one-lane street that happened to meet a two-lane roundabout.
+  const markLanes = entryLanes;
   const splitter = !d.oneway && (entryLanes >= 2 || r >= 12) && r >= 7;
   const ghost = !d.oneway && !splitter && r >= 7;
   const wMax = splitter ? (r >= 18 ? 1.6 : 1.2) : ghost ? 0.8 : 0;

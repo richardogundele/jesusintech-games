@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "rm -rf dist && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "check": "for r in kent london birmingham manchester; do node tools/lanes-check.mjs public/assets/$r/region.json || exit 1; done && node tools/net-check.mjs"
   },
   "dependencies": {
     "three": "0.170.0"
