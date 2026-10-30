@@ -964,7 +964,11 @@ export function buildRoadTile(net, tile, { lod = 'near', mats, materials, ground
     }
     if (info.kind === 'end') {
       const a = info.arms[0];
-      if (a && (a.d.cls === 'residential' || a.d.cls === 'unclassified' || a.d.cls === 'service') && a.d.pave) J.disc(info.x, info.z, a.d.width * 0.8, Y_ROAD - 0.001, 28, uvWorld);
+      // a real cul-de-sac on a minor road gets its usual turning-circle disc; a map-edge cut (any
+      // class - an A-road runs off the fetched bbox just as often as a lane) gets one too, so the
+      // tarmac ends in a clean round cap instead of a hard perpendicular slice into the grass.
+      const cul = a && (a.d.cls === 'residential' || a.d.cls === 'unclassified' || a.d.cls === 'service');
+      if (a && a.d.pave && (cul || info.node.edge)) J.disc(info.x, info.z, a.d.width * 0.8, Y_ROAD - 0.001, 28, uvWorld);
     }
     if (!near) continue;
     const W = batch('white');

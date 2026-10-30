@@ -404,6 +404,17 @@ function makePlan(net, view) {
       add(id, id === 'stop' ? 11 : 10, site(a.way, a.way.cum[a.idx], a.dir, 1), [face(1, { sign: id, band: bandW(a.way) })], { tag: id });
     }
   }
+  // ---------- map edge ----------
+  // region-data.mjs/kent-data.mjs clip every way to the fetched bounding box, so a dead end tagged
+  // `edge` isn't a real cul-de-sac - it's just where the loaded map runs out. Left alone the tarmac
+  // simply stops; a real "no entry" (616) gives a driver a legible, in-world reason to turn back.
+  for (const node of net.nodes.values()) {
+    if (!node.edge || node.kind !== 'end' || node.rb) continue;
+    const arm = node.arms()[0];
+    if (!arm) continue;
+    const tdir = -arm.dir; // a car reaching this true dead end is travelling opposite the arm's own direction
+    add('no_entry', 10, site(arm.way, arm.way.cum[arm.idx], tdir, 1), [face(1, { sign: 'no_entry', band: bandW(arm.way) })], { tag: 'map_edge' });
+  }
 
   // ---------- roundabouts ----------
   for (const rb of net.roundabouts.values()) {
