@@ -106,6 +106,8 @@ export class Hud {
     this.controlsBody = $('controls-body');
     this.settingsEl = $('settings-btn');
     this.onSettings = null; // main.js sets this: opens the phone's Settings tab
+    this.lessonStopEl = $('lesson-stop-btn');
+    this.onStopLesson = null; // main.js sets this: ends the current lesson/test now and shows the report so far
     this.dockEl = $('controldock');
     this.dockKey = null;
     this.examEl = $('exam');
@@ -138,6 +140,7 @@ export class Hud {
     $('controls-close').addEventListener('click', (e) => { e.currentTarget.blur(); this.onControlsClose?.(); });
     this.controlsEl.addEventListener('click', (e) => { if (e.target === this.controlsEl) this.onControlsClose?.(); });
     this.settingsEl?.addEventListener('click', (e) => { e.currentTarget.blur(); this.onSettings?.(); });
+    this.lessonStopEl?.addEventListener('click', (e) => { e.currentTarget.blur(); this.onStopLesson?.(); });
   }
 
   load() { try { return JSON.parse(localStorage.getItem(STORE) || '{}') || {}; } catch { return {}; } }

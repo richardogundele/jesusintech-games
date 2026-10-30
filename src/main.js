@@ -190,6 +190,8 @@ hud.onSettings = () => {
   if (mode === 'phone') { phone.tab = 'lessons'; phone.render(); return; }
   if (mode === 'foot' || mode === 'car') { phone.tab = 'lessons'; togglePhone(); }
 };
+// the "stop and get my report" button on the lesson card: ends it now, faults so far only
+hud.onStopLesson = () => { if (lesson && car) lesson.quit(car); };
 
 function enterWorld(target, spawn) {
   if (lesson) lesson.cancel('Lesson stopped');
@@ -925,7 +927,8 @@ const lessonHooks = {
     if (reward) { addFundsUI(reward, 'Passed your UK driving test'); }
     if (r.passed) P.emit('lesson');
     $('res-name').textContent = r.mock ? `${r.title} · ${r.trans === 'manual' ? 'manual' : 'automatic'}` : `Lesson · ${r.title}`;
-    $('res-medal').textContent = r.terminated ? 'TEST STOPPED · DANGEROUS FAULT'
+    $('res-medal').textContent = r.terminated === 'danger' ? 'TEST STOPPED · DANGEROUS FAULT'
+      : r.terminated === 'player' ? 'STOPPED EARLY · REPORT SO FAR'
       : !r.passed ? 'NOT PASSED'
       : r.real ? (uk.licence === 'full' ? 'PASSED · FULL UK LICENCE' : 'PASSED · AUTOMATIC LICENCE')
       : r.mock ? 'MOCK PASSED · READY FOR THE REAL TEST' : 'PASSED';

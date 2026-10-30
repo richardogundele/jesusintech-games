@@ -929,10 +929,19 @@ export class LessonRun {
   isTest() { return !!(this.def.mock || this.def.generated); }
   endOnDanger(car) {
     this.say('That is a dangerous fault, so I am going to stop the test here for safety. Pull up on the left when it is safe, and I will give you your report.');
-    this.report(car, true);
+    this.report(car, 'danger');
   }
 
-  /** Build the DL25 sheet + debrief and hand it to the result screen. `terminated` = stopped early on a dangerous fault. */
+  /** The player asked to stop now, from the "Stop and get my report" button: faults so far only,
+   * no pass (you can't pass a test or lesson you chose to end early). */
+  quit(car) {
+    this.say("No problem - let's stop there. Here's my report on what you've done so far.");
+    this.report(car, 'player');
+  }
+
+  /** Build the DL25 sheet + debrief and hand it to the result screen. `terminated` is false for a
+   * natural finish, 'danger' when a dangerous fault stopped the test, 'player' when they asked to
+   * stop early themselves - either way you only get credited faults for what you actually drove. */
   report(car, terminated) {
     this.done = true;
     this.dispose();
@@ -940,7 +949,7 @@ export class LessonRun {
     const man = this.spec?.manoeuvre || (this.spec?.pullRight ? 'pullright' : this.spec?.end === 'baypark' ? 'baypark' : null);
     const sheet = scoreSheet(this.faults, { test: !!this.def.mock, man });
     const c = { minor: sheet.total, serious: sheet.serious, dangerous: sheet.dangerous };
-    const passed = sheet.passed;
+    const passed = terminated === 'player' ? false : sheet.passed;
     const brief = debrief(sheet, { where: (f) => this.where(f), mock: !!this.def.mock, trans: this.trans || car.trans, lessonTitle: (id) => LESSONS.find((l) => l.id === id)?.title || id });
     const groups = {};
     for (const f of this.faults) {
@@ -952,7 +961,7 @@ export class LessonRun {
     if (!terminated) this.say(this.def.mock ? `Please switch off the engine and give me a moment to complete my test report. ${brief.spoken}` : brief.verdict);
     const map = this.kent || this.route.pts.length ? { pts: this.route.pts.filter((q, i) => i % 6 === 0).map((q) => [+q.x.toFixed(1), +q.z.toFixed(1)]), faults: this.faults.filter((f) => f.at).map((f) => ({ x: f.at.x, z: f.at.z, sev: f.sev })) } : null;
     this.hooks.result({ id: this.def.id, title: this.def.title, mock: !!this.def.mock, real: !!this.def.real, practice: !!this.def.practice, passed, counts: c, lines, time: this.t, tasks: this.tasks, trans: this.trans || car.trans,
-      sheet, brief, map, generated: this.def.generated || null, signs: this.def.signs || null, terminated: !!terminated });
+      sheet, brief, map, generated: this.def.generated || null, signs: this.def.signs || null, terminated: terminated || false });
   }
 
   /** where a fault happened, for the debrief: the roundabout or junction near it, else the road */
