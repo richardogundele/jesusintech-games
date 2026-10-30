@@ -69,6 +69,7 @@ export function setupSky(scene, renderer, {
   hdri, rotation = 0, sunAzimuth = null, exposure = 1, envIntensity = 1,
   sunColor = 0xfff1dc, sunIntensity = 3.2, fogDensity = 0.0009, fogTint = 1,
   overcast = false, sunElevation = 46, skyZenith = 0xccd1d6, skyHorizon = 0xbec1c4,
+  sunElevationDeg = null, shadowFar = 600,
 }) {
   let sunDir, horizon;
   if (overcast) {
@@ -94,6 +95,14 @@ export function setupSky(scene, renderer, {
     scene.backgroundIntensity = exposure;
     scene.environmentIntensity = envIntensity;
     sunDir = found.dir.applyAxisAngle(new THREE.Vector3(0, 1, 0), rot).normalize();
+    if (sunElevationDeg != null) {
+      // golden-hour override: keep the HDRI's real azimuth (so the background's own glow still
+      // lines up) but force a low elevation for long shadows - the photo's sun is far lower than
+      // any "partly cloudy" HDR actually carries.
+      const horizLen = Math.hypot(sunDir.x, sunDir.z) || 1;
+      const el = THREE.MathUtils.degToRad(sunElevationDeg);
+      sunDir.set((sunDir.x / horizLen) * Math.cos(el), Math.sin(el), (sunDir.z / horizLen) * Math.cos(el));
+    }
     if (sunDir.y < 0.12) sunDir.y = 0.12; // keep shadows a sensible length
     sunDir.normalize();
     horizon = found.horizon.clone().multiplyScalar(exposure * fogTint);
@@ -111,7 +120,7 @@ export function setupSky(scene, renderer, {
   sc.left = sc.bottom = -70;
   sc.right = sc.top = 70;
   sc.near = 1;
-  sc.far = 600;
+  sc.far = shadowFar;
   sun.shadow.bias = -0.0003;
   sun.shadow.normalBias = 0.05;
   sun.shadow.radius = overcast ? 4 : 1; // softer contact shadows under a diffuse sky
@@ -138,6 +147,23 @@ export const UK_DAY = {
   sunColor: 0xfff2dc,
   sunIntensity: 3.0,
   fogDensity: 0.0009,
+};
+
+/**
+ * Low, warm, long-shadow light - the look of a real high street photographed in late-afternoon
+ * sun: a low amber sun (sunElevationDeg overrides the HDRI's own, much higher, sun), stronger
+ * contrast between lit and shadowed walls, and thin golden haze instead of the flat grey of
+ * UK_OVERCAST. Callers spread it and add their own sunAzimuth to choose which street face lights up.
+ */
+export const UK_GOLDEN = {
+  exposure: 1.0,
+  envIntensity: 0.85,
+  sunColor: 0xffb26b,
+  sunIntensity: 3.6,
+  fogDensity: 0.0011,
+  fogTint: 1.15,
+  sunElevationDeg: 19,
+  shadowFar: 750,
 };
 
 /** The overcast-UK sky preset. Callers spread it and add their own sunAzimuth. */
