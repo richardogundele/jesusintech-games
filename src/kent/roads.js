@@ -464,7 +464,11 @@ function ringArm(view, rb, way, nid) {
   }
   trim = Math.min(25, Math.max(0, trim));
   const data = (rb.arms || []).find((a) => a.node === nid) || null;
-  const entryLanes = Math.max(1, num(data?.entryLanes, d.oneway ? d.lanesF : 1));
+  // when this arm's own OSM-derived lane count isn't found (a node the roundabout's precomputed
+  // arm list doesn't match), fall back to the approach road's own real lane count instead of
+  // silently assuming one lane - a genuinely two- or three-lane approach was losing its lane
+  // arrows and dividing lines entirely because of this.
+  const entryLanes = Math.max(1, num(data?.entryLanes, d.oneway ? d.lanesF : dir === 1 ? d.lanesB : d.lanesF));
   const markLanes = Math.max(entryLanes, d.oneway ? 0 : Math.min(2, lanes));
   const splitter = !d.oneway && (entryLanes >= 2 || r >= 12) && r >= 7;
   const ghost = !d.oneway && !splitter && r >= 7;
