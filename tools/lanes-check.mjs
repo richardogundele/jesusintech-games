@@ -48,10 +48,18 @@ ways.forEach((w, wi) => { for (let i = 0; i < w.pts.length - 1; i++) { const a =
 const near = [];
 for (const n of ends) {
   if (nodes[n].edge) continue;
+  // A way the dead end's own way ALREADY shares a node with is not a connectivity gap: the two are
+  // joined at that node and the tip merely curls back near its neighbour. Warrington has two --
+  // Liberty Close and Kinross Close are each a pair of parking-court spurs off one close, joined at
+  // the root, tips 1.50 m and 0.43 m apart pointing 180 and 108 degrees AWAY from the gap.
+  // snapLooseEnds declines them by this same rule (region-data.mjs:250), so flagging them asked the
+  // baker for a join that would add nothing but a degenerate loop.
   const q0 = [nodes[n].x, nodes[n].z], own = new Set(wayOf.get(n).map((w) => w.id));
+  const ownNodes = new Set(wayOf.get(n).flatMap((w) => w.nodes).filter(Boolean));
   let best = null;
   for (let gx = -1; gx <= 1; gx++) for (let gz = -1; gz <= 1; gz++) for (const [wi, i] of grid.get(key(q0[0] + gx * CELL, q0[1] + gz * CELL)) || []) {
     const o = ways[wi]; if (own.has(o.id)) continue;
+    if (o.nodes.some((m) => m && ownNodes.has(m))) continue;
     const a = o.pts[i], b = o.pts[i + 1], dx = b[0] - a[0], dz = b[1] - a[1], L2 = dx * dx + dz * dz;
     let t = L2 > 0 ? ((q0[0] - a[0]) * dx + (q0[1] - a[1]) * dz) / L2 : 0; t = Math.max(0, Math.min(1, t));
     const d = Math.hypot(a[0] + dx * t - q0[0], a[1] + dz * t - q0[1]);
