@@ -423,10 +423,12 @@ export class RoadNet {
       }
       return last[1];
     };
+    this.maxDeck = 0; // the tallest deck in this region, so deckNear can bound what it holds
     for (const w of this.ways.values()) {
       const samples = [];
       for (let i = 0; i < w.nodes.length; i++) { const nid = w.nodes[i]; if (nid) samples.push([w.cum[i], w.deckH || nodeH.get(nid) || 0]); }
       if (!samples.length || samples.every((s) => s[1] <= 0)) { w.deck = null; w.hasDeck = false; continue; }
+      for (const s of samples) if (s[1] > this.maxDeck) this.maxDeck = s[1];
       w.deck = (s) => interp(samples, s);
       w.hasDeck = true;
     }
@@ -462,7 +464,11 @@ export class RoadNet {
     // here tore the Eddington ramp open -- one guide-ribbon vertex at 0.2 m, the next at 5.0 m,
     // drawn as a wall of blue 5 m tall. Hold the height we came in with and let the next point
     // that does find a road decide.
-    if (bestScore === Infinity) return Math.max(0, prevY - terrainY);
+    // Bounded by the tallest deck the region actually has, because prevY is not always continuous:
+    // traffic.js only places a car's mesh while it is on screen and feeds that mesh's own y back in
+    // here, so a car returning to view carries a height from wherever it last was. Holding that
+    // unbounded would float it; holding at most a real deck cannot lift anything above a bridge.
+    if (bestScore === Infinity) return Math.min(this.maxDeck || 0, Math.max(0, prevY - terrainY));
     // ...but if a road IS here and none of it is decked, best stays 0
     return best;
   }
