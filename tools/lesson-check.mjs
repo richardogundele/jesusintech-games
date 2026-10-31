@@ -400,6 +400,10 @@ async function runLesson(def, s0, bad = null, maxSec = 3600) {
   }
   return {
     id: def.id, seed: s0, trans: car.trans + (car.drive ? '' : ' (arcade)'), stalls: car.drive?.stalls ?? 0, grinds: car.drive?.grinds ?? 0, bad: bad ? Object.keys(bad)[0] : null, done: !!result, cancelled, passed: result?.passed ?? false,
+    // 'danger' when a dangerous fault stopped the test (lessons.js:302), 'player' when it asked to
+    // stop early. Either way the clock stopped with route left to drive, so simMin is not this
+    // route's duration -- which is the whole reason the window check below has to know.
+    terminated: result?.terminated || null,
     counts: result?.counts || run.counts(), faults: run.faults.map((x) => `${x.sev[0]}:${x.cat}@${Math.round(x.s)}${x.at ? ` (${x.at.x},${x.at.z})` : ''}`),
     trace, frames: f, otherHits, colliders: world.colliders.boxes?.length ?? 0, detoured, rerouted: said.filter((t) => /recalculated|take you back/.test(t)).length, satnav: said.filter((t) => t.startsWith('Sat nav')).length, simMin: +(elapsed / 60).toFixed(1), wallS: +((Date.now() - t0) / 1000).toFixed(1), length: Math.round(run.route.length), s: Math.round(run.s),
     said, tasks: result?.tasks,
@@ -450,10 +454,17 @@ for (const [def, s, gen] of jobs) {
   const serious = r.counts.serious + r.counts.dangerous;
   const badKey = opt('bad'), hits = bad ? r.faults.filter((x) => WANT[badKey].test(x.replace(/^[a-z]:/, ''))).length : 0;
   let ok = bad ? hits > 0 : r.done && serious === 0;
-  if (gen && !bad && (r.simMin < 13 || r.simMin > 17)) { ok = false; r.timeFail = true; }
+  // The window judges how long the ROUTE takes, so it only applies to a run that drove all of it.
+  // Applied to a run whose clock was cut short it just counts the same defect twice: a run that
+  // died at 153 m, or that a dangerous fault ended at 1.4 min, is of course under 13 minutes, and
+  // that says nothing about the route. Over the seven baked cities 14 of 25 window failures -- 56%,
+  // and 5 of 5 on Leeds, 2 of 2 on Liverpool -- were this double count, which made the column look
+  // like the biggest problem on every map while telling us nothing new about any of them.
+  const cutShort = !r.done || r.cancelled || r.terminated;
+  if (gen && !bad && !cutShort && (r.simMin < 13 || r.simMin > 17)) { ok = false; r.timeFail = true; }
   if (bad) r.matching = hits;
   if (!ok) failed++;
-  console.log(`${ok ? 'ok  ' : 'FAIL'} ${r.id.padEnd(16)} ${r.trans.padEnd(6)} seed ${s}${r.bad ? ` bad ${r.bad}` : ''}: ${r.done ? (r.passed ? 'passed' : 'not passed') : r.cancelled ? `cancelled (${r.cancelled})` : `did not finish (s ${r.s} of ${r.length} m at ${JSON.stringify(r.stuckAt)})`}, ${r.counts.minor} minor ${r.counts.serious} serious ${r.counts.dangerous} dangerous, route ${(r.length / 1000).toFixed(2)} km, ${r.simMin} sim min, ${r.wallS} s wall, estop ${r.estop}${r.stalls || r.grinds ? `, STALLS ${r.stalls} grinds ${r.grinds}` : ''}${r.otherHits ? `, hit by traffic (${r.otherHits} frames)` : ''}${flag('colliders') ? `, ${r.colliders} colliders` : ''}${bad ? `, ${r.matching} matching ${opt('bad')} fault(s)` : ''}${flag('hash') ? `, trace ${r.trace} frames ${r.frames}` : ''}${r.timeFail ? ' (OUTSIDE 13-17 min)' : ''}`);
+  console.log(`${ok ? 'ok  ' : 'FAIL'} ${r.id.padEnd(16)} ${r.trans.padEnd(6)} seed ${s}${r.bad ? ` bad ${r.bad}` : ''}: ${r.done ? (r.passed ? 'passed' : 'not passed') : r.cancelled ? `cancelled (${r.cancelled})` : `did not finish (s ${r.s} of ${r.length} m at ${JSON.stringify(r.stuckAt)})`}, ${r.counts.minor} minor ${r.counts.serious} serious ${r.counts.dangerous} dangerous, route ${(r.length / 1000).toFixed(2)} km, ${r.simMin} sim min${r.terminated === 'danger' ? ' (STOPPED on the dangerous fault, so not the route\'s own duration)' : r.terminated ? ` (stopped early: ${r.terminated})` : ''}, ${r.wallS} s wall, estop ${r.estop}${r.stalls || r.grinds ? `, STALLS ${r.stalls} grinds ${r.grinds}` : ''}${r.otherHits ? `, hit by traffic (${r.otherHits} frames)` : ''}${flag('colliders') ? `, ${r.colliders} colliders` : ''}${bad ? `, ${r.matching} matching ${opt('bad')} fault(s)` : ''}${flag('hash') ? `, trace ${r.trace} frames ${r.frames}` : ''}${r.timeFail ? ' (OUTSIDE 13-17 min)' : ''}`);
   if (!flag('quiet') && r.faults.length) console.log('      ' + r.faults.join('\n      '));
   if (flag('peds')) { const p = r.peds; console.log(`      crossed: zebra ${p.zebraCrossings} (gave up ${p.zebraGaveUp}), signals ${p.signalCrossings} (gave up ${p.signalGaveUp}); squeezed ${p.squeezed || 0}, watchdog ${p.watchdog}`); }
   if (r.stall) console.log('      STALL ' + JSON.stringify(r.stall, null, 0));
