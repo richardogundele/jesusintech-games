@@ -1339,21 +1339,27 @@ function carefulKent(run, car, st, bad) {
   if (reverse) return reverseKent(run, car, out);
   // nose to nose with someone who can't back off (another car behind them): reverse a few metres
   if (st.backOff) {
-    if (run.s > st.backOff.to && st.t - st.backOff.t < 4) return reverseKent(run, car, out);
+    // clearBehind was true when the reverse was decided, which is not the same as it being true now:
+    // traffic closes in behind a stopped car, and reversing on without looking again put the learner
+    // into one at Mill Hill (735.4,277.1). Look every frame, and brake instead when the room is gone.
+    if (run.s > st.backOff.to && st.t - st.backOff.t < 4 && clearBehind(run, car, 1.5)) return reverseKent(run, car, out);
     if (st.t - st.backOff.t < 10) { out.input.brake = true; steerKent(run, car, out, bad, 0); return out; }
     st.backOff = null;
   }
   // traffic and people on my path ahead
   const free = want;
   want = Math.min(want, pathClear(run, car, want));
+  const pathWant = want; // pathClear alone, for st.dbg below: the creep stop is not its doing
+  // creeping or moving off: never with a car right across or on my nose (one turning in past the front of me)
+  // (the gearbox car only, like the walker look-ahead: the arcade car's runs stay exactly as they were)
+  // Ahead of st.blockedT now, so that being held here counts as being blocked and the back-off above
+  // can reverse out of it, rather than the car sitting nose to nose for the rest of the run.
+  if (car.drive && Math.abs(v) < 1.5 && traffic.some((c) => { const dx = c.x - car.pos.x, dz = c.z - car.pos.z, al = dx * fx + dz * fz; return al > 0 && al < 5.5 && Math.abs(dx * fz - dz * fx) < 2.6; })) want = Math.min(want, 0);
   st.blockedT = want < 0.3 && Math.abs(v) < 0.3 && free > 2 ? (st.blockedT || 0) + dt : 0;
   if (st.blockedT > 6 && headOn(run, car) && clearBehind(run, car, 8)) { st.blockedT = 0; st.backOff = { to: run.s - 4, t: st.t }; out.mirror = true; }
   // touching a car that can't move (every bump stops it again): back off a car's nose-length if there's room
   else if (car.drive && st.blockedT > 6 && touchingCar(run, car) && clearBehind(run, car, 2.5)) { st.blockedT = 0; st.backOff = { to: run.s - 1.8, t: st.t }; out.mirror = true; }
-  if (st.debug) st.dbg = { plan: plan[run.idx], events: free, traffic: want };
-  // creeping or moving off: never with a car right across or on my nose (one turning in past the front of me)
-  // (the gearbox car only, like the walker look-ahead: the arcade car's runs stay exactly as they were)
-  if (car.drive && Math.abs(v) < 1.5 && traffic.some((c) => { const dx = c.x - car.pos.x, dz = c.z - car.pos.z, al = dx * fx + dz * fz; return al > 0 && al < 5.5 && Math.abs(dx * fz - dz * fx) < 2.6; })) want = Math.min(want, 0);
+  if (st.debug) st.dbg = { plan: plan[run.idx], events: free, traffic: pathWant };
   if (bad.speed && !run.estop) want = Math.max(want, 0);
   steerKent(run, car, out, bad, want);
   if (v < want - 0.4) out.input.up = true;
@@ -1490,13 +1496,29 @@ function pathClear(run, car, want) {
   const look = Math.min(90, 12 + (car.vF * car.vF) / (2 * BRAKE) + 10);
   const i0 = run.idx, i1 = idxAtS(pts, s + look);
   let w = want;
+  // Where I actually am across the road, not where the route line is. The car is never exactly on
+  // that line, and a car stopped a metre or two off it - in a junction mouth - used to clear every
+  // path point while sitting exactly where this car was going. Four of the eight city collisions
+  // traced at ce5a7e5 were that: hit car stationary, this term never clamping at all. So carry my
+  // lateral offset along the route and test against the corridor I am in, which still follows the
+  // curve - a straight ray from the nose cannot, and claims space a turn curves away from.
+  // Clamped because a big route error should not swing the corridor off the road altogether.
+  const p0 = pts[i0], p1 = pts[Math.min(i0 + 1, n - 1)];
+  const n0x = p1.x - p0.x, n0z = p1.z - p0.z, n0l = Math.hypot(n0x, n0z) || 1;
+  const latOff = THREE.MathUtils.clamp(((car.pos.x - p0.x) * n0z - (car.pos.z - p0.z) * n0x) / n0l, -1.5, 1.5);
   const test = (x, z, hx, hz, L, W, lv, kind) => {
     for (let i = i0 + 1; i <= i1 && i < n - 1; i++) {
-      const p = pts[i], dx = p.x - x, dz = p.z - z;
+      const p = pts[i];
+      const tx = pts[i + 1].x - p.x, tz = pts[i + 1].z - p.z, tl = Math.hypot(tx, tz) || 1;
+      // the offset fades out over the first few metres: the car is steering back onto the line, so
+      // carrying today's error the whole way ahead claims a corridor it never drives - which swung
+      // the corridor across a mini roundabout and stalled Mill Hill 15.
+      const k = latOff * Math.max(0, 1 - (p.s - s) / 8);
+      const dx = p.x + (tz / tl) * k - x, dz = p.z - (tx / tl) * k - z;
       if (dx * dx + dz * dz > (L / 2 + W / 2 + myW + 0.5) ** 2) continue;
       // distance from the path point to the box (people are a 0.6 m box with no heading)
       const al = Math.max(0, Math.abs(dx * hx + dz * hz) - L / 2), la = Math.max(0, Math.abs(dx * hz - dz * hx) - W / 2);
-      const tx = pts[i + 1].x - p.x, tz = pts[i + 1].z - p.z, tl = Math.hypot(tx, tz) || 1, dot = (tx * hx + tz * hz) / tl;
+      const dot = (tx * hx + tz * hz) / tl;
       // oncoming cars are passed with less to spare (a squeeze on a narrow road or a bend), ones ahead with more
       if (Math.hypot(al, la) > myW + (kind === 'ped' ? 0.6 : kind === 'car' && dot < -0.5 ? -0.15 : 0)) continue;
       const same = kind === 'car' && dot > 0.6;
