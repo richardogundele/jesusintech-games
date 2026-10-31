@@ -574,7 +574,8 @@ export class KentTraffic {
       const near = len(p.x - cam.x, p.z - cam.z) < PED_HIDE;
       m.visible = near;
       if (!near) continue;
-      m.position.set(p.x, (this.groundY ? this.groundY(p.x, p.z, m.position.y) : 0) + (p.inRoad ? 0.02 : Y_PAVE), p.z);
+      const out = this.#pushOut(p.x, p.z), px = out ? out.x : p.x, pz = out ? out.z : p.z;
+      m.position.set(px, (this.groundY ? this.groundY(px, pz, m.position.y) : 0) + (p.inRoad ? 0.02 : Y_PAVE), pz);
       m.rotation.y = p.heading;
       m.userData.animate?.(p.speed, dt);
     }
@@ -889,6 +890,31 @@ export class KentTraffic {
     p.speed = dt > 0 ? (d * k) / dt : 0;
     if (face && d * k > 1e-4) p.heading = Math.atan2(dx, dz);
   }
+  /** The player's car, as a box a person cannot stand inside: {x, z, hx, hz, L, W} or null. */
+  #meBox() {
+    const me = this.me;
+    return me.x != null && me.L && me.hx != null ? me : null;
+  }
+
+  /** Nobody stands inside the player's car. Walking is timed exactly as it always was - the step
+   *  along the pavement, the step across the road - and only where a person would END UP inside the
+   *  bodywork are they moved the shortest way out of it, so they walk around the car and along it
+   *  rather than through it. Keeping the timing untouched matters: people's steps feed the same
+   *  random stream as the traffic, so halting them would reshuffle every car on the map. */
+  #pushOut(x, z, pad = 0.42) {
+    const me = this.#meBox();
+    if (!me || Math.abs(me.x - x) > 7 || Math.abs(me.z - z) > 7) return null;
+    const dx = x - me.x, dz = z - me.z;
+    const f = dx * me.hx + dz * me.hz, t = dx * me.hz - dz * me.hx; // along the car, across it
+    const hl = me.L / 2 + pad, hw = me.W / 2 + pad;
+    const inF = hl - Math.abs(f), inT = hw - Math.abs(t);
+    if (inF <= 0 || inT <= 0) return null; // outside it already
+    // out the nearer face: sideways past the flank, or forwards/backwards past the nose or boot
+    const F = inT <= inF ? f : Math.sign(f || 1) * hl;
+    const T = inT <= inF ? Math.sign(t || 1) * hw : t;
+    return { x: me.x + F * me.hx + T * me.hz, z: me.z + F * me.hz - T * me.hx };
+  }
+
   #corner(p) {
     const w = p.way, atEnd = p.s > w.len, nid = w.nodes[atEnd ? w.nodes.length - 1 : 0];
     const node = nid ? this.net.nodes.get(nid) : null;
