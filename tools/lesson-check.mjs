@@ -9,6 +9,7 @@
 //                               [--max 3600] [--lessons path/to/lessons.js] [--colliders] [--quiet] [--json out.json]
 //                               [--trace] [--events] [--watch s0,s1] [--detour s] [--hash] [--said]
 //                               [--trans manual|auto|none]   the learner car's gearbox (default manual; none = the old arcade car)
+//                               [--peds]    how many people crossed, and how many gave up waiting
 //   bad variants for the gearbox: stall, wrongGear, coast (manual only) and handbrake
 //   --gen herne|canterbury|both [--gseeds 1-20]   generated 15-minute tests (src/kent/test-routes.js), one per
 //                               route seed (the traffic uses the same seed); reports sim minutes against the 13-17 target
@@ -27,7 +28,7 @@ const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
 const opt = (k, d) => { const i = args.indexOf(`--${k}`); return i >= 0 ? args[i + 1] : d; };
 const flag = (k) => args.includes(`--${k}`);
-const BOOL = ['--colliders', '--quiet', '--events', '--trace', '--hash', '--said', '--stalls', '--roads', '--talk', '--genwhy'];
+const BOOL = ['--colliders', '--quiet', '--events', '--trace', '--hash', '--said', '--stalls', '--roads', '--talk', '--genwhy', '--peds'];
 if (args.includes('--watch')) BOOL.push();
 const ids = args.filter((a, i) => !a.startsWith('--') && !(i > 0 && args[i - 1].startsWith('--') && !BOOL.includes(args[i - 1])));
 
@@ -315,7 +316,7 @@ async function runLesson(def, s0, bad = null, maxSec = 3600) {
     counts: result?.counts || run.counts(), faults: run.faults.map((x) => `${x.sev[0]}:${x.cat}@${Math.round(x.s)}${x.at ? ` (${x.at.x},${x.at.z})` : ''}`),
     trace, frames: f, otherHits, colliders: world.colliders.boxes?.length ?? 0, detoured, rerouted: said.filter((t) => /recalculated|take you back/.test(t)).length, satnav: said.filter((t) => t.startsWith('Sat nav')).length, simMin: +(elapsed / 60).toFixed(1), wallS: +((Date.now() - t0) / 1000).toFixed(1), length: Math.round(run.route.length), s: Math.round(run.s),
     said, tasks: result?.tasks,
-    estop: run.estop?.state || 'none', maxDist: +maxLat.toFixed(1), stuckAt: result ? null : { x: +car.pos.x.toFixed(1), z: +car.pos.z.toFixed(1), text: run.text }, stall,
+    peds: world.traffic.stats, estop: run.estop?.state || 'none', maxDist: +maxLat.toFixed(1), stuckAt: result ? null : { x: +car.pos.x.toFixed(1), z: +car.pos.z.toFixed(1), text: run.text }, stall,
   };
 }
 
@@ -362,6 +363,7 @@ for (const [def, s, gen] of jobs) {
   if (!ok) failed++;
   console.log(`${ok ? 'ok  ' : 'FAIL'} ${r.id.padEnd(16)} ${r.trans.padEnd(6)} seed ${s}${r.bad ? ` bad ${r.bad}` : ''}: ${r.done ? (r.passed ? 'passed' : 'not passed') : r.cancelled ? `cancelled (${r.cancelled})` : `did not finish (s ${r.s} of ${r.length} m at ${JSON.stringify(r.stuckAt)})`}, ${r.counts.minor} minor ${r.counts.serious} serious ${r.counts.dangerous} dangerous, route ${(r.length / 1000).toFixed(2)} km, ${r.simMin} sim min, ${r.wallS} s wall, estop ${r.estop}${r.stalls || r.grinds ? `, STALLS ${r.stalls} grinds ${r.grinds}` : ''}${r.otherHits ? `, hit by traffic (${r.otherHits} frames)` : ''}${flag('colliders') ? `, ${r.colliders} colliders` : ''}${bad ? `, ${r.matching} matching ${opt('bad')} fault(s)` : ''}${flag('hash') ? `, trace ${r.trace} frames ${r.frames}` : ''}${r.timeFail ? ' (OUTSIDE 13-17 min)' : ''}`);
   if (!flag('quiet') && r.faults.length) console.log('      ' + r.faults.join('\n      '));
+  if (flag('peds')) { const p = r.peds; console.log(`      crossed: zebra ${p.zebraCrossings} (gave up ${p.zebraGaveUp}), signals ${p.signalCrossings} (gave up ${p.signalGaveUp}); squeezed ${p.squeezed || 0}, watchdog ${p.watchdog}`); }
   if (r.stall) console.log('      STALL ' + JSON.stringify(r.stall, null, 0));
   if (flag('talk')) console.log('      SAID ' + r.said.map((t, i) => `${i}: ${t}`).join('\n      SAID ') + (r.tasks ? `\n      TASKS ${JSON.stringify(r.tasks)}` : ''));
   if (r.detoured || flag('said')) console.log(`      detour ${JSON.stringify(r.detoured)}, reroutes ${r.rerouted}, sat nav callouts ${r.satnav}`);

@@ -93,7 +93,7 @@ export class KentTraffic {
     this.nextId = 1;
     this.P = { x: net.home?.x ?? 0, z: net.home?.z ?? 0 };
     this.spawnT = 0; this.pedT = 0;
-    this.stats = { spawned: 0, despawned: 0, failed: 0, watchdog: 0, extended: 0, zebraCrossings: 0, signalCrossings: 0, updateMs: 0, houseMs: 0 };
+    this.stats = { spawned: 0, despawned: 0, failed: 0, watchdog: 0, extended: 0, zebraCrossings: 0, signalCrossings: 0, zebraGaveUp: 0, signalGaveUp: 0, updateMs: 0, houseMs: 0 };
     // where a route may end: junctions off the rings (lanePath needs a ring's exit to draw it)
     this.destNodes = [...net.nodes.values()].filter((n) => n.kind === 'junction' && !n.rb && n.ways.some((r) => !r.way.rb && r.way.cls !== 'service'));
     // zebras and signal-controlled crossings, by the key lanePath names them with and by way
@@ -944,7 +944,7 @@ export class KentTraffic {
     this.#stepTo(p, f.x + f.dz * p.lat, f.z - f.dx * p.lat, dt, false);
     p.heading = Math.atan2(-f.dz * p.side, f.dx * p.side); // facing across the road
     if (go) { p.state = 'cross'; p.t = 0; if (rec.zebra) this.stats.zebraCrossings++; else this.stats.signalCrossings++; }
-    else if (p.t > 45) { p.state = 'walk'; p.rec = null; } // gave up
+    else if (p.t > 45) { p.state = 'walk'; p.rec = null; this.stats[rec.zebra ? 'zebraGaveUp' : 'signalGaveUp']++; } // gave up
   }
   #crossOver(p, dt) {
     const rec = p.rec, sig = this.signals;
@@ -959,15 +959,20 @@ export class KentTraffic {
       p.side = -p.side; p.state = 'walk'; p.inRoad = false; p.dir = this.rnd() < 0.5 ? 1 : -1; p.rec = null;
     }
   }
-  /** nothing approaching the zebra that couldn't stop comfortably before it */
+  /**
+   * Nothing to stop someone stepping onto the zebra: no car standing on the stripes, and nothing
+   * coming that couldn't stop comfortably before them. A car waiting at its give-way line is giving
+   * way, which is what the line is for, so it doesn't count: measured by distance alone it did, and
+   * then the car waited for the pedestrian and the pedestrian waited for the car until one gave up.
+   */
   #zebraClear(rec) {
     for (const B of this.cars) {
       const dx = rec.x - B.x, dz = rec.z - B.z, d2 = dx * dx + dz * dz;
       if (d2 > 3600) continue;
-      const d = Math.sqrt(d2);
-      if (d < 5) return false; // on it
-      if (dx * B.fx + dz * B.fz <= 0) continue; // going away
-      if ((B.v * B.v) / 10 > d - B.L / 2 - 5) return false;
+      const along = dx * B.fx + dz * B.fz, lat = Math.abs(dx * B.fz - dz * B.fx);
+      if (lat < 4 && Math.abs(along) < B.L / 2 + 1.6) return false; // its body is over the stripes
+      if (along <= 0) continue; // going away
+      if (B.v > 0.5 && (B.v * B.v) / 10 > along - B.L / 2 - 5) return false; // coming, and too fast to stop
     }
     return true;
   }

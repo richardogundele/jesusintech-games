@@ -1481,6 +1481,7 @@ function boxClear(run, car, s0, s1) {
  */
 function pathClear(run, car, want) {
   const pts = run.route.pts, s = run.s, n = pts.length, half = car.model.length / 2, myW = car.model.width / 2 + 0.35;
+  const fx = Math.sin(car.heading), fz = Math.cos(car.heading);
   const look = Math.min(90, 12 + (car.vF * car.vF) / (2 * BRAKE) + 10);
   const i0 = run.idx, i1 = idxAtS(pts, s + look);
   let w = want;
@@ -1501,7 +1502,13 @@ function pathClear(run, car, want) {
   };
   for (const c of run.world.traffic?.cars || []) {
     if (Math.abs(c.x - car.pos.x) > look + 5 || Math.abs(c.z - car.pos.z) > look + 5) continue;
-    test(c.x, c.z, c.fx, c.fz, c.L || 4.6, c.W || 1.9, c.v, 'car');
+    // a car whose whole body is behind my nose is alongside me, not in front of me: it's the one that
+    // has to give way. Counting it stopped the car dead against a car wedged by its own queue, and
+    // neither could move. A nose poking across my path from a side road still counts.
+    const L = c.L || 4.6, W = c.W || 1.9;
+    const al = (c.x - car.pos.x) * fx + (c.z - car.pos.z) * fz;
+    if (al + (L / 2) * Math.abs(c.fx * fx + c.fz * fz) + (W / 2) * Math.abs(c.fz * fx - c.fx * fz) <= half) continue;
+    test(c.x, c.z, c.fx, c.fz, L, W, c.v, 'car');
   }
   for (const p of run.world.traffic?.peds || []) {
     // anyone crossing, and people walking across the mouth of a side road (they have priority there);
