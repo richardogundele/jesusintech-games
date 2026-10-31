@@ -1081,7 +1081,16 @@ export class RoadNet {
         ss = [dEnd, ...ss.filter((s) => (p.dir > 0 ? s > dEnd + 0.05 : s < dEnd - 0.05))];
       }
       let lastPt = null;
-      for (const s of ss) { const c = lanePt(p, s); lastPt = push(c.x, c.z, { way: p.way, dir: p.dir, lane: p.lane, rb: null, sWay: s, pieceStart: first }); first = false; }
+      for (const s of ss) {
+        const c = lanePt(p, s); lastPt = push(c.x, c.z, { way: p.way, dir: p.dir, lane: p.lane, rb: null, sWay: s, pieceStart: first }); first = false;
+        // A junction the route drives straight through, in the middle of its own way: a bigger road
+        // crossing here still has priority, so it needs a give-way line of its own. Without this the
+        // only line is the next one the route turns at, which on a dual carriageway is the far
+        // carriageway's, leaving a car correctly stopped there with its body across this one.
+        if (s === startS || s === endS) continue;
+        const thru = this.#thruNodeAt(p, s);
+        if (thru) marks.push({ pt: lastPt, kind: 'junction', node: thru, inPiece: p, outPiece: p, thru: true });
+      }
       if (lastPt && next && nodeOut) { lastPt.corner = true; marks.push({ pt: lastPt, kind: 'junction', node: nodeOut, inPiece: p, outPiece: next }); }
       pi++;
     }
@@ -1142,11 +1151,12 @@ export class RoadNet {
     // OSM splits one junction into several nodes a few metres apart, each with its own fillet: merge
     // manoeuvre events within 25 m into one, classed by the strongest kind and the total heading change
     const MANOEUVRE = { emerge: 4, cross: 3, turn: 2, bend: 1 };
+    const clusters = (e) => !!MANOEUVRE[e.kind] && !e.thru;
     const dirOf = (t) => (t < -25 ? 'left' : t > 25 ? 'right' : 'none');
     for (let i = 0; i < events.length; i++) {
-      if (!MANOEUVRE[events[i].kind]) continue;
+      if (!clusters(events[i])) continue;
       const cluster = [events[i]];
-      for (let k = i + 1; k < events.length; k++) { const e = events[k]; if (!MANOEUVRE[e.kind]) continue; if (e.s - cluster[cluster.length - 1].s >= 25) break; cluster.push(e); }
+      for (let k = i + 1; k < events.length; k++) { const e = events[k]; if (!clusters(e)) continue; if (e.s - cluster[cluster.length - 1].s >= 25) break; cluster.push(e); }
       if (cluster.length < 2) continue;
       const total = this.#turnAt(pts, cluster[0].s, 5, 18, cluster[cluster.length - 1].s);
       const keep = cluster.reduce((b, e) => (MANOEUVRE[e.kind] > MANOEUVRE[b.kind] ? e : b));
@@ -1158,6 +1168,32 @@ export class RoadNet {
       const drop = (keep.kind === 'turn' || keep.kind === 'bend') && keep.dir === 'none' ? cluster : cluster.filter((e) => e !== keep);
       for (const e of drop) events.splice(events.indexOf(e), 1);
       i = events.indexOf(keep); if (i < 0) i = 0;
+    }
+    // A road we only cross on our way through is a junction in its own right, so the merge above
+    // leaves it alone: that merge keeps the strongest kind's own line, which would be the far one,
+    // and that is the whole bug. Now that the clusters are settled, though, two lines a few metres
+    // apart would only stop us twice at one junction where the next line stops us anyway. So it
+    // comes down to where a car waiting at that next line would be standing:
+    //   before the near edge of the road we cross  -> it never enters it: our line adds nothing, drop it
+    //   past it, but not clear of the far edge     -> it stands ON that road: one decision, at OUR line
+    //   clear of the far edge, by a car's length   -> it waits between the two: keep both lines
+    const STOPS = { lights: 1, rb: 1, emerge: 1, cross: 1, mini: 1 };
+    const lineOf = (e) => e.lineS ?? e.entryS ?? e.s; // a mini's s is already its line (node - 4)
+    for (let i = events.length - 1; i >= 0; i--) {
+      const e = events[i]; if (!e.thru) continue;
+      const halfW = e.s - e.lineS - 0.6;               // the crossed road's half width, which set our line
+      // by line, not by node: the merge above sets a cluster's s to its FIRST node's, which can be
+      // behind us even though the line it stops at is ahead, and that line is the one to compare with
+      const next = events.find((q) => STOPS[q.kind] && q !== e && lineOf(q) > e.lineS && lineOf(q) - e.s < 25);
+      if (!next) continue;
+      const line = lineOf(next);
+      if (line <= e.s - halfW) { events.splice(i, 1); continue; }
+      if (line >= e.s + halfW + 0.5 + 4.6) continue;
+      // one decision at our line, which now has two nodes to watch: ours and the one it was taken at.
+      // Painted lines (lights, a ring's give-way) cannot be moved, so those keep both lines instead.
+      if (next.kind !== 'emerge' && next.kind !== 'cross') continue;
+      next.lineS = e.lineS; next.node2 = e.node;
+      events.splice(i, 1);
     }
     const p0 = pts[0], p3 = pts[Math.min(3, pts.length - 1)];
     const start = p0 ? { x: p0.x, z: p0.z, heading: Math.atan2(p3.x - p0.x, p3.z - p0.z) } : null;
@@ -1272,6 +1308,34 @@ export class RoadNet {
     const i = this.segAt(way, s); if (Math.abs(way.cum[i] - s) < 0.2) return i; if (Math.abs(way.cum[i + 1] - s) < 0.2) return i + 1; return -1;
   }
   #nodeAtS(way, s) { const i = this.#idxAt(way, s); return i >= 0 && way.nodes[i] ? this.nodes.get(way.nodes[i]) : null; }
+  /**
+   * The node at arc length s along a piece's own way, if the route passes straight through it and a
+   * bigger road crosses there: the one case #junctionEvent never sees, because its marks are only
+   * made where the route changes way. Lights, rings and minis decide for themselves, so they are
+   * left alone; so is a node our own road merely bends at (no crossing road outranks us).
+   */
+  #thruNodeAt(piece, s) {
+    const node = this.#nodeAtS(piece.way, s);
+    if (!node || node.kind !== 'junction' || node.rb || node.mini || node.signals) return null;
+    if (node.ways.length < 2) return null;
+    const mine = piece.way;
+    for (const r of node.ways) if (r.way !== mine && !r.way.rb && r.way.rank > mine.rank) return node;
+    return null;
+  }
+  /**
+   * Does `way` end at this node, rather than carry on through it? OSM splits a long road into several
+   * ways at its junctions, so a way ending here proves nothing on its own: the road goes on if any
+   * other arm is the same road by ref or name.
+   */
+  #endsAt(node, way) {
+    const last = way.pts.length - 1;
+    for (const r of node.ways) if (r.way === way && r.idx !== 0 && r.idx !== last) return false; // an interior vertex: straight through
+    for (const r of node.ways) {
+      const w = r.way; if (w === way || w.rb) continue;
+      if ((way.ref && way.ref === w.ref) || (way.name && way.name === w.name)) return false; // the same road, carried on
+    }
+    return true;
+  }
   #legHeading(leg, where) { // bearing of travel at the start or end of a leg
     const sEnd = where === 'end' ? leg.s1 : leg.s0, back = where === 'end' ? -leg.dir * 6 : leg.dir * 6;
     const a = this.pointAt(leg.way, sEnd), b = this.pointAt(leg.way, Math.max(0, Math.min(leg.way.len, sEnd + back)));
@@ -1296,10 +1360,25 @@ export class RoadNet {
     const evs = [];
     if (node.signals) evs.push({ kind: 'lights', s: s - 2, group: this.signalGroup.get(node.id) || `j-${node.id}`, node: node.id, text: null });
     const arms = node.arms().filter((a) => !(a.way === inW && a.dir === -m.inPiece.dir)); // every arm but the one we came in by
+    // A road that ENDS at the junction gives way to the road it meets, whatever the two are classed
+    // as: that is the only thing that marks out the stem of a T. Without it two residential roads
+    // meeting in a T leave the stem a plain turn with no give-way line at all - for the learner and
+    // for the traffic alike - so neither knows the through road has priority.
+    // A nameless way cannot be shown to end rather than carry on, and a slip road meeting a slip road
+    // is a merge, not a give-way, so neither gets the tie.
+    const ends = this.#endsAt(node, inW) && !inW.link && !!(inW.name || inW.ref);
     let thruRank = 0, thruWays = [];
     for (let i = 0; i < arms.length; i++) for (let j = i + 1; j < arms.length; j++) {
       const a = arms[i], b = arms[j], rk = Math.min(a.way.rank, b.way.rank);
-      if (Math.abs(norm180(a.bearing - b.bearing)) > 140 && rk > inW.rank && rk > thruRank) { thruRank = rk; thruWays = [a.way, b.way]; }
+      const need = ends && !a.way.link && !b.way.link ? inW.rank : inW.rank + 1;
+      if (Math.abs(norm180(a.bearing - b.bearing)) > 140 && rk >= need && rk > thruRank) { thruRank = rk; thruWays = [a.way, b.way]; }
+    }
+    // driving straight through on our own road: the only thing to decide is whether to give way to the
+    // bigger road crossing here, so none of the turn, bend, merge and diverge wording below applies
+    if (m.thru) {
+      if (!thruRank || thruWays.includes(outW)) return evs;
+      const major = thruWays.reduce((b, w) => (w.halfW > b.halfW ? w : b));
+      return [{ kind: 'cross', s, dir: 'none', lineS: s - (major.halfW + 0.6), node: node.id, thru: true, text: 'Go straight on across the main road.' }];
     }
     const sameRoad = inW === outW || (inW.ref && inW.ref === outW.ref) || (!inW.ref && !outW.ref && inW.name && inW.name === outW.name);
     const myGiveWay = (node.giveWay || node.stop) && !node.rb;

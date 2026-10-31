@@ -127,6 +127,18 @@ export function estimateMinutes(route) {
     }
     v[i] = Math.max(1, w);
   }
+  // Give-way lines, which until now cost only the flat seconds at the end. carefulKent is capped at
+  // 5 mph for the last 12 m up to an emerge or a cross and 9 mph through a mini, and then has to
+  // pull away again, and the braking and the pulling away are most of what a give-way really costs:
+  // the two passes below spend them once the cap is in the profile. The flat seconds stay as they
+  // were, because they are the wait AT the line, not the slowing down for it.
+  const at = (q) => { let lo = 0, hi = n - 1; while (lo < hi) { const m = (lo + hi + 1) >> 1; if (pts[m].s <= q) lo = m; else hi = m - 1; } return lo; };
+  for (const e of route.events) {
+    const mini = e.kind === 'mini', cap = mini ? 9 / MPH : e.kind === 'emerge' || e.kind === 'cross' ? 5 / MPH : 0;
+    if (!cap) continue;
+    const line = mini ? e.s : e.lineS ?? e.s;
+    for (let i = at(line - (mini ? 25 : 12)), last = at(line + (mini ? 3 : 0)); i <= last; i++) v[i] = Math.min(v[i], cap);
+  }
   for (let i = n - 2; i >= 0; i--) v[i] = Math.min(v[i], Math.sqrt(v[i + 1] ** 2 + 2 * 1.6 * (pts[i + 1].s - pts[i].s)));
   for (let i = 1; i < n; i++) v[i] = Math.min(v[i], Math.sqrt(v[i - 1] ** 2 + 2 * 1.5 * (pts[i].s - pts[i - 1].s)));
   let t = 0;
