@@ -182,6 +182,45 @@ function makeWhitmore() {
 // ---------- --colliders: the buildings, kerbs, posts and barriers the tiles add, along the route ----------
 let tileBuilders = null;
 const tileParts = new Map(); // tile key -> collider boxes
+/**
+ * What is the head of this queue actually waiting for? A jam stops each car where it happened to
+ * queue, so bucketing a stall by the player's own position smears one blocked junction into a line
+ * of separate sites along the approach. The honest unit is the thing the LEAD car is held at.
+ *
+ * `walked` is the blockId chain ahead of the player, nearest first; `looped` if it closed on itself.
+ * Four outcomes, deliberately distinguishable rather than forced into one shape:
+ *   junction  the lead car is held at a give-way line: traffic.js sets A.minorNode to that node
+ *             while it is within 30 m of the line, and A.held only on the branch that stops.
+ *   lights    lights and zebras never set minorNode, so read the line it is at, ev[evI]. For lights
+ *             take the GROUP, not the node: OSM splits one junction's signals over several nodes,
+ *             and bucketing by node would split one junction into three or four sites -- the same
+ *             smear, one layer down.
+ *   zebra     a crossing has no node at all, so it is labelled by position and says so.
+ *   ring      a closed loop has no lead car by construction, so there is nothing held at a line.
+ *             Report the deduped set of nodes its members are answering for: where they collapse to
+ *             one, that collapse IS the finding; where they do not, "across nodes A, B" is true and
+ *             a single invented node is not.
+ *   none      the chain ends at a car that is not held (route end parked in lane, despawn pending,
+ *             no room). That is not a line stall at all and gets its own bucket rather than being
+ *             attributed to a junction it has nothing to do with.
+ */
+function blockerOf(walked, looped, world) {
+  const nodesOf = (c) => [c.minorNode, c.minorNode2].filter((n) => n);
+  if (looped) {
+    const nodes = [...new Set(walked.flatMap(nodesOf))];
+    return { kind: 'ring', nodes, cars: walked.length };
+  }
+  const lead = walked.find((c) => c.held);
+  if (!lead) return { kind: 'none', why: walked.length ? 'chain ends at a car that is not held' : 'nothing ahead' };
+  const nodes = nodesOf(lead);
+  if (nodes.length) return { kind: 'junction', nodes, at: [+lead.x.toFixed(1), +lead.z.toFixed(1)] };
+  const ev = lead.ev?.[lead.evI];
+  if (!ev) return { kind: 'none', why: 'lead car is held past its last event', at: [+lead.x.toFixed(1), +lead.z.toFixed(1)] };
+  if (ev.kind === 'lights') return { kind: 'lights', group: ev.group ?? null, node: ev.node ?? null, at: [+lead.x.toFixed(1), +lead.z.toFixed(1)] };
+  if (ev.kind === 'zebra') return { kind: 'zebra', at: [+lead.x.toFixed(1), +lead.z.toFixed(1)] };
+  return { kind: ev.kind, at: [+lead.x.toFixed(1), +lead.z.toFixed(1)] };
+}
+
 function addWorldColliders(world, pts) {
   const net = world.net;
   if (!tileBuilders) {
@@ -314,8 +353,9 @@ async function runLesson(def, s0, bad = null, maxSec = 3600) {
       // follow the queue ahead to whatever it is waiting for
       const byId = new Map(world.traffic.cars.map((c) => [c.id, c])), chain = [];
       let head = world.traffic.cars.filter((c) => (c.x - car.pos.x) * fx + (c.z - car.pos.z) * fz > 0).sort((a, b) => Math.hypot(a.x - car.pos.x, a.z - car.pos.z) - Math.hypot(b.x - car.pos.x, b.z - car.pos.z))[0];
-      for (let k = 0; head && k < 20; k++) { chain.push(`#${head.id}(${head.x.toFixed(0)},${head.z.toFixed(0)}) v${head.v.toFixed(1)} held ${head.held} ghost ${(head.ghost || 0).toFixed(1)} ev ${head.ev[head.evI]?.kind}@${((head.ev[head.evI]?.s ?? 0) - head.s).toFixed(0)} end ${(head.ps[head.n - 1] - head.s).toFixed(0)}`); head = head.blockId > 0 ? byId.get(head.blockId) : null; if (head && chain.some((c) => c.startsWith(`#${head.id}(`))) { chain.push('(loop)'); break; } }
-      stall = { chain, at: [+car.pos.x.toFixed(1), +car.pos.z.toFixed(1)], s: Math.round(run.s), moved: run.moved, want: { plan: +((d.plan ?? 0) * MPH).toFixed(1), events: +((d.events ?? 0) * MPH).toFixed(1), traffic: +((d.traffic ?? 0) * MPH).toFixed(1) }, events: evs, cars: near };
+      const walked = []; let looped = false;
+      for (let k = 0; head && k < 20; k++) { chain.push(`#${head.id}(${head.x.toFixed(0)},${head.z.toFixed(0)}) v${head.v.toFixed(1)} held ${head.held} ghost ${(head.ghost || 0).toFixed(1)} ev ${head.ev[head.evI]?.kind}@${((head.ev[head.evI]?.s ?? 0) - head.s).toFixed(0)} end ${(head.ps[head.n - 1] - head.s).toFixed(0)}`); walked.push(head); head = head.blockId > 0 ? byId.get(head.blockId) : null; if (head && chain.some((c) => c.startsWith(`#${head.id}(`))) { chain.push('(loop)'); looped = true; break; } }
+      stall = { chain, at: [+car.pos.x.toFixed(1), +car.pos.z.toFixed(1)], s: Math.round(run.s), moved: run.moved, want: { plan: +((d.plan ?? 0) * MPH).toFixed(1), events: +((d.events ?? 0) * MPH).toFixed(1), traffic: +((d.traffic ?? 0) * MPH).toFixed(1) }, events: evs, cars: near, blocker: blockerOf(walked, looped, world) };
       break;
     }
     if (watch && run.s >= watch[0] && run.s <= watch[1] && Math.floor(elapsed * 2) !== lastWatch) {

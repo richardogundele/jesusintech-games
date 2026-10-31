@@ -61,11 +61,24 @@ const dnfLine = /did not finish \(s (\d+) of \d+ m at (\{.*?\})\)/;
 const stallLine = /^\s+STALL (\{.*\})$/;
 let seed = null, fails = 0, runs = 0;
 const sites = [];
-const add = (x, z, hit) => {
-  let site = sites.find((s) => Math.hypot(s.x - x, s.z - z) <= radius);
-  if (!site) sites.push((site = { x, z, hits: [] }));
+// A site is normally a place, matched by position. A stall is matched by the thing the LEAD car is
+// held at instead -- a give-way node, a signal group -- because a jam stops each car where it
+// queued, so position would smear one blocked junction into a line of sites along the approach.
+const add = (x, z, hit, key = null) => {
+  let site = key != null
+    ? sites.find((s) => s.key === key)
+    : sites.find((s) => s.key == null && Math.hypot(s.x - x, s.z - z) <= radius);
+  if (!site) sites.push((site = { x, z, key, hits: [] }));
   site.hits.push(hit);
   return site;
+};
+// how the stall record's blocker names the thing being waited on, and what to call it in the report
+const blockerKey = (b) => {
+  if (!b) return null;
+  if (b.kind === 'junction') return `node ${b.nodes.join('+')}`;
+  if (b.kind === 'lights') return b.group != null ? `lights ${b.group}` : null;
+  if (b.kind === 'ring') return b.nodes.length ? `ring across node ${b.nodes.join(', ')}` : null;
+  return null; // zebra, none and anything else have no identity of their own: fall back to position
 };
 const routes = new Map();
 for (const line of text.split('\n')) {
@@ -92,7 +105,11 @@ for (const line of text.split('\n')) {
       if (Array.isArray(s.at)) {
         // drop the coarser did-not-finish marker for this seed: the stall record is the same event
         for (const site of sites) site.hits = site.hits.filter((h) => !(h.soft && h.seed === seed));
-        add(s.at[0], s.at[1], { seed, sev: 'x', what: `stalled at ${s.s} m${s.chain ? ` (chain ${s.chain})` : ''}` });
+        const b = s.blocker, key = blockerKey(b);
+        const held = b ? (key || (b.kind === 'zebra' ? 'a zebra' : b.kind === 'none' ? `no line (${b.why})` : b.kind)) : 'unattributed';
+        // where the blocker has an identity, bucket by it and sit the site at the LEAD car, not the player
+        const [bx, bz] = b && Array.isArray(b.at) ? b.at : [s.at[0], s.at[1]];
+        add(bx, bz, { seed, sev: 'x', what: `queue stopped ${s.s} m in, waiting at ${held}` }, key);
       }
     } catch {}
     continue;
@@ -113,14 +130,16 @@ console.log(`${region}${pool ? ` (pool ${pool})` : ''}: ${runs} run(s), ${runs -
 for (const s of sites) {
   const kinds = [...new Set(s.hits.map((h) => `${SEV[h.sev] || h.sev}: ${h.what}`))];
   const seedList = [...new Set(s.hits.map((h) => h.seed))].sort((a, b) => a - b);
-  console.log(`  (${s.x.toFixed(1)},${s.z.toFixed(1)})  seeds ${seedList.join(',')}  ${kinds.join(' | ')}`);
+  const where = s.key != null ? `${s.key} (${s.x.toFixed(1)},${s.z.toFixed(1)})` : `(${s.x.toFixed(1)},${s.z.toFixed(1)})`;
+  console.log(`  ${where}  seeds ${seedList.join(',')}  ${kinds.join(' | ')}`);
 }
 if (!sites.length) console.log('  no faults anywhere');
 
-if (sites.some((s) => s.hits.some((h) => h.sev === 'x')))
-  console.log('  note: a jam stops each car where it queued, so one blocked junction can smear into\n' +
-    '        several STALLED sites along the approach. The honest unit is the junction being\n' +
-    '        waited on, which is ahead of the furthest-along stall, not where the car stopped.');
+if (sites.some((s) => s.key == null && s.hits.some((h) => h.sev === 'x')))
+  console.log('  note: a STALLED site shown as bare coordinates has nothing nameable to merge on -- a\n' +
+    '        zebra has no node, and a chain ending unheld is not a line stall at all. It is placed\n' +
+    '        at the lead car where there is one, otherwise where the player stopped, so two of\n' +
+    '        these more than a few metres apart may still be one jam.');
 
 if (routes.size) {
   // The routes each seed actually drove. Diff this block between two runs BEFORE reading anything
