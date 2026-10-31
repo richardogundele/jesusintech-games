@@ -198,7 +198,7 @@ export class KentTraffic {
     let want = Math.min(A.vcap[A.idx], A.vcap[Math.min(n - 1, A.idx + 1)]);
     const look = Math.min(130, 18 + (v * v) / 6 + A.L);
     const front = s + A.L / 2;
-    let freeD = Infinity, held = false, blockId = 0, nudge = 0, firstGroup = null;
+    let freeD = Infinity, held = false, blockId = 0, nudge = 0, firstGroup = null, byMe = false;
     A.minorNode = 0;
     // the route's lines: lights, ring entries, give-ways, zebras
     for (let k = A.evI; k < A.ev.length; k++) {
@@ -319,7 +319,14 @@ export class KentTraffic {
         }
         const arc = this.#onPath(A, obstacle.x, obstacle.z, ofx, ofz, box ? obstacle.L / 2 : obstacle.r, box ? obstacle.W / 2 : obstacle.r, oncoming ? 0.1 : 0.4, Math.sqrt(d2), s + look + 3);
         if (arc >= 0) {
-          const g = arc - s - A.L / 2 - (box ? this.ext : obstacle.r) - GAP; want = follow(want, g, 0, v); if (g < freeD) freeD = g;
+          // Record that it is the PLAYER slowing this car, the way the car-vs-car branch records
+          // blockId. Without it a car stopped for the learner is indistinguishable from a car
+          // stopped for no reason at all: blockId 0, held false, v 0, stopT climbing. Nothing
+          // downstream could tell the difference -- not #gridlocked, which walks blockId, nor the
+          // watchdog, which cannot fire anyway because the stuck despawn needs d > UNSEEN and the
+          // player's closeness is the very cause of the stop. Diagnostic only; no behaviour reads it.
+          const g = arc - s - A.L / 2 - (box ? this.ext : obstacle.r) - GAP, wasMe = want;
+          want = follow(want, g, 0, v); if (want < wasMe) byMe = true; if (g < freeD) freeD = g;
           // nose to nose with the player's stopped car (it's pulling out, or we've met in a narrow
           // place): after a few seconds back off a couple of metres to give it room, as a driver would
           const me = this.me;
@@ -339,7 +346,7 @@ export class KentTraffic {
     }
     if (A.stun > 0) want = 0;
     if (A.ghost > 0) want = Math.min(want, 3); // squeezing past: walking pace
-    A.held = held; A.freeD = freeD; A.blockId = blockId; A.nudgeT = nudge;
+    A.held = held; A.freeD = freeD; A.blockId = blockId; A.nudgeT = nudge; A.blockedByMe = byMe;
     return want;
   }
 
@@ -724,7 +731,7 @@ export class KentTraffic {
       pos: new THREE.Vector3(), x: 0, z: 0, heading: 0, fx: 0, fz: 1, v: 0, want: 0,
       lane: { rb: null }, u: 0, stun: 0, stunned: false, under: 0, ghost: 0,
       n: 0, px: null, pz: null, ps: null, vcap: null, rbArr: [], ev: [], evI: 0, s: 0, idx: 0, aim: 0,
-      route: null, dest: null, held: false, freeD: Infinity, blockId: 0, nudge: 0, nudgeT: 0, backUp: 0, noRoom: false, minorNode: 0, lastGroup: null, lastGroupS: -1e9, stopT: 0, extTried: false,
+      route: null, dest: null, held: false, freeD: Infinity, blockId: 0, blockedByMe: false, nudge: 0, nudgeT: 0, backUp: 0, noRoom: false, minorNode: 0, lastGroup: null, lastGroupS: -1e9, stopT: 0, extTried: false,
     };
   }
   /** load a lane path into a car: typed arrays, the speed it may do at each point, its lines */

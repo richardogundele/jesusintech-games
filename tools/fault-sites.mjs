@@ -114,7 +114,8 @@ for (const line of text.split('\n')) {
         const b = s.blocker, key = blockerKey(b);
         const held = b ? (key
           || (b.kind === 'zebra' ? 'a zebra'
-            : b.kind === 'frozen' ? `${b.cars} frozen car(s) (nothing ahead, stopped ${b.stopT} s)`
+            : b.kind === 'deadlock' ? `${b.cars} car(s) waiting for the LEARNER while it waits for them (stopped ${b.stopT} s)`
+              : b.kind === 'frozen' ? `${b.cars} frozen car(s) (nothing ahead, stopped ${b.stopT} s)`
               : b.kind === 'none' ? `no line (${b.why})` : b.kind)) : 'unattributed';
         // where the blocker has an identity, bucket by it and sit the site at the LEAD car, not the player
         const [bx, bz] = b && Array.isArray(b.at) ? b.at : [s.at[0], s.at[1]];

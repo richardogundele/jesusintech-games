@@ -200,6 +200,11 @@ const tileParts = new Map(); // tile key -> collider boxes
  *             Report the deduped set of nodes its members are answering for: where they collapse to
  *             one, that collapse IS the finding; where they do not, "across nodes A, B" is true and
  *             a single invented node is not.
+ *   deadlock  a car in the chain is stopped FOR THE LEARNER while the learner is stopped for it.
+ *             traffic.js's obstacle branch sets blockedByMe but, unlike the car-vs-car branch, no
+ *             blockId -- so before that flag existed this was invisible to every consumer. It is
+ *             self-sustaining: the player's closeness causes the stop AND blocks the stuck despawn,
+ *             which needs d > UNSEEN, so no value of STUCK can ever clear it.
  *   frozen    a car in the chain has NOTHING ahead of it (blockId 0), nothing holding it, and has
  *             been stopped past STUCK. The model has no account of why it is stopped, and
  *             #housekeep will not remove it while the player can see it (traffic.js:594 gates the
@@ -218,7 +223,16 @@ function blockerOf(walked, looped, world) {
   const lead = walked.find((c) => c.held);
   if (!lead) {
     if (!walked.length) return { kind: 'none', why: 'nothing ahead' };
-    const frozen = walked.filter((c) => !c.blockId && c.stopT > 120);
+    // Deadlock beats frozen, because it is the better explanation of the same symptom: the car is
+    // stopped FOR THE LEARNER (traffic.js sets blockedByMe in the obstacle branch) while the
+    // learner is stopped for the car. The player's closeness is both the cause of the stop and the
+    // reason the stuck despawn cannot fire, so no value of STUCK will ever clear it.
+    const stuck = walked.filter((c) => c.blockedByMe && c.stopT > 25);
+    if (stuck.length) return {
+      kind: 'deadlock', cars: stuck.length, stopT: Math.round(Math.max(...stuck.map((c) => c.stopT))),
+      at: [+stuck[0].x.toFixed(1), +stuck[0].z.toFixed(1)],
+    };
+    const frozen = walked.filter((c) => !c.blockId && !c.blockedByMe && c.stopT > 120);
     if (frozen.length) return {
       kind: 'frozen', cars: frozen.length, stopT: Math.round(Math.max(...frozen.map((c) => c.stopT))),
       at: [+frozen[0].x.toFixed(1), +frozen[0].z.toFixed(1)],
@@ -362,7 +376,7 @@ async function runLesson(def, s0, bad = null, maxSec = 3600) {
     else if (elapsed - prog.t > 120) {
       const d = autoState.dbg || {}, fx = Math.sin(car.heading), fz = Math.cos(car.heading);
       const near = world.traffic.cars.map((c) => ({ c, d: Math.hypot(c.x - car.pos.x, c.z - car.pos.z) })).filter((q) => q.d < 30).sort((a, b) => a.d - b.d).slice(0, 6)
-        .map(({ c, d: dd }) => `#${c.id} ${dd.toFixed(1)}m ahead ${((c.x - car.pos.x) * fx + (c.z - car.pos.z) * fz).toFixed(1)} v${c.v.toFixed(1)} h${Math.round(c.heading * 57.3)} held ${c.held} block ${c.blockId} stopT ${c.stopT.toFixed(0)} ev ${c.ev[c.evI]?.kind}@${((c.ev[c.evI]?.s ?? 0) - c.s).toFixed(0)}`);
+        .map(({ c, d: dd }) => `#${c.id} ${dd.toFixed(1)}m ahead ${((c.x - car.pos.x) * fx + (c.z - car.pos.z) * fz).toFixed(1)} v${c.v.toFixed(1)} h${Math.round(c.heading * 57.3)} held ${c.held} block ${c.blockId}${c.blockedByMe ? ' byMe' : ''} stopT ${c.stopT.toFixed(0)} ev ${c.ev[c.evI]?.kind}@${((c.ev[c.evI]?.s ?? 0) - c.s).toFixed(0)}`);
       const evs = run.events.filter((e) => (e.lineS ?? e.entryS ?? e.s) > run.s - 30 && (e.lineS ?? e.entryS ?? e.s) < run.s + 60).map((e) => `${e.kind}@${((e.lineS ?? e.entryS ?? e.s) - run.s).toFixed(0)}${e.group ? ' ' + e.group + ':' + world.signals?.stateFor(e.group, car.heading) : ''}${e.phase ? ' ' + e.phase : ''}${e.botGo ? ' go' : ''}`);
       // follow the queue ahead to whatever it is waiting for
       const byId = new Map(world.traffic.cars.map((c) => [c.id, c])), chain = [];
