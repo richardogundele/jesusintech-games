@@ -8,9 +8,16 @@
 //   node tools/fault-sites.mjs <region> [--seeds 1-10] [--radius 6]
 //   node tools/fault-sites.mjs kent --pool both      (Kent's authored pools instead of autoPool)
 //
-// Prints each site once, with the faults seen there and the seeds that hit it, worst first. Compare
-// two runs by site: a site that disappears is fixed, a site that appears is new, and a site that
-// survives with a different seed attached is NOT fixed however the totals read.
+// Prints each site once, with the faults seen there and the seeds that hit it, worst first. A site
+// that survives with a different seed attached is NOT fixed, however the totals read.
+//
+// A site that DISAPPEARS is the case to be careful with, and only means "fixed" when both runs
+// drove the same routes. Change route generation and a seed plans a different drive, so a site can
+// go quiet merely because nothing goes there any more -- 49bb187 and 48be3d9 did exactly that, and
+// a pedestrian fault at (1993.5,-4361.7) read as fixed when its route had simply moved off it.
+// Across such a change, seed-for-seed and trace-hash comparison are both meaningless. So the route
+// fingerprints are printed below the sites: compare those FIRST, and if they differ for a seed,
+// that seed's sites tell you nothing about whether anything was fixed.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -47,6 +54,7 @@ if (from) {
 // only the fault lines would hide the worst site on a gridlocked map entirely -- on Birmingham a
 // third of the runs stall at one box junction and not one of them records a fault. They get their
 // own severity above dangerous, because a run the learner could not finish is worse than one failed.
+const routeLine = /^\s+route (.+?) seed (\d+): ([\d.]+) km, est ([\d.]+) min, (\S+), (\d+) pull-up\(s\), (.+?), (\d+) tr(?:y|ies); (.*)$/;
 const runLine = /^(ok|FAIL)\s+(\S+)\s+.*?seed (\d+):/;
 const faultLine = /^\s+([dsm]):(.+?)@(\d+)\s+\(([-\d.]+),([-\d.]+)\)/;
 const dnfLine = /did not finish \(s (\d+) of \d+ m at (\{.*?\})\)/;
@@ -59,7 +67,14 @@ const add = (x, z, hit) => {
   site.hits.push(hit);
   return site;
 };
+const routes = new Map();
 for (const line of text.split('\n')) {
+  const rt = routeLine.exec(line);
+  if (rt) {
+    const [, , sd, km, est, man, stops, , tries, roads] = rt;
+    routes.set(Number(sd), { km, est, man, stops, tries, roads: roads.trim() });
+    continue;
+  }
   const m = runLine.exec(line);
   if (m) {
     seed = Number(m[3]); runs++; if (m[1] === 'FAIL') fails++;
@@ -101,7 +116,19 @@ for (const s of sites) {
   console.log(`  (${s.x.toFixed(1)},${s.z.toFixed(1)})  seeds ${seedList.join(',')}  ${kinds.join(' | ')}`);
 }
 if (!sites.length) console.log('  no faults anywhere');
+
 if (sites.some((s) => s.hits.some((h) => h.sev === 'x')))
   console.log('  note: a jam stops each car where it queued, so one blocked junction can smear into\n' +
     '        several STALLED sites along the approach. The honest unit is the junction being\n' +
     '        waited on, which is ahead of the furthest-along stall, not where the car stopped.');
+
+if (routes.size) {
+  // The routes each seed actually drove. Diff this block between two runs BEFORE reading anything
+  // into a site appearing or vanishing: where a seed's line differs, it drove somewhere else, and
+  // its sites are not comparable at all.
+  console.log(`\n  routes driven (compare these first -- a seed whose line differs drove a different test):`);
+  for (const sd of [...routes.keys()].sort((a, b) => a - b)) {
+    const r = routes.get(sd);
+    console.log(`    seed ${String(sd).padStart(3)}  ${r.km} km  est ${r.est} min  ${r.man}  ${r.stops} pull-up  ${r.tries} tries  ${r.roads}`);
+  }
+}
