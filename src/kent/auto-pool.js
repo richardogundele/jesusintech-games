@@ -71,7 +71,7 @@ export function autoPool(net, tc, { key = 'auto', world = null, radius = 2200 } 
     // pick an entry and an exit that are not the same arm, roughly across the ring
     const a = ins[0], b = outs.find((o) => (o.exitNode ?? o.node) !== a.node && Math.abs(((o.bearing - a.bearing + 540) % 360) - 180) < 110) || outs.find((o) => (o.exitNode ?? o.node) !== a.node);
     if (!b) continue;
-    mains[`rb${mi++}`] = { name: `the ${rb.name || 'roundabout'}`, vias: [a.node, b.exitNode ?? b.node] };
+    mains[`rb${mi++}`] = { name: `the ${rb.name || 'roundabout'}`, vias: [a.node, b.exitNode ?? b.node], kind: 'ring' };
   }
 
   // ---- loops: the estates, residential junctions on a 350 m grid ----

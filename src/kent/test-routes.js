@@ -38,7 +38,10 @@ const HB_EAST = { x: 3335, z: -4743.2 }, CT_NW = { x: -815, z: 5060 };
 // (minutes from the bare route before the lane path is built: a * minutes at the limits + b *
 // junctions + c, fitted on a thousand built routes from each centre, within a minute of
 // estimateMinutes nine times in ten).
-// mains: the big-road part of the test, one per route (none: the estates bring their own); homes:
+// mains: the big-road parts. A route takes one road part, and where the pool knows a multi-lane
+// roundabout as a part of its own (auto-pool tags those `kind: 'ring'`, because the estates round a
+// city centre may never meet one) it may take one of those as well, so a route can have both the
+// fast road and the ring the examiner's checks ask for. homes:
 // the way back to the centre, one per route, where it matters which way the car arrives.
 // loops: estates and town streets. `vias`: driven in that order (`rev`: or the other way round);
 // `pick`: one of these junctions inside the estate (`n`: more, in a random order), each vetted to make
@@ -347,7 +350,10 @@ export function generateTest(net, centreKey, seed, opts = {}) {
   const layout = testCentreLayout(net, pool.tc || centreOf(net, centreKey)), lot = !!layout.lot;
   const P = prepare(net, pool);
   const pickOne = (a) => a[Math.floor(rnd() * a.length)];
-  const main0 = P.mains.length ? pickOne(P.mains) : null, anchor0 = pickOne(P.loops), home0 = P.homes.length ? pickOne(P.homes) : null;
+  const roadMains = P.mains.filter((m) => m.kind !== 'ring'), ringMains = P.mains.filter((m) => m.kind === 'ring');
+  const mainPool = roadMains.length ? roadMains : P.mains;
+  const main0 = mainPool.length ? pickOne(mainPool) : null, anchor0 = pickOne(P.loops), home0 = P.homes.length ? pickOne(P.homes) : null;
+  const ring0 = ringMains.length ? pickOne(ringMains) : null;
   // within the 14-16 minute window, the part the pool aims for (pool.window): the careful driver's
   // simulated time scatters a minute or so either side of the estimate, a manual a little slower
   const minMin = opts.minMin ?? pool.window[0], maxMin = opts.maxMin ?? pool.window[1];
@@ -359,7 +365,10 @@ export function generateTest(net, centreKey, seed, opts = {}) {
   for (let attempt = 0; attempt < FALLBACK_TRIES && builds < FALLBACK_BUILDS; attempt++) {
     if (!fallback && (attempt >= MAX_TRIES || builds >= MAX_BUILDS)) fallback = true;
     const keep = (share) => !fallback && attempt < MAX_TRIES * share;
-    const main = !main0 ? null : keep(0.6) ? main0 : pickOne(P.mains);
+    const main = !main0 ? null : keep(0.6) ? main0 : pickOne(mainPool);
+    // the ring part on about half the routes, and on every fallback try: a centre whose estates have
+    // no multi-lane roundabout of their own can only meet one this way
+    const ring = !ring0 ? null : fallback || rnd() < 0.5 ? (keep(0.6) ? ring0 : pickOne(ringMains)) : null;
     const anchor = keep(0.3) ? anchor0 : pickOne(P.loops);
     const home = !home0 ? null : keep(0.6) ? home0 : pickOne(P.homes);
     // one to four estates in all, no two from the same area (they'd share their streets)
@@ -369,7 +378,7 @@ export function generateTest(net, centreKey, seed, opts = {}) {
     const sense = rnd() < 0.5 ? 1 : -1;
     const man = pool.bay && lot && rnd() < 0.5 ? 'baypark' : 'pullright';
     const stops = rnd() < 0.5 ? 2 : 1;
-    const parts = tourOrder([...(main ? [main] : []), ...chosen, ...(home ? [home] : [])].map((part) => ({ part, vias: partVias(part, rnd) })), sense);
+    const parts = tourOrder([...(main ? [main] : []), ...(ring && ring !== main ? [ring] : []), ...chosen, ...(home ? [home] : [])].map((part) => ({ part, vias: partVias(part, rnd) })), sense);
     const used = parts.map((c) => c.part.key);
     const vias = [...pool.first, ...parts.flatMap((c) => c.vias), ...(pool.last || [])].filter((v, i, a) => v !== a[i - 1]);
     const spec = { centre: centreKey, start: pool.start, vias, stops, angled: true, noUturn: true, avoid: P.avoid, ...(man === 'baypark' ? { end: 'baypark', bayFrom: 38 } : { to: pool.pullUpAt, pullRight: true }) };
