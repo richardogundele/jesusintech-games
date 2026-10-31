@@ -199,7 +199,7 @@ export class KentTraffic {
     const look = Math.min(130, 18 + (v * v) / 6 + A.L);
     const front = s + A.L / 2;
     let freeD = Infinity, held = false, blockId = 0, nudge = 0, firstGroup = null;
-    A.minorNode = 0;
+    A.minorNode = 0; A.minorNode2 = 0;
     // the route's lines: lights, ring entries, give-ways, zebras
     for (let k = A.evI; k < A.ev.length; k++) {
       const e = A.ev[k];
@@ -226,7 +226,7 @@ export class KentTraffic {
         case 'rb': {
           want = Math.min(want, Math.sqrt(36 + 5 * Math.max(0, d))); // about 13 mph at the line
           if (d < 30) {
-            A.minorNode = e.node;
+            A.minorNode = e.node; A.minorNode2 = e.node2 || 0;
             if (!e.go) { if (this.#ringBusy(A, e)) stop = true; else if (d < 1.5 && v > 1) e.go = true; }
           }
           break;
@@ -235,7 +235,7 @@ export class KentTraffic {
           if (e.signalled) break; // the lights decide
           want = Math.min(want, Math.sqrt(16 + 4 * Math.max(0, d))); // creep up to the line
           if (d < 30) {
-            A.minorNode = e.node;
+            A.minorNode = e.node; A.minorNode2 = e.node2 || 0;
             if (!e.go) { if (this.#majorBusy(A, e, e.kind === 'mini' ? 15 : 30)) stop = true; else if (d < 1 && v > 0.5) e.go = true; }
           }
           break;
@@ -244,7 +244,7 @@ export class KentTraffic {
           if (e.signalled) break;
           if (d < 25) {
             want = Math.min(want, Math.sqrt(25 + 4 * Math.max(0, d)));
-            A.minorNode = e.node;
+            A.minorNode = e.node; A.minorNode2 = e.node2 || 0;
             if (!e.go) { if (this.#majorBusy(A, e, 30, e.yaw)) stop = true; else if (d < 1 && v > 0.5) e.go = true; }
           }
           break;
@@ -489,7 +489,7 @@ export class KentTraffic {
     const cars = this.cars, r2 = r * r;
     for (let b = 0; b < cars.length; b++) {
       const B = cars[b];
-      if (B === A || B.minorNode === nodeId) continue;
+      if (B === A || B.minorNode === nodeId || B.minorNode2 === nodeId) continue; // itself giving way here, at this node or at the one its own line answers for
       if (B.v < 0.3 && B.blockId === A.id) continue; // it's waiting for me to get my nose out of its way
       if (yaw != null && B.fx * ox + B.fz * oz > -0.5) continue; // not oncoming
       const dx = nx - B.x, dz = nz - B.z, d2 = dx * dx + dz * dz, rr = B.v * 5.5; // or within 5.5 s
@@ -710,7 +710,7 @@ export class KentTraffic {
       // start at a speed that can still stop for the first line on the route (lights, a give-way)
       const first = A.ev.length ? A.ev[0].s - A.L / 2 : Infinity;
       A.v = Math.min(A.vcap[0] * 0.9, Math.sqrt(2 * STOP_BRAKE * Math.max(0, first - 3))); A.stun = 0; A.stopT = 0; A.extTried = false; A.lastGroup = null; A.lastGroupS = -1e9;
-      A.held = false; A.freeD = Infinity; A.minorNode = 0; A.nudge = 0; A.nudgeT = 0; A.blockId = 0; A.backUp = 0; A.noRoom = false; A.ghost = 0;
+      A.held = false; A.freeD = Infinity; A.minorNode = 0; A.minorNode2 = 0; A.nudge = 0; A.nudgeT = 0; A.blockId = 0; A.backUp = 0; A.noRoom = false; A.ghost = 0;
       this.#move(A, 0);
       this.cars.push(A);
       this.stats.spawned++;
@@ -730,7 +730,7 @@ export class KentTraffic {
       pos: new THREE.Vector3(), x: 0, z: 0, heading: 0, fx: 0, fz: 1, v: 0, want: 0,
       lane: { rb: null }, u: 0, stun: 0, stunned: false, under: 0, ghost: 0,
       n: 0, px: null, pz: null, ps: null, vcap: null, rbArr: [], ev: [], evI: 0, s: 0, idx: 0, aim: 0,
-      route: null, dest: null, held: false, freeD: Infinity, blockId: 0, nudge: 0, nudgeT: 0, backUp: 0, noRoom: false, minorNode: 0, lastGroup: null, lastGroupS: -1e9, stopT: 0, extTried: false,
+      route: null, dest: null, held: false, freeD: Infinity, blockId: 0, nudge: 0, nudgeT: 0, backUp: 0, noRoom: false, minorNode: 0, minorNode2: 0, lastGroup: null, lastGroupS: -1e9, stopT: 0, extTried: false,
     };
   }
   /** load a lane path into a car: typed arrays, the speed it may do at each point, its lines */

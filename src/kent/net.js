@@ -1109,30 +1109,6 @@ export class RoadNet {
     // OSM splits one junction into several nodes a few metres apart, each with its own fillet: merge
     // manoeuvre events within 25 m into one, classed by the strongest kind and the total heading change
     const MANOEUVRE = { emerge: 4, cross: 3, turn: 2, bend: 1 };
-    // A road we only cross on our way through is a junction in its own right, so its give-way line
-    // must not be folded into the next one below: that merge keeps the strongest kind's own line, and
-    // it would be the far one, which is the whole bug. Where the next line stops us anyway, though,
-    // two lines a few metres apart would only stop us twice at one junction. So it comes down to
-    // where a car waiting at that next line would be standing:
-    //   before the near edge of the road we cross  -> it never enters it: our line adds nothing, drop it
-    //   past it, but not clear of the far edge     -> it stands ON that road: one decision, at OUR line
-    //   clear of the far edge, by a car's length   -> it waits between the two: keep both lines
-    const STOPS = { lights: 1, rb: 1, emerge: 1, cross: 1, mini: 1 };
-    const lineOf = (e) => e.lineS ?? e.entryS ?? e.s; // a mini's s is already its line (node - 4)
-    for (let i = events.length - 1; i >= 0; i--) {
-      const e = events[i]; if (!e.thru) continue;
-      const halfW = e.s - e.lineS - 0.6;               // the crossed road's half width, which set our line
-      const next = events.find((q) => STOPS[q.kind] && q !== e && q.s > e.s && q.s - e.s < 25);
-      if (!next) continue;
-      const line = lineOf(next);
-      if (line <= e.s - halfW) { events.splice(i, 1); continue; }
-      if (line >= e.s + halfW + 0.5 + 4.6) continue;
-      // one decision at our line, which now has two nodes to watch: ours and the one it was taken at.
-      // Painted lines (lights, a ring's give-way) cannot be moved, so those keep both lines instead.
-      if (next.kind !== 'emerge' && next.kind !== 'cross') continue;
-      next.lineS = e.lineS; next.node2 = e.node;
-      events.splice(i, 1);
-    }
     const clusters = (e) => !!MANOEUVRE[e.kind] && !e.thru;
     const dirOf = (t) => (t < -25 ? 'left' : t > 25 ? 'right' : 'none');
     for (let i = 0; i < events.length; i++) {
@@ -1150,6 +1126,32 @@ export class RoadNet {
       const drop = (keep.kind === 'turn' || keep.kind === 'bend') && keep.dir === 'none' ? cluster : cluster.filter((e) => e !== keep);
       for (const e of drop) events.splice(events.indexOf(e), 1);
       i = events.indexOf(keep); if (i < 0) i = 0;
+    }
+    // A road we only cross on our way through is a junction in its own right, so the merge above
+    // leaves it alone: that merge keeps the strongest kind's own line, which would be the far one,
+    // and that is the whole bug. Now that the clusters are settled, though, two lines a few metres
+    // apart would only stop us twice at one junction where the next line stops us anyway. So it
+    // comes down to where a car waiting at that next line would be standing:
+    //   before the near edge of the road we cross  -> it never enters it: our line adds nothing, drop it
+    //   past it, but not clear of the far edge     -> it stands ON that road: one decision, at OUR line
+    //   clear of the far edge, by a car's length   -> it waits between the two: keep both lines
+    const STOPS = { lights: 1, rb: 1, emerge: 1, cross: 1, mini: 1 };
+    const lineOf = (e) => e.lineS ?? e.entryS ?? e.s; // a mini's s is already its line (node - 4)
+    for (let i = events.length - 1; i >= 0; i--) {
+      const e = events[i]; if (!e.thru) continue;
+      const halfW = e.s - e.lineS - 0.6;               // the crossed road's half width, which set our line
+      // by line, not by node: the merge above sets a cluster's s to its FIRST node's, which can be
+      // behind us even though the line it stops at is ahead, and that line is the one to compare with
+      const next = events.find((q) => STOPS[q.kind] && q !== e && lineOf(q) > e.lineS && lineOf(q) - e.s < 25);
+      if (!next) continue;
+      const line = lineOf(next);
+      if (line <= e.s - halfW) { events.splice(i, 1); continue; }
+      if (line >= e.s + halfW + 0.5 + 4.6) continue;
+      // one decision at our line, which now has two nodes to watch: ours and the one it was taken at.
+      // Painted lines (lights, a ring's give-way) cannot be moved, so those keep both lines instead.
+      if (next.kind !== 'emerge' && next.kind !== 'cross') continue;
+      next.lineS = e.lineS; next.node2 = e.node;
+      events.splice(i, 1);
     }
     const p0 = pts[0], p3 = pts[Math.min(3, pts.length - 1)];
     const start = p0 ? { x: p0.x, z: p0.z, heading: Math.atan2(p3.x - p0.x, p3.z - p0.z) } : null;
