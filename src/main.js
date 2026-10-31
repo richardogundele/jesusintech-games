@@ -1216,7 +1216,7 @@ function updateSoundscape() {
   const p = car ? car.pos : player.pos;
   const kind = world.id === 'cabin' ? 'indoor'
     : world.id === 'kent' ? (world.indoors?.(p.x, p.z) ? 'indoor' : p.z < -5500 ? 'coast' : 'city')
-    : ['uk', 'motorway', 'driveuk', ...CITY_IDS].includes(world.id) ? 'city' : 'none';
+    : ['uk', 'motorway', ...CITY_IDS].includes(world.id) ? 'city' : 'none';
   audio.ambience.set(kind, mode === 'car');
 }
 

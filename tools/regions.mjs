@@ -45,9 +45,10 @@ export const REGIONS = {
   // from that result's own map link, checked on 2026-10-31. `far` is left off: the destination signs
   // are worked out from these coordinates by farOf() instead of being written out by hand.
   burgesshill: {
-    // There is no test centre in Brighton or Hove. A Brighton candidate tests at Burgess Hill, so
-    // this is Brighton's centre in the only sense that matters -- and the roads are Sussex A-roads
-    // and a market town, not the seafront.
+    // There is no test centre in Brighton or Hove: gov.uk's finder returns Burgess Hill for central
+    // Brighton and for Wilson Avenue. A Brighton candidate tests here, which is the only sense in
+    // which this is Brighton. What its roads are actually like is what the variety report says after
+    // the bake, not what anyone knows about Sussex.
     id: 'burgesshill', name: 'Burgess Hill', place: 'Burgess Hill',
     centre: { lat: 50.951335, lon: -0.152148 }, half: 4000,
     testCentre: { name: 'Burgess Hill', lat: 50.951335, lon: -0.152148, address: 'Off Charles Avenue, Victoria Industrial Estate, Burgess Hill RH15 9AG' },
@@ -74,7 +75,8 @@ export const REGIONS = {
     testCentre: { name: 'Warrington', lat: 53.409965, lon: -2.579280, address: 'Orford Day Centre, Festival Avenue, Warrington WA2 9EP' },
   },
   leeds: {
-    // Horsforth of the three Leeds centres: the A65 and the outer ring road are in reach of it
+    // Horsforth of the three Leeds centres (the others are the Old Fire Station and Colton Mill);
+    // which gives the better test routes is a question for the variety report, not for reputation
     id: 'leeds', name: 'Leeds', place: 'Horsforth',
     centre: { lat: 53.839962, lon: -1.621766 }, half: 4000,
     testCentre: { name: 'Horsforth', lat: 53.839962, lon: -1.621766, address: 'Room 013 Woodside House, 261 Low Lane, Horsforth, Leeds LS18 5NY' },
