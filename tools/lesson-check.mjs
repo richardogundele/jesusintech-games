@@ -69,6 +69,7 @@ export { CENTRES, centreOf, testCentreLayout } from './src/kent/lesson-routes.js
 export * as THREE from 'three';
 export * as testRoutes from './src/kent/test-routes.js';
 export { autoPool } from './src/kent/auto-pool.js';
+export { makeTerrain } from './src/worlds/terrain.js';
 export * as dl25 from './src/dl25.js';
 `;
 const outDir = path.join(REPO, 'node_modules/.cache/lesson-check');
@@ -118,12 +119,22 @@ function makeRegion(id) {
   // stand-in meshes: KentTraffic.collide only bumps cars whose mesh is showing
   const stubCar = (spec) => ({ root: new THREE.Group(), wheels: [], wheelR: 0.35, radius: Math.hypot(spec.dims?.L ?? 4.6, spec.dims?.W ?? 1.85) / 2 });
   const stubPed = () => { const g = new THREE.Group(); g.userData.animate = () => {}; return g; };
-  const traffic = new G.KentTraffic({ net, scene, signals, bodies: G.TRAFFIC, buildCar: stubCar, buildPedestrian: stubPed, rnd });
+  // the same terrain and the same traffic settings the game builds (worlds/region.js, worlds/kent.js):
+  // the hills change what a careful driver can do on them, and a thinner stream of traffic would be a
+  // different test from the one the player drives
+  const terrain = G.makeTerrain(regionData(id));
+  const heightAt = (x, z, prevY = null) => { const t = terrain.heightAt(x, z); return t + net.deckNear(x, z, prevY, t); };
+  const gradeAt = (x, z, heading, prevY = null) => {
+    const dx = Math.sin(heading) * 3, dz = Math.cos(heading) * 3;
+    return (heightAt(x + dx, z + dz, prevY) - heightAt(x - dx, z - dz, prevY)) / 2;
+  };
+  const traffic = new G.KentTraffic({ net, scene, signals, bodies: G.TRAFFIC, buildCar: stubCar, buildPedestrian: stubPed, rnd, maxCars: 80, maxPeds: 55, groundY: heightAt, gradeAt });
   const rbs = [...net.roundabouts.values()].map((rb) => ({ name: rb.id, x: rb.x, z: rb.z, lane: rb.laneRadius(1), outer: rb.r, sense: rb.sense }));
   const colliders = new G.Colliders();
   let last = 0;
   const w = {
-    id, name: id.toUpperCase(), units: 'mph', scene, net, signals, trafficSystem: traffic, traffic, rbs, rbSenseSign: 1, colliders,
+    id, name: id.toUpperCase(), units: 'mph', scene, net, signals, trafficSystem: traffic, traffic, rbs, colliders,
+    rbSenseSign: rbs.every((r) => r.sense === rbs[0]?.sense) ? rbs[0]?.sense ?? 1 : 1,
     bounds: net.bounds, cars: [],
     tick(t) { const dt = last ? Math.min(0.1, t - last) : 0; last = t; signals.update(dt); },
     speedLimitAt: (x, z) => net.limitAt(x, z), nslAt: (x, z) => net.nslAt(x, z),

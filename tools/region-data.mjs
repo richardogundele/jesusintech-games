@@ -14,7 +14,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { RoadNet } from '../src/kent/net.js';
-import { REGIONS, originOf } from './regions.mjs';
+import { REGIONS, originOf, farOf } from './regions.mjs';
 
 // ---------- arguments ----------
 const argv = process.argv.slice(2), opt = {}, pos = [];
@@ -638,7 +638,7 @@ const landmarks = feat.landmarks.filter((l) => l.name && l.name !== 'None' && in
 const seenPlace = new Set();
 const places = (feat.places || []).filter((p) => inBounds([p.x, p.z]) && !seenPlace.has(p.name) && seenPlace.add(p.name)).map((p) => ({ name: p.name, x: r1(p.x), z: r1(p.z), r: p.r || 500, rank: p.rank || 2 }));
 const BIG = /^(london|birmingham|manchester|kent|central london|city centre)$/i;
-const far = R.far.map(([name, x, z]) => ({ name, x, z, r: 0, rank: BIG.test(name) ? 1 : 2, far: true }));
+const far = farOf(R).map(([name, x, z]) => ({ name, x, z, r: 0, rank: BIG.test(name) ? 1 : 2, far: true }));
 const testCentres = (feat.test_centres || []).map((t) => ({ name: t.name, x: r1(t.x), z: r1(t.z), address: t.address }));
 
 // ---------- 9b. built-up override: an untagged road inside a town is 30, not 60 ----------
