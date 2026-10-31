@@ -36,6 +36,12 @@ export function autoPool(net, tc, { key = 'auto', world = null, radius = null } 
   const edge = b ? Math.min(tc.x - b.minX, b.maxX - tc.x, tc.z - b.minZ, b.maxZ - tc.z) : 2500;
   const reach = radius ?? Math.max(2200, Math.min(3000, edge - 900));
   const near = (x, z) => Math.hypot(x - tc.x, z - tc.z) <= reach;
+  // A multi-lane roundabout further out than this is one the test cannot reach and come back inside
+  // its 15 minutes: the router gives up on the leg and every seed fails with "no route". Manchester's
+  // nearest is 2,285 m from West Didsbury, which is why its test is judged on its lights instead
+  // (relaxRb below). Roads and estates still use the full reach -- it is the ring that has to be near.
+  const RING_REACH = 2200;
+  const nearRing = (x, z) => Math.hypot(x - tc.x, z - tc.z) <= Math.min(reach, RING_REACH);
   const nodeOf = (id) => net.nodes.get(id);
 
   // ---- where the test starts and ends: on the centre's road, pulled up just along from it ----
@@ -75,7 +81,7 @@ export function autoPool(net, tc, { key = 'auto', world = null, radius = null } 
   }
   // every multi-lane roundabout: in by one arm, out by another (the router drives the ring between)
   for (const rb of net.roundabouts.values()) {
-    if ((rb.lanes || 1) < 2 || !near(rb.x, rb.z)) continue;
+    if ((rb.lanes || 1) < 2 || !nearRing(rb.x, rb.z)) continue;
     const ins = rb.arms.filter((a) => a.entry && nodeOf(a.node)), outs = rb.arms.filter((a) => a.exit && nodeOf(a.exitNode ?? a.node));
     if (ins.length < 2 || outs.length < 2) continue;
     // pick an entry and an exit that are not the same arm, roughly across the ring
