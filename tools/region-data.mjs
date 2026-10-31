@@ -215,12 +215,22 @@ function addSynthetic(id, name, gate, join) {
   synthNotes.push(`${name} (way ${id}): ${Math.round(dist(gate, q))} m from (${gate}) to ${p.name || p.cls} at (${r1(q[0])}, ${r1(q[1])}), ${best.d.toFixed(1)} m from the requested join point`);
 }
 addSynthetic(9000000002, 'Jet Centre Road', JET_GATE, JET_JOIN);
+/** which way the road is heading as it reaches a dead end, from its last few metres */
+function endDir(p, end) {
+  const n = p.pts.length;
+  const a = end === 0 ? p.pts[Math.min(2, n - 1)] : p.pts[Math.max(0, n - 3)], b = p.pts[end];
+  const dx = b[0] - a[0], dz = b[1] - a[1], L = Math.hypot(dx, dz) || 1;
+  return [dx / L, dz / L];
+}
 /**
- * A way that ends within SNAP metres of another road without sharing a node with it is an OSM
- * digitising slip, not a cul-de-sac: join it, splitting the other way at the foot of the
- * perpendicular (the same split addSynthetic uses). Bbox cuts ('e' nodes) and gates are left alone.
+ * A way that ends near another road without sharing a node with it is an OSM digitising slip, not
+ * a cul-de-sac: join it, splitting the other way at the foot of the perpendicular (the same split
+ * addSynthetic uses). Bbox cuts ('e' nodes) and gates are left alone. Within SNAP anything joins
+ * whichever way it faces; `accept(gap, angle, sameName)` decides beyond that, and only a dead end
+ * aiming at the road it stops short of qualifies - a close whose tip merely passes near another
+ * street faces sideways on to it, while a street cut in two aims straight at its other half.
  */
-function snapLooseEnds(SNAP = 1.5) {
+function snapLooseEnds(SNAP = 1.5, reach = SNAP, accept = () => false) {
   const use = new Map();
   for (const p of pieces) for (const n of new Set(p.nodes)) if (n) use.set(n, (use.get(n) || 0) + 1);
   const CELL = 20, grid = new Map(), key = (x, z) => `${Math.floor(x / CELL)}:${Math.floor(z / CELL)}`;
@@ -229,14 +239,21 @@ function snapLooseEnds(SNAP = 1.5) {
   for (const p of pieces) for (const end of [0, p.pts.length - 1]) {
     const n = p.nodes[end];
     if (!n || use.get(n) !== 1 || (typeof n === 'string' && /^[eg]/.test(n))) continue;
-    const q0 = p.pts[end];
+    const q0 = p.pts[end], u = endDir(p, end), G = Math.ceil(reach / CELL);
     let best = null;
-    for (let gx = -1; gx <= 1; gx++) for (let gz = -1; gz <= 1; gz++) for (const [pi, i] of grid.get(key(q0[0] + gx * CELL, q0[1] + gz * CELL)) || []) {
+    for (let gx = -G; gx <= G; gx++) for (let gz = -G; gz <= G; gz++) for (const [pi, i] of grid.get(key(q0[0] + gx * CELL, q0[1] + gz * CELL)) || []) {
       const o = pieces[pi]; if (o === p) continue;
-      const a = o.pts[i], b = o.pts[i + 1], dx = b[0] - a[0], dz = b[1] - a[1], L2 = dx * dx + dz * dz;
+      const a = o.pts[i], b = o.pts[i + 1]; if (!a || !b) continue;
+      // nothing opens onto a slip road, a ring or a dual carriageway out of nowhere, and a way
+      // these two already share a node with is the far side of a join just made, not a new one
+      if (o.link || o.dual || o.rb || o.cls === 'motorway' || o.cls === 'trunk') continue;
+      if (o.nodes.some((m) => m && p.nodes.includes(m))) continue;
+      const dx = b[0] - a[0], dz = b[1] - a[1], L2 = dx * dx + dz * dz;
       let t = L2 > 0 ? ((q0[0] - a[0]) * dx + (q0[1] - a[1]) * dz) / L2 : 0; t = Math.max(0, Math.min(1, t));
       const q = [a[0] + dx * t, a[1] + dz * t], d = dist(q, q0);
-      if (d <= SNAP && (!best || d < best.d)) best = { o, i, t, q, d };
+      if (d > reach || (best && d >= best.d)) continue;
+      const ang = (Math.acos(Math.max(-1, Math.min(1, (u[0] * (q[0] - q0[0]) + u[1] * (q[1] - q0[1])) / (d || 1e-9)))) * 180) / Math.PI;
+      if (d <= SNAP || accept(d, ang, !!p.name && o.name === p.name)) best = { o, i, t, q, d, ang };
     }
     if (!best) continue;
     const { o, i, t, q } = best;
@@ -245,11 +262,19 @@ function snapLooseEnds(SNAP = 1.5) {
     else if (t > 0.98 || dist(q, o.pts[i + 1]) < SNAP) { id = o.nodes[i + 1]; if (!id) { id = 's' + ++seq; o.nodes[i + 1] = id; } p.pts[end] = [...o.pts[i + 1]]; }
     else { id = 's' + ++seq; const pt = [r1(q[0]), r1(q[1])]; o.pts.splice(i + 1, 0, pt); o.nodes.splice(i + 1, 0, id); p.pts[end] = [...pt]; }
     p.nodes[end] = id; use.set(id, (use.get(id) || 0) + 1); joined++;
-    synthNotes.push(`snapped ${p.name || p.cls} (${p.id}) onto ${o.name || o.cls} at (${r1(q[0])}, ${r1(q[1])}), ${best.d.toFixed(2)} m`);
+    synthNotes.push(`snapped ${p.name || p.cls} (${p.id}) onto ${o.name || o.cls} at (${r1(q[0])}, ${r1(q[1])}), ${best.d.toFixed(2)} m at ${best.ang.toFixed(0)} deg`);
   }
   return joined;
 }
-const snapped = snapLooseEnds();
+// Two halves of one street reach further than two different streets do. Closing one gap can bring
+// the next dead end within reach, so run to convergence; tools/region-fix.mjs applies the same
+// rule to an already-baked region.json and must stay in step with this.
+let snapped = 0;
+for (let pass = 0; pass < 8; pass++) {
+  const n = snapLooseEnds(1.5, 25, (d, ang, same) => (same ? ang < 30 && d <= 25 : ang < 40 && d <= 12));
+  snapped += n;
+  if (!n) break;
+}
 // ring membership from roundabouts.json (rings are one-way by definition)
 const ringOf = new Map();
 for (const rb of rbsIn) if (!rb.mini) for (const id of rb.ways) ringOf.set(id, rb.id);
