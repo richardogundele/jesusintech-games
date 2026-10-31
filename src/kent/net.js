@@ -456,7 +456,14 @@ export class RoadNet {
     }
     // with no previous height prefer the ground, so static things placed by position stay beneath
     if (prevY == null) return 0;
-    // ...but if nothing decked is here at all, best stays 0
+    // Nothing was in reach at all. That is a gap in the road's own cover, not open ground: a lane
+    // path crossing a wide junction mouth can sit further than halfW + 1.5 from every centreline,
+    // and on a ramp the ground answer is metres below the deck we are standing on. Dropping to 0
+    // here tore the Eddington ramp open -- one guide-ribbon vertex at 0.2 m, the next at 5.0 m,
+    // drawn as a wall of blue 5 m tall. Hold the height we came in with and let the next point
+    // that does find a road decide.
+    if (bestScore === Infinity) return Math.max(0, prevY - terrainY);
+    // ...but if a road IS here and none of it is decked, best stays 0
     return best;
   }
   #buildExtras() {
