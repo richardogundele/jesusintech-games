@@ -13,6 +13,7 @@
 // (tools/testgen-check.mjs).
 
 import { testCentreLayout } from './lesson-routes.js';
+import { REGIONS } from '../../tools/regions.mjs';
 
 const BIG = new Set(['trunk', 'primary', 'secondary', 'tertiary']);
 const ESTATE = new Set(['residential', 'unclassified', 'living_street', 'tertiary']);
@@ -115,7 +116,14 @@ export function autoPool(net, tc, { key = 'auto', world = null, radius = null } 
     name: (tc.name || 'the test centre').replace(/\s*\(.*\)\s*$/, ''),
     start, pullUpAt, bay: !!layout.lot, first: [], last: [], avoid: [],
     mains, loops, homes: {},
-    timeK: 1.0, quick: [1.0, 0.03, 2.4], window: [13.8, 16.2],
+    // How long the route will take. The estimate is the same shape as Kent's, but how closely it
+    // matches a careful driver is a property of the city's roads: measured over the completed runs of
+    // `lesson-check --gen auto --region <id>`, Birmingham drives in 0.94 of its estimate and London in
+    // 1.05 of it. That ratio lives with the region (tools/regions.mjs) and is read here, so the game
+    // and both checks plan the same test. The planning window stays the wide one: narrowing it to
+    // Kent's 14.3-15.7 was measured and rejected -- it forces the few routes that fit, which on
+    // Birmingham meant nearly every seed driving through the same two junctions it gridlocks at.
+    timeK: REGIONS[world]?.timeK ?? 1.0, quick: [1.0, 0.03, 2.4], window: [13.8, 16.2],
     stats: { mains: Object.keys(mains).length, loops: Object.keys(loops).length, multiLaneRbs, reach: Math.round(reach) },
   };
 }

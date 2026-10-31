@@ -13,16 +13,21 @@
 // city only appears in the game -- as a world you can build and a place the jets fly to -- once its
 // region.json is baked and has passed lanes-check and testgen-check. Without the gate, adding a
 // region here would put a destination in the jet picker that loads a file that does not exist yet.
+//
+// `timeK` is how long a route really takes against auto-pool.js's estimate, measured over the
+// completed runs of `node tools/lesson-check.mjs --gen auto --region <id>`. It defaults to 1; a city
+// without a measured one plans slightly the wrong length of test, which is a reason to measure it
+// before setting `ready`, not a reason to guess.
 
 export const REGIONS = {
   london: {
-    id: 'london', ready: true, name: 'London', place: 'Mill Hill',
+    id: 'london', ready: true, timeK: 1.05, name: 'London', place: 'Mill Hill',
     centre: { lat: 51.6101, lon: -0.2472 }, half: 2500,
     testCentre: { name: 'Mill Hill (London)', lat: 51.6101, lon: -0.2472, address: 'Unit 9, Grannard Business Centre, Bunns Lane, Mill Hill, London NW7 2DQ' },
     far: [['Birmingham', -160000, -125000], ['Manchester', -200000, -250000], ['Kent', 95000, 60000], ['Central London', 7000, 13000], ['Watford', -15000, -5000], ['Barnet', 4500, -2500], ['Edgware', -2500, 1500], ['Hendon', 1500, 3500], ['Finchley', 5500, 2500]],
   },
   birmingham: {
-    id: 'birmingham', ready: true, name: 'Birmingham', place: 'Kings Heath',
+    id: 'birmingham', ready: true, timeK: 0.94, name: 'Birmingham', place: 'Kings Heath',
     centre: { lat: 52.4063, lon: -1.8880 }, half: 2500,
     testCentre: { name: 'Birmingham (Kings Heath)', lat: 52.4063, lon: -1.8880, address: '955 Alcester Road South, Kings Heath, Birmingham B14 5JA' },
     far: [['London', 160000, 125000], ['Manchester', -40000, -120000], ['City Centre', 1500, -7500], ['Solihull', 8000, -3000], ['Kings Heath', 500, -2500], ['Redditch', -2000, 15000], ['Stirchley', -2500, -3500], ['Hall Green', 3500, -2500]],
