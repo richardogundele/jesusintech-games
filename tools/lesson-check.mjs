@@ -13,6 +13,8 @@
 //   bad variants for the gearbox: stall, wrongGear, coast (manual only) and handbrake
 //   --gen herne|canterbury|both [--gseeds 1-20]   generated 15-minute tests (src/kent/test-routes.js), one per
 //                               route seed (the traffic uses the same seed); reports sim minutes against the 13-17 target
+//   --gen auto --region london   the same, for a city: the pool comes from its baked map (auto-pool.js)
+//                               rather than Kent's two authored ones, so a city's roads get driven
 //   --colliders builds the Kent tiles along the route (scenery, roads, signs) and adds their colliders,
 //   so the car can hit buildings, posts and barriers as in the browser (slower: tiles take a while)
 //   ids: lesson ids (moveoff, junctions, ... mock, mock-canterbury, wm-moveoff ...), 'kent', 'whitmore' or 'all'
@@ -66,6 +68,7 @@ export * as uk from './src/worlds/uk.js';
 export { CENTRES, centreOf, testCentreLayout } from './src/kent/lesson-routes.js';
 export * as THREE from 'three';
 export * as testRoutes from './src/kent/test-routes.js';
+export { autoPool } from './src/kent/auto-pool.js';
 export * as dl25 from './src/dl25.js';
 `;
 const outDir = path.join(REPO, 'node_modules/.cache/lesson-check');
@@ -101,11 +104,15 @@ Math.random = rnd;
 
 // ---------- worlds ----------
 const MPH = 2.23694;
-let kentNet = null;
-function kentData() { return JSON.parse(fs.readFileSync(path.join(REPO, 'public/assets/kent/region.json'), 'utf8')); }
-function makeKent() {
-  if (!kentNet) kentNet = new G.RoadNet(kentData());
-  const net = kentNet;
+// Kent and the cities are the same world, built from the same region.json: only the file differs, so
+// a city can be DRIVEN here and not merely planned by testgen-check.
+const nets = {};
+const regionFile = (id) => path.join(REPO, `public/assets/${id}/region.json`);
+const hasRegion = (id) => !!id && fs.existsSync(regionFile(id));
+function regionData(id) { return JSON.parse(fs.readFileSync(regionFile(id), 'utf8')); }
+function regionNet(id) { if (!nets[id]) nets[id] = new G.RoadNet(regionData(id)); return nets[id]; }
+function makeRegion(id) {
+  const net = regionNet(id);
   const scene = new THREE.Scene();
   const signals = new G.SignalSystem({ net, rnd });
   // stand-in meshes: KentTraffic.collide only bumps cars whose mesh is showing
@@ -116,7 +123,7 @@ function makeKent() {
   const colliders = new G.Colliders();
   let last = 0;
   const w = {
-    id: 'kent', name: 'KENT', units: 'mph', scene, net, signals, trafficSystem: traffic, traffic, rbs, rbSenseSign: 1, colliders,
+    id, name: id.toUpperCase(), units: 'mph', scene, net, signals, trafficSystem: traffic, traffic, rbs, rbSenseSign: 1, colliders,
     bounds: net.bounds, cars: [],
     tick(t) { const dt = last ? Math.min(0.1, t - last) : 0; last = t; signals.update(dt); },
     speedLimitAt: (x, z) => net.limitAt(x, z), nslAt: (x, z) => net.nslAt(x, z),
@@ -203,8 +210,9 @@ const WANT = { noSignals: /^Signals: necessary/, noMirrors: /^Mirrors|^Move off:
   stall: /stalled/, wrongGear: /^Control: gears/, coast: /coasting/, handbrake: /parking brake/ };
 async function runLesson(def, s0, bad = null, maxSec = 3600) {
   seed = s0;
-  const kent = def.world === 'kent' || (!def.world && !def.stops);
-  const world = kent ? makeKent() : makeWhitmore();
+  const regionId = def.world && hasRegion(def.world) ? def.world : !def.world && !def.stops ? 'kent' : null;
+  const kent = !!regionId; // a real baked map (Kent or a city), not the stand-in Whitmore
+  const world = kent ? makeRegion(regionId) : makeWhitmore();
   const trans = def.trans || (TRANS === 'none' ? null : TRANS);
   const car = new Car('learner', world.learnerAt || { x: 0, z: 0, heading: 0 }, trans ? { ...LEARNER, trans } : LEARNER);
   world.cars.push(car);
@@ -336,11 +344,16 @@ const seeds = range(opt('seeds', '1'));
 // generated tests: one def per route seed
 const genRuns = [];
 if (opt('gen')) {
-  kentNet = kentNet || new G.RoadNet(kentData());
-  for (const centre of opt('gen') === 'both' ? ['herne', 'canterbury'] : [opt('gen')]) for (const gs of range(opt('gseeds', '1-5'))) {
+  // --region <id> drives a city instead of Kent: the pool is read off its map by autoPool, exactly as
+  // the game does on the way to a city test, so these runs exercise the city's own roads and traffic.
+  const REG = opt('region') || null;
+  if (REG && !hasRegion(REG)) { console.error(`no baked map at ${regionFile(REG)}`); process.exit(2); }
+  const genNet = regionNet(REG || 'kent');
+  const pools = REG ? [G.autoPool(genNet, genNet.testCentres[0], { key: REG, world: REG })] : opt('gen') === 'both' ? ['herne', 'canterbury'] : [opt('gen')];
+  for (const centre of pools) for (const gs of range(opt('gseeds', '1-5'))) {
     try { const win = opt('genwin') ? opt('genwin').split(',').map(Number) : null;
-    const gen = G.testRoutes.generateTest(kentNet, centre, gs, flag('genwhy') || win || opt('signs') ? { ...(win ? { minMin: win[0], maxMin: win[1] } : {}), ...(opt('signs') ? { signsRate: +opt('signs') } : {}), log: !flag('genwhy') ? null : (k, used, why, mins, rt) => console.log(`   try ${k}: ${used.join(',')} ${mins.toFixed(1)} min ${(rt.length / 1000).toFixed(1)} km: ${why.join(', ') || 'OK'} | ${rt.events.filter((e) => ['turn', 'emerge', 'cross'].includes(e.kind)).map((e) => e.kind[0] + (e.dir || '')[0]).join('')}`) } : {}); gen.signs = G.testRoutes.signsOnRoute(kentNet, gen.route); genRuns.push({ def: Lmod.testDef(gen), seed: gs, gen }); }
-    catch (err) { console.log(`FAIL generate ${centre} seed ${gs}: ${err.message}`); genRuns.push({ fail: true }); }
+    const gen = G.testRoutes.generateTest(genNet, centre, gs, flag('genwhy') || win || opt('signs') ? { ...(win ? { minMin: win[0], maxMin: win[1] } : {}), ...(opt('signs') ? { signsRate: +opt('signs') } : {}), log: !flag('genwhy') ? null : (k, used, why, mins, rt) => console.log(`   try ${k}: ${used.join(',')} ${mins.toFixed(1)} min ${(rt.length / 1000).toFixed(1)} km: ${why.join(', ') || 'OK'} | ${rt.events.filter((e) => ['turn', 'emerge', 'cross'].includes(e.kind)).map((e) => e.kind[0] + (e.dir || '')[0]).join('')}`) } : {}); gen.signs = G.testRoutes.signsOnRoute(genNet, gen.route); genRuns.push({ def: Lmod.testDef(gen), seed: gs, gen }); }
+    catch (err) { console.log(`FAIL generate ${centre.key || centre} seed ${gs}: ${err.message}`); genRuns.push({ fail: true }); }
   }
   list = [];
 }

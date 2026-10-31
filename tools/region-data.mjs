@@ -561,7 +561,18 @@ for (const f of bFiles) {
   if (j.elements) for (const e of j.elements) { if (e.type === 'way' && e.geometry && !buildingsById.has(e.id)) buildingsById.set(e.id, { id: e.id, tags: e.tags || {}, pts: e.geometry.map((g) => project(g.lat, g.lon)) }); }
   else if (j.buildings) for (const b of j.buildings) if (!buildingsById.has(b.id)) buildingsById.set(b.id, { id: b.id, tags: { building: b.type, name: b.name, 'building:levels': b.levels, shop: b.shop, amenity: b.amenity }, pts: b.pts.map((p) => [p[0], p[1]]), h: b.height_m });
 }
-const buildings = []; let tinySkipped = 0, clearedHome = 0, clearedField = 0;
+// Buildings are two thirds of a region file, and a map wide enough to reach a city's ring road has
+// four times the area of the old 5 km square. Within `detail` metres of the test centre every
+// building is kept in full. Beyond it the houses are background along the edge of the map, past where
+// a test route turns back: half of the plain ones go (by id, so a re-bake drops the same ones), the
+// rest keep a coarser footprint, and none keeps an address nobody can read.
+//
+// The default has to clear the pool's reach, or routes would drive down streets missing every other
+// house. auto-pool.js works its reach out of the same half-size (max 2200, min(3000, half - 900)),
+// so the full-detail circle is that plus 300 m.
+const DETAIL = R.detail ?? Math.max(2500, Math.min(3000, R.half - 900) + 300);
+const outer = (c) => Math.hypot(c[0], c[1]) > DETAIL; // the origin IS the test centre
+const buildings = []; let tinySkipped = 0, clearedHome = 0, clearedField = 0, farThinned = 0, farCoarsened = 0;
 const inRect = (c, R) => c[0] >= R.minX && c[0] <= R.maxX && c[1] >= R.minZ && c[1] <= R.maxZ;
 for (const b of buildingsById.values()) {
   let pts = b.pts; if (pts.length > 1 && dist(pts[0], pts.at(-1)) < 0.01) pts = pts.slice(0, -1);
@@ -571,14 +582,21 @@ for (const b of buildingsById.values()) {
   if (HOME && (Math.hypot(c[0] - HOME.x, c[1] - HOME.z) <= 70 || pts.some((p) => Math.hypot(p[0] - HOME.x, p[1] - HOME.z) <= 70))) { clearedHome++; continue; }
   if (inRect(c, AIRFIELD_RECT) || pts.some((p) => inRect(p, AIRFIELD_RECT))) { clearedField++; continue; }
   const area = Math.abs(shoelace(pts)); if (area < 8) { tinySkipped++; continue; }
-  let tol = 0.3, idx = simplifyRing(pts, tol); while (idx.length > 24 && tol < 60) { tol *= 1.5; idx = simplifyRing(pts, tol); } // big stores and schools lose detail, never points
+  const t = b.tags, kind = KIND(t);
+  // out in the ring: a plain unnamed house is scenery, so half of them go and the rest lose detail.
+  // Anything named, big, or not a house stays: those are what you steer by at a distance.
+  const plain = outer(c) && !t.name && area < 150 && ['house', 'terrace', 'flats', 'other'].includes(kind);
+  if (plain && b.id % 2 === 0) { farThinned++; continue; }
+  const coarse = outer(c) && !t.name;
+  if (coarse) farCoarsened++;
+  let tol = coarse ? 2 : 0.3, cap = coarse ? 8 : 24, idx = simplifyRing(pts, tol);
+  while (idx.length > cap && tol < 60) { tol *= 1.5; idx = simplifyRing(pts, tol); } // big stores and schools lose detail, never points
   const out = idx.map((i) => [r1(pts[i][0]), r1(pts[i][1])]);
   if (out.length < 3) continue;
-  const t = b.tags, kind = KIND(t);
   const hTag = parseFloat(String(t.height || '').replace(/[^0-9.]/g, '')), levels = parseFloat(t['building:levels']);
   const h = hTag > 0 ? hTag : levels > 0 ? levels * 3.2 : b.h && t.building !== 'yes' ? b.h : ['house', 'terrace', 'flats'].includes(kind) ? (kind === 'flats' ? 9.6 : 6.5) : kind === 'shop' || kind === 'industrial' ? 9 : kind === 'church' ? 12 : t.building === 'garage' || t.building === 'garages' || t.building === 'shed' ? 2.8 : 6.5;
   // the real address off the building, where OSM has one: "157 Colindeep Lane, NW9 6DB"
-  const hn = t['addr:housenumber'] || null, st = t['addr:street'] || null, pc = t['addr:postcode'] || null;
+  const hn = coarse ? null : t['addr:housenumber'] || null, st = coarse ? null : t['addr:street'] || null, pc = coarse ? null : t['addr:postcode'] || null;
   buildings.push({ pts: out, h: r1(h), kind, name: t.name || null,
     ...(hn ? { nr: hn } : {}), ...(st ? { st } : {}), ...(pc ? { pc } : {}) });
 }
@@ -729,7 +747,7 @@ if (CHECK) {
   const km = {}; let total = 0;
   for (const w of net.ways.values()) { km[w.cls] = (km[w.cls] || 0) + w.len / 1000; total += w.len / 1000; }
   console.log('\n== counts');
-  console.log(`ways ${waysOut.length} (${dropped.length} island ways dropped, ${droppedKm.toFixed(2)} km; ${skippedRb.length} roundabouts outside the region), nodes ${Object.keys(nodesOut).length} (junctions ${[...net.nodes.values()].filter((n) => n.kind === 'junction').length}, ends ${[...net.nodes.values()].filter((n) => n.kind === 'end').length}), roundabouts ${roundabouts.length}, minis ${minis.length}, signals ${signals.length} in ${new Set(signals.map((s) => s.junction)).size} groups, crossings ${crossings.length} (${crossProjected} projected from footways, ${crossDropped} dropped), calming ${calming.length} (${calmProjected} projected, ${calmDropped} dropped), level crossings ${levelCrossings.length}, railways ${railways.length}, rivers ${rivers.length}, coastline ${coastline.length} pts, sea ${sea.length} pts, buildings ${buildings.length} (${tinySkipped} tiny skipped, ${clearedHome} cleared at home, ${clearedField} cleared on the airfield), landuse ${landuse.length} (${Object.entries(landuse.reduce((m, l) => (m[l.kind] = (m[l.kind] || 0) + 1, m), {})).map(([k, v]) => k + ' ' + v).join(', ')}), landmarks ${landmarks.length} (${landmarks.filter((l) => l.brand).length} with brand), places ${places.length} + ${far.length} far, test centres ${testCentres.length}`);
+  console.log(`ways ${waysOut.length} (${dropped.length} island ways dropped, ${droppedKm.toFixed(2)} km; ${skippedRb.length} roundabouts outside the region), nodes ${Object.keys(nodesOut).length} (junctions ${[...net.nodes.values()].filter((n) => n.kind === 'junction').length}, ends ${[...net.nodes.values()].filter((n) => n.kind === 'end').length}), roundabouts ${roundabouts.length}, minis ${minis.length}, signals ${signals.length} in ${new Set(signals.map((s) => s.junction)).size} groups, crossings ${crossings.length} (${crossProjected} projected from footways, ${crossDropped} dropped), calming ${calming.length} (${calmProjected} projected, ${calmDropped} dropped), level crossings ${levelCrossings.length}, railways ${railways.length}, rivers ${rivers.length}, coastline ${coastline.length} pts, sea ${sea.length} pts, buildings ${buildings.length} (${tinySkipped} tiny skipped, ${clearedHome} cleared at home, ${clearedField} cleared on the airfield, ${farThinned} plain houses dropped and ${farCoarsened} coarsened beyond ${DETAIL} m), landuse ${landuse.length} (${Object.entries(landuse.reduce((m, l) => (m[l.kind] = (m[l.kind] || 0) + 1, m), {})).map(([k, v]) => k + ' ' + v).join(', ')}), landmarks ${landmarks.length} (${landmarks.filter((l) => l.brand).length} with brand), places ${places.length} + ${far.length} far, test centres ${testCentres.length}`);
   if (synthNotes.length) console.log('synthetic roads: ' + synthNotes.join('; '));
   console.log(`points ${waysOut.reduce((s, w) => s + w.pts.length, 0)}; total ${total.toFixed(1)} km; by class: ` + Object.entries(km).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${v.toFixed(1)}`).join(', '));
   console.log('\n== 12 biggest roundabouts (lanes, then radius)');

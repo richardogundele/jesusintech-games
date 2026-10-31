@@ -4,24 +4,34 @@
 // own, older pipeline (tools/kent-data.mjs) and is not listed here.
 //
 // Local metres: x east, z south of the origin (the test centre). `half` is the half-size of the
-// fetched square. The jet centre sits on empty land south of the real roads (see region-data.mjs).
+// fetched square, and `detail` (default 2500) how far out every building is kept in full: beyond it
+// region-data.mjs drops half the plain houses and coarsens the rest, so a map wide enough to reach a
+// city's ring road costs far less than its area. The jet centre sits on empty land south of the real
+// roads (see region-data.mjs).
+//
+// `ready` is the gate the game reads: an entry is here as soon as the fetch tools need it, but the
+// city only appears in the game -- as a world you can build and a place the jets fly to -- once its
+// region.json is baked and has passed lanes-check and testgen-check. Without the gate, adding a
+// region here would put a destination in the jet picker that loads a file that does not exist yet.
 
 export const REGIONS = {
   london: {
-    id: 'london', name: 'London', place: 'Mill Hill',
+    id: 'london', ready: true, name: 'London', place: 'Mill Hill',
     centre: { lat: 51.6101, lon: -0.2472 }, half: 2500,
     testCentre: { name: 'Mill Hill (London)', lat: 51.6101, lon: -0.2472, address: 'Unit 9, Grannard Business Centre, Bunns Lane, Mill Hill, London NW7 2DQ' },
     far: [['Birmingham', -160000, -125000], ['Manchester', -200000, -250000], ['Kent', 95000, 60000], ['Central London', 7000, 13000], ['Watford', -15000, -5000], ['Barnet', 4500, -2500], ['Edgware', -2500, 1500], ['Hendon', 1500, 3500], ['Finchley', 5500, 2500]],
   },
   birmingham: {
-    id: 'birmingham', name: 'Birmingham', place: 'Kings Heath',
+    id: 'birmingham', ready: true, name: 'Birmingham', place: 'Kings Heath',
     centre: { lat: 52.4063, lon: -1.8880 }, half: 2500,
     testCentre: { name: 'Birmingham (Kings Heath)', lat: 52.4063, lon: -1.8880, address: '955 Alcester Road South, Kings Heath, Birmingham B14 5JA' },
     far: [['London', 160000, 125000], ['Manchester', -40000, -120000], ['City Centre', 1500, -7500], ['Solihull', 8000, -3000], ['Kings Heath', 500, -2500], ['Redditch', -2000, 15000], ['Stirchley', -2500, -3500], ['Hall Green', 3500, -2500]],
   },
   manchester: {
-    id: 'manchester', name: 'Manchester', place: 'West Didsbury',
-    centre: { lat: 53.4252, lon: -2.2584 }, half: 2500,
+    id: 'manchester', ready: true, name: 'Manchester', place: 'West Didsbury',
+    // 4 km out, not 2.5: its two multi-lane roundabouts are 2.3 km from the centre, and on the
+    // smaller square their approaches were clipped, so every seed drove the same single route.
+    centre: { lat: 53.4252, lon: -2.2584 }, half: 4000,
     testCentre: { name: 'Manchester (West Didsbury)', lat: 53.4252, lon: -2.2584, address: 'Unit 11, Christie Fields Office Park, Christie Way, West Didsbury, Manchester M21 7QY' },
     far: [['London', 200000, 250000], ['Birmingham', 40000, 120000], ['City Centre', 1500, -5500], ['Stockport', 7000, 2500], ['Didsbury', 1500, 1200], ['Chorlton', -2500, -1500], ['Sale', -5500, 1500], ['Wythenshawe', -1500, 5500]],
   },

@@ -20,12 +20,21 @@ const ESTATE = new Set(['residential', 'unclassified', 'living_street', 'tertiar
 /**
  * autoPool(net, tc, { key, world, radius }) -> a pool generateTest accepts in place of a POOLS key.
  * tc: the test centre { name, x, z } (net.testCentres[0] for a city region).
+ *
+ * How far out it looks is set by the map, not by a constant. A part near the edge is a part whose
+ * approaches were cut off by the fetch, and a route to it is a route the validator throws away:
+ * Manchester's two multi-lane roundabouts sat 2.3 km out on a 2.5 km map, 75 m from the edge, and
+ * the only way to them came out at 12.5 km. So the reach grows with the map and stops 900 m short of
+ * the edge, and never falls below the 2.2 km that the first three cities were measured at.
  */
-export function autoPool(net, tc, { key = 'auto', world = null, radius = 2200 } = {}) {
+export function autoPool(net, tc, { key = 'auto', world = null, radius = null } = {}) {
   const layout = testCentreLayout(net, tc);
   const hit = layout.hit;
   if (!hit) throw new Error(`${tc.name}: no road within 120 m of the test centre`);
-  const near = (x, z) => Math.hypot(x - tc.x, z - tc.z) <= radius;
+  const b = net.bounds;
+  const edge = b ? Math.min(tc.x - b.minX, b.maxX - tc.x, tc.z - b.minZ, b.maxZ - tc.z) : 2500;
+  const reach = radius ?? Math.max(2200, Math.min(3000, edge - 900));
+  const near = (x, z) => Math.hypot(x - tc.x, z - tc.z) <= reach;
   const nodeOf = (id) => net.nodes.get(id);
 
   // ---- where the test starts and ends: on the centre's road, pulled up just along from it ----
@@ -107,6 +116,6 @@ export function autoPool(net, tc, { key = 'auto', world = null, radius = 2200 } 
     start, pullUpAt, bay: !!layout.lot, first: [], last: [], avoid: [],
     mains, loops, homes: {},
     timeK: 1.0, quick: [1.0, 0.03, 2.4], window: [13.8, 16.2],
-    stats: { mains: Object.keys(mains).length, loops: Object.keys(loops).length, multiLaneRbs },
+    stats: { mains: Object.keys(mains).length, loops: Object.keys(loops).length, multiLaneRbs, reach: Math.round(reach) },
   };
 }

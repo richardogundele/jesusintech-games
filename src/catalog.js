@@ -1,6 +1,8 @@
 // Real names, real-ish numbers.
 // topSpeed in km/h, accel in m/s^2 (roughly 0-100 time), grip = lateral grip, mass feel via steerResponse.
 
+import { REGIONS, metresPerDegree } from '../tools/regions.mjs';
+
 export const CARS = {
   revuelto: {
     gltf: 'car_revuelto', fit: { yaw: 0, wheels: /^Wheel_[FB][LR]$/, paint: /^Body$/ },
@@ -172,26 +174,44 @@ export function fameLevel(reached) {
 }
 export const talkFee = (reached, crowd) => 250_000 + fameLevel(reached).level * 250_000 + crowd * 20;
 
-// The UK cities you can fly or drive between, and great-circle distances (km)
-export const CITIES = { kent: { name: 'Kent' }, london: { name: 'London' }, birmingham: { name: 'Birmingham' }, manchester: { name: 'Manchester' } };
-// great-circle km; Kent flights measured from Manston. Every hop is short: no fuel stops in the UK.
-const KM = { 'kent-london': 95, 'birmingham-kent': 250, 'kent-manchester': 345, 'birmingham-london': 165, 'london-manchester': 265, 'birmingham-manchester': 115 };
+// ---- the UK cities you can fly or drive between ----
+// One city per baked map, so a city appears here the moment its region does: the coordinates come
+// from tools/regions.mjs, the same table the map was fetched with, and the distances are worked out
+// from them. Kent has its own older pipeline and is not in REGIONS; its flights are measured from
+// Manston, the airfield the jet centre stands on.
+const WHERE = {
+  kent: { name: 'Kent', lat: 51.342, lon: 1.346 },
+  ...Object.fromEntries(Object.entries(REGIONS).filter(([, R]) => R.ready).map(([id, R]) => [id, { name: R.name, lat: R.centre.lat, lon: R.centre.lon }])),
+};
+export const CITIES = Object.fromEntries(Object.entries(WHERE).map(([id, c]) => [id, { name: c.name }]));
+const key = (a, b) => [a, b].sort().join('-');
+/** great-circle km, flat-earth over a few hundred km: the error is metres, and jets fly in 5-minute steps */
+function kmBetween(a, b) {
+  const A = WHERE[a], B = WHERE[b];
+  if (!A || !B) return 0;
+  const m = metresPerDegree((A.lat + B.lat) / 2);
+  return Math.hypot((B.lon - A.lon) * m.mPerDegLon, (B.lat - A.lat) * m.mPerDegLat) / 1000;
+}
+const KM = new Map();
+const km = (a, b) => { const k = key(a, b); if (!KM.has(k)) KM.set(k, kmBetween(a, b)); return KM.get(k); };
 const STOPS = {};
-// the motorway you take by road, and the miles (the drive is compressed but the signs are real)
+// The motorways, where they were checked against a real route. The drive is compressed, so the miles
+// are the road miles, about a third more than the straight line. A pair nobody has checked gets the
+// distance and no road number: a made-up junction list on a real motorway would be a lie you could
+// act on.
 export const ROADS_BETWEEN = {
   'kent-london': { road: 'M20 · M25', miles: 70 }, 'birmingham-kent': { road: 'M20 · M25 · M40', miles: 170 }, 'kent-manchester': { road: 'M25 · M1 · M6', miles: 250 },
   'birmingham-london': { road: 'M40', miles: 120 }, 'london-manchester': { road: 'M1 · M6', miles: 200 }, 'birmingham-manchester': { road: 'M6', miles: 85 },
 };
-export const roadBetween = (a, b) => ROADS_BETWEEN[[a, b].sort().join('-')];
-const key = (a, b) => [a, b].sort().join('-');
+export const roadBetween = (a, b) => ROADS_BETWEEN[key(a, b)] || { road: 'Motorway', miles: Math.round(km(a, b) * 0.75) };
 export const otherCities = (from) => Object.keys(CITIES).filter((c) => c !== from);
 /** null if the jet can make it nonstop, else where it refuels */
 export function fuelStop(jet, from, to) {
   const rangeKm = parseFloat(String(jet.range).replace(/,/g, '')) * 1.852;
-  return rangeKm < KM[key(from, to)] * 1.05 ? STOPS[key(from, to)] : null;
+  return rangeKm < km(from, to) * 1.05 ? STOPS[key(from, to)] : null;
 }
-export function flightTime(jet, from = 'monaco', to = 'dubai') {
-  const hours = KM[key(from, to)] / (jet.mach * 0.93 * 1062) + 0.35 + (fuelStop(jet, from, to) ? 1.1 : 0);
+export function flightTime(jet, from, to) {
+  const hours = km(from, to) / (jet.mach * 0.93 * 1062) + 0.35 + (fuelStop(jet, from, to) ? 1.1 : 0);
   const mins = Math.round((hours * 60) / 5) * 5;
   return `${Math.floor(mins / 60)}h ${String(mins % 60).padStart(2, '0')}m`;
 }

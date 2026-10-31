@@ -7,6 +7,7 @@ import { EngineAudio } from './audio.js';
 import { Hud } from './hud.js';
 import { state, save, recordDrive, careerRating } from './state.js';
 import { JETS, CITIES, otherCities, fuelStop, flightTime, roadBetween, LEARNER, CARS } from './catalog.js';
+import { REGIONS } from '../tools/regions.mjs';
 import { buildKent, setKentHooks } from './worlds/kent.js';
 import * as P from './progress.js';
 import { Phone } from './phone.js';
@@ -104,12 +105,17 @@ const freeExam = new FreeExam({
 const $ = (id) => document.getElementById(id);
 
 // ---------- worlds ----------
-// The three cities are built from the real map around their driving test centres (worlds/region.js);
-// their road data is fetched on the way there (loadRegion), so the first visit awaits it
+// Every city is built from the real map around its driving test centre (worlds/region.js), one per
+// entry in tools/regions.mjs, so adding a city to that table adds it here; its road data is fetched
+// on the way there (loadRegion), so the first visit awaits it.
 const cityBuilder = (id, name, extra = {}) => (r) => buildRegion(r, { id, name, data: misc(`${id}Region`), ...extra });
-const builders = { kent: buildKent, driveuk: cityBuilder('driveuk', 'Drive UK'), london: cityBuilder('london', 'London'), birmingham: cityBuilder('birmingham', 'Birmingham'), manchester: cityBuilder('manchester', 'Manchester'), motorway: buildMotorway, uk: buildUK };
+const CITY_IDS = Object.keys(REGIONS).filter((id) => REGIONS[id].ready); // only cities whose map is baked and checked
+const builders = {
+  kent: buildKent, driveuk: cityBuilder('driveuk', 'Drive UK'), motorway: buildMotorway, uk: buildUK,
+  ...Object.fromEntries(CITY_IDS.map((id) => [id, cityBuilder(id, REGIONS[id].name)])),
+};
 // driveuk is the authored teaching city (tools/city-build.mjs); the rest are the real map
-const REGION_WORLDS = ['driveuk', 'london', 'birmingham', 'manchester'];
+const REGION_WORLDS = ['driveuk', ...CITY_IDS];
 const ensureWorldData = (id) => (REGION_WORLDS.includes(id) && !worlds[id] ? loadRegion(id) : Promise.resolve());
 const HOMES = ['kent']; // the world you live in: the save remembers it
 const worlds = {};
@@ -132,7 +138,11 @@ function getWorld(id) {
     w.traffic = w.trafficSystem || new Traffic(w.scene, w.life || {});
     if (!w.trafficSystem && w.signalHeads) w.traffic.heads = w.signalHeads; // the cities' lights: traffic stops on red
     w.interactions = w.interactions || [];
-    if (w.terminal) w.interactions.push({ ...w.terminal, car: true, label: () => `Fly or drive to ${otherCities(w.id).map((c) => CITIES[c].name).join(', ')}`, action: openJets });
+    // the prompt names the places while they fit on one line, and counts them once they don't
+    if (w.terminal) w.interactions.push({ ...w.terminal, car: true, label: () => {
+      const to = otherCities(w.id);
+      return to.length <= 4 ? `Fly or drive to ${to.map((c) => CITIES[c].name).join(', ')}` : `Fly or drive to ${to.length} other cities`;
+    }, action: openJets });
     if (w.jetPark) w.interactions.push({ ...w.jetPark, car: true, label: () => `Open the jet park (${P.ownedJetIds().length} aircraft)`, action: openJets });
     worlds[id] = w;
   }
@@ -593,7 +603,7 @@ const phone = new Phone({
     if (car?.id === carId) car.setCondition?.(100);
     for (const c of world.cars) if (c.id === carId) c.setCondition?.(100);
   },
-  onJetBought(jetId) { for (const id of ['kent', 'london', 'birmingham', 'manchester']) worlds[id]?.addJet?.(jetId); },
+  onJetBought(jetId) { for (const id of ['kent', ...CITY_IDS]) worlds[id]?.addJet?.(jetId); },
   setLook: (l) => { player.mesh.userData.setLook?.(l); save(); },
   startLesson: (id) => startLesson(id),
   startTest: (centre, seed, kind) => startTest(centre, seed, kind),
@@ -1206,7 +1216,7 @@ function updateSoundscape() {
   const p = car ? car.pos : player.pos;
   const kind = world.id === 'cabin' ? 'indoor'
     : world.id === 'kent' ? (world.indoors?.(p.x, p.z) ? 'indoor' : p.z < -5500 ? 'coast' : 'city')
-    : ['uk', 'london', 'birmingham', 'manchester', 'motorway'].includes(world.id) ? 'city' : 'none';
+    : ['uk', 'motorway', 'driveuk', ...CITY_IDS].includes(world.id) ? 'city' : 'none';
   audio.ambience.set(kind, mode === 'car');
 }
 
