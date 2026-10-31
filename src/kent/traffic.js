@@ -479,14 +479,20 @@ export class KentTraffic {
    * giving way here). With `yaw`, only traffic coming the other way counts (a right turn's view).
    */
   #majorBusy(A, e, r, yaw = null) {
+    if (this.#busyAt(A, e, e.nx, e.nz, e.node, r, yaw)) return true;
+    // a second junction this one line also answers for (net.js merges the pair when there is no room
+    // to wait between them): its main road has to be clear as well
+    return !!e.node2 && this.#busyAt(A, e, e.nx2, e.nz2, e.node2, r, yaw);
+  }
+  #busyAt(A, e, nx, nz, nodeId, r, yaw) {
     const ox = yaw == null ? 0 : Math.sin(yaw), oz = yaw == null ? 0 : Math.cos(yaw);
     const cars = this.cars, r2 = r * r;
     for (let b = 0; b < cars.length; b++) {
       const B = cars[b];
-      if (B === A || B.minorNode === e.node) continue;
+      if (B === A || B.minorNode === nodeId) continue;
       if (B.v < 0.3 && B.blockId === A.id) continue; // it's waiting for me to get my nose out of its way
       if (yaw != null && B.fx * ox + B.fz * oz > -0.5) continue; // not oncoming
-      const dx = e.nx - B.x, dz = e.nz - B.z, d2 = dx * dx + dz * dz, rr = B.v * 5.5; // or within 5.5 s
+      const dx = nx - B.x, dz = nz - B.z, d2 = dx * dx + dz * dz, rr = B.v * 5.5; // or within 5.5 s
       if (d2 > r2 && d2 > rr * rr) continue;
       if ((B.v < 1.5 || B.held) && d2 > 144) continue; // stopped or held away from the mouth: not coming
       if (B.v < 0.3 && B.stopT > 3 && d2 > 16) continue; // standing in a queue on the main road, not coming (else a queue across the mouth never lets anyone out)
@@ -497,7 +503,7 @@ export class KentTraffic {
     // the player coming along the main road (not behind me on my own road, nor waiting at this junction)
     const me = this.me;
     if (me.x != null && me.v > 1.5 && A.fx * me.fx + A.fz * me.fz < 0.7 && (yaw == null || me.fx * ox + me.fz * oz <= -0.5)) {
-      const dx = e.nx - me.x, dz = e.nz - me.z, d2 = dx * dx + dz * dz, rr = me.v * 5.5;
+      const dx = nx - me.x, dz = nz - me.z, d2 = dx * dx + dz * dz, rr = me.v * 5.5;
       if ((d2 <= r2 || d2 <= rr * rr) && dx * me.fx + dz * me.fz > -2) return true;
     }
     return false;
@@ -786,7 +792,10 @@ export class KentTraffic {
         ev.push({ kind: 'rb', s: Math.min(wait, edge - 0.8), ringS: edge + 1, rb, node: e.node, thE: Math.atan2(node.z - rb.z, node.x - rb.x), go: false });
       } else if (e.kind === 'emerge' || e.kind === 'cross' || e.kind === 'mini') {
         const node = net.nodes.get(e.node); if (!node) continue;
-        ev.push({ kind: e.kind, s: e.kind === 'mini' ? e.s : (e.lineS ?? e.s - 4), node: e.node, nx: node.x, nz: node.z, signalled: lightNodes.has(e.node) || node.signals, go: false });
+        // node2: a road we cross on the way in, too close to this one to wait between the two, so the
+        // one line answers for both junctions and both have to be clear before we go
+        const n2 = e.node2 ? net.nodes.get(e.node2) : null;
+        ev.push({ kind: e.kind, s: e.kind === 'mini' ? e.s : (e.lineS ?? e.s - 4), node: e.node, nx: node.x, nz: node.z, node2: n2 ? e.node2 : 0, nx2: n2 ? n2.x : 0, nz2: n2 ? n2.z : 0, signalled: lightNodes.has(e.node) || node.signals, go: false });
       } else if (e.kind === 'turn' && e.dir === 'right') { // turning right across the oncoming lane
         const node = net.nodes.get(e.node); if (!node) continue;
         const line = Math.max(0, e.s - 4);

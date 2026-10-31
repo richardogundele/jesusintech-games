@@ -801,7 +801,12 @@ export class LessonRun {
    * heading for it and not coming from behind me down my own road.
    */
   majorBusy(e, car, secs = 5.5, r = 45) {
-    const node = this.world.net.nodes.get(e.node); if (!node) return false;
+    // e.node2: a second junction this one give-way line answers for, where there is no room to wait
+    // between the two (net.js lanePath) - both main roads have to be clear
+    return this.#majorBusyAt(e.node, car, secs, r) || (!!e.node2 && this.#majorBusyAt(e.node2, car, secs, r));
+  }
+  #majorBusyAt(id, car, secs, r) {
+    const node = this.world.net.nodes.get(id); if (!node) return false;
     const fx = Math.sin(car.heading), fz = Math.cos(car.heading);
     for (const c of this.world.traffic?.cars || []) {
       if (c.v < 1) continue;
