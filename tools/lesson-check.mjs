@@ -200,9 +200,14 @@ const tileParts = new Map(); // tile key -> collider boxes
  *             Report the deduped set of nodes its members are answering for: where they collapse to
  *             one, that collapse IS the finding; where they do not, "across nodes A, B" is true and
  *             a single invented node is not.
- *   none      the chain ends at a car that is not held (route end parked in lane, despawn pending,
- *             no room). That is not a line stall at all and gets its own bucket rather than being
- *             attributed to a junction it has nothing to do with.
+ *   frozen    a car in the chain has NOTHING ahead of it (blockId 0), nothing holding it, and has
+ *             been stopped past STUCK. The model has no account of why it is stopped, and
+ *             #housekeep will not remove it while the player can see it (traffic.js:594 gates the
+ *             stuck despawn on d > UNSEEN). A different defect from every line stall and from a
+ *             ring, so it gets its own class rather than hiding inside `none`.
+ *   none      the chain ends at a car that is not held but is not frozen either -- someone ahead of
+ *             it, or not yet stuck. An ordinary queue with no line at its head. Not a line stall at
+ *             all, and not attributed to a junction it has nothing to do with.
  */
 function blockerOf(walked, looped, world) {
   const nodesOf = (c) => [c.minorNode, c.minorNode2].filter((n) => n);
@@ -211,7 +216,16 @@ function blockerOf(walked, looped, world) {
     return { kind: 'ring', nodes, cars: walked.length };
   }
   const lead = walked.find((c) => c.held);
-  if (!lead) return { kind: 'none', why: walked.length ? 'chain ends at a car that is not held' : 'nothing ahead' };
+  if (!lead) {
+    if (!walked.length) return { kind: 'none', why: 'nothing ahead' };
+    const frozen = walked.filter((c) => !c.blockId && c.stopT > 120);
+    if (frozen.length) return {
+      kind: 'frozen', cars: frozen.length, stopT: Math.round(Math.max(...frozen.map((c) => c.stopT))),
+      at: [+frozen[0].x.toFixed(1), +frozen[0].z.toFixed(1)],
+    };
+    const c = walked[0];
+    return { kind: 'none', why: `chain ends at a car that is not held (block ${c.blockId || 0}, stopped ${Math.round(c.stopT)} s)`, at: [+c.x.toFixed(1), +c.z.toFixed(1)] };
+  }
   const nodes = nodesOf(lead);
   if (nodes.length) return { kind: 'junction', nodes, at: [+lead.x.toFixed(1), +lead.z.toFixed(1)] };
   const ev = lead.ev?.[lead.evI];

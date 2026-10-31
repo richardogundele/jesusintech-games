@@ -103,10 +103,19 @@ for (const line of text.split('\n')) {
     try {
       const s = JSON.parse(st[1]);
       if (Array.isArray(s.at)) {
-        // drop the coarser did-not-finish marker for this seed: the stall record is the same event
-        for (const site of sites) site.hits = site.hits.filter((h) => !(h.soft && h.seed === seed));
+        // Drop the coarser did-not-finish marker for this seed: the stall record is the same event.
+        // Remove the site outright once it is empty, rather than leaving a hit-less shell behind at
+        // the PLAYER's position -- within the radius it would swallow the stall we are about to add
+        // and keep its own coordinate, throwing away the lead-car placement below.
+        for (let i = sites.length - 1; i >= 0; i--) {
+          sites[i].hits = sites[i].hits.filter((h) => !(h.soft && h.seed === seed));
+          if (!sites[i].hits.length) sites.splice(i, 1);
+        }
         const b = s.blocker, key = blockerKey(b);
-        const held = b ? (key || (b.kind === 'zebra' ? 'a zebra' : b.kind === 'none' ? `no line (${b.why})` : b.kind)) : 'unattributed';
+        const held = b ? (key
+          || (b.kind === 'zebra' ? 'a zebra'
+            : b.kind === 'frozen' ? `${b.cars} frozen car(s) (nothing ahead, stopped ${b.stopT} s)`
+              : b.kind === 'none' ? `no line (${b.why})` : b.kind)) : 'unattributed';
         // where the blocker has an identity, bucket by it and sit the site at the LEAD car, not the player
         const [bx, bz] = b && Array.isArray(b.at) ? b.at : [s.at[0], s.at[1]];
         add(bx, bz, { seed, sev: 'x', what: `queue stopped ${s.s} m in, waiting at ${held}` }, key);
