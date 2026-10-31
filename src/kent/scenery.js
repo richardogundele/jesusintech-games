@@ -925,6 +925,11 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
   };
   const pickc = (r, arr) => arr[Math.floor(r() * arr.length) % arr.length];
   const rr = (r, a, b) => a + r() * (b - a);
+  // weathered larch-lap: the fence every back garden in Kent is divided by
+  const FENCE = [0x8a7354, 0x9b8363, 0x7b6648, 0x8f7a5c];
+  // how deep a back garden runs, by the age of the street. Victorian and interwar plots are the
+  // long ones; post-war infill is short; a shop parade has a service yard, not a garden.
+  const GARDEN = { highstreet: 0, terraced: 15, victorian: 16, interwar: 17, modern: 11 };
   /** one plot's worth: a terrace row, a pair of semis, a detached house or a bungalow */
   function makeUnit(style, r) {
     const roofCol = pickc(r, ROOF_COLOURS);
@@ -1054,6 +1059,37 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
             rec.extras.push({ type: wall ? 'wall' : 'hedge', x: q.x + nx * bo - ux * 0.45, z: q.z + nz * bo - uz * 0.45, w: len, h: wall ? 0.7 : 1.05, d: wall ? 0.28 : 0.7, yaw, col: wall ? u.wallCol : 0x3f6b2e });
             // iron railings along the top of the wall
             if (wall && u.rail) rec.extras.push({ type: 'rail', x: q.x + nx * bo - ux * 0.45, z: q.z + nz * bo - uz * 0.45, y: 0.7, w: len, h: 0.55, d: 0.05, yaw, col: 0x1c1d1f });
+          }
+        }
+        // back gardens: a close-boarded fence across the end of the plot and one down each party
+        // line, so the land behind a street reads as gardens rather than open field. The depth
+        // shrinks until the whole plot is still nearer this street than any other, so where two
+        // streets back onto each other their gardens meet in the middle instead of crossing.
+        const deep = u.kind === 'shop' ? 0 : GARDEN[style] ?? 14;
+        if (deep && !w.rural) {
+          const back = front + u.d;
+          let g = 0;
+          for (const t of [1, 0.72, 0.5, 0.34]) {
+            const d = deep * t;
+            if (d < 4.5) break;
+            const m = back + d / 2, mx = pm.x + nx * m, mz = pm.z + nz * m;
+            const q = obbCorners(mx, mz, ux, uz, nx, nz, u.w / 2, d / 2), rad = Math.hypot(u.w, d) / 2;
+            // the plot has to clear everything its house had to clear - the home and jet-centre
+            // sites, the cliffs, the railway, farmland and the sea - or a garden fence ends up
+            // inside the home's grounds or over the cliff edge. Real OSM buildings are not tested:
+            // osmNear holds a whole house 25 m clear of them, which would leave no garden at all.
+            if (!q.some(([x, z]) => excluded(x, z) || inSea(x, z)) && !nearCoast(mx, mz, rad + 12)
+              && !KEEP.some((k) => Math.hypot(mx - k.x, mz - k.z) < k.r + rad)
+              && (() => { const lu = landuseAt(mx, mz); return lu ? !NO_HOUSES.has(lu) : !!placeAt(mx, mz); })()
+              && !nearRail(mx, mz, rad + 6) && owned(q)) { g = d; break; }
+          }
+          if (g) {
+            const fcol = pickc(r, FENCE), yawN = Math.atan2(-nz, nx);
+            rec.extras.push({ type: 'fence', rear: true, x: pm.x + nx * (back + g), z: pm.z + nz * (back + g), w: u.w, h: 1.8, d: 0.12, yaw, col: fcol });
+            for (let k = 0; k <= u.n; k++) {
+              const q = pointAt(way, s + (k * u.w) / u.n);
+              rec.extras.push({ type: 'fence', x: q.x + nx * (back + g / 2), z: q.z + nz * (back + g / 2), w: g, h: 1.8, d: 0.12, yaw: yawN, col: fcol });
+            }
           }
         }
         // per house: a bay window beside the door and a canopy over it; per shop: an awning
@@ -1186,8 +1222,21 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
             awnings.quad(L0, R0, R1, L1, col); awnings.quad(L1, R1, R0, L0, col); // both faces: seen from the road and from under it
             awnings.quad(L1, R1, R2, L2, col); awnings.quad(L2, R2, R1, L1, col);
           }
+          else if (e.type === 'fence') {
+            // a garden fence runs away from the house and across the slope, so one long box would
+            // be buried at one end and hanging at the other: step it along in panels, each planted
+            // at the lowest ground under its own length, the way a real fence steps down a hill
+            const n = Math.max(1, Math.round(e.w / 6)), c = Math.cos(e.yaw), s = Math.sin(e.yaw), pw = e.w / n;
+            for (let k = 0; k < n; k++) {
+              const t = (k + 0.5) * pw - e.w / 2, px = e.x + t * c, pz = e.z - t * s;
+              const y = groundY ? Math.min(groundY(px, pz), groundY(px + (pw / 2) * c, pz - (pw / 2) * s), groundY(px - (pw / 2) * c, pz + (pw / 2) * s)) : gy;
+              boxesPlain.push({ x: px, y, z: pz, w: pw + 0.06, d: e.d, h: e.h, yaw: e.yaw, col: e.col });
+            }
+          }
           else (e.type === 'wall' || e.type === 'bay' ? boxesBrick : boxesPlain).push({ x: e.x, y: gy + (e.y || 0), z: e.z, w: e.w, d: e.d, h: e.h, yaw: e.yaw, col: e.col });
-          if (SOLID.has(e.type)) cs.add(e.x, e.z, e.w, e.d, e.yaw);
+          // the party fences are behind the houses and out of a car's reach; the one across the
+          // back of the plot is what stops a car crossing the gardens into the next street
+          if (SOLID.has(e.type) || e.rear) cs.add(e.x, e.z, e.w, e.d, e.yaw);
         }
       } else counts[b.kind] = (counts[b.kind] || 0) + 1;
       const roofH = clamp(Math.min(b.obb.w, b.obb.d) * 0.45, 2.2, b.kind === 'church' ? 5 : 3.5);
