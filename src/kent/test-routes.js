@@ -301,7 +301,15 @@ function tourOrder(parts, sense) {
 // the work one test may take (draws, and full lane-path builds): the first phase keeps the seed's own
 // big-road part, estate and way home; if that runs out, a fallback draws everything afresh (rarely
 // needed, and slower), so a test always turns up
-const MAX_TRIES = 120, MAX_BUILDS = 14, FALLBACK_TRIES = 400, FALLBACK_BUILDS = 40;
+//
+// The fallback is deep because a centre with few legal ways round needs it to be. Since the router
+// refuses a junction that doubles back (MAX_JUNCTION_TURN in net.js), West Didsbury's legal routes
+// are a good deal scarcer: its seeds that find a test at all take 69 to 1139 tries, and at 400 two
+// of ten planned nothing. At 1600 it plans nine of ten, against eight before the router refused
+// anything. Deepening it cannot change a test that already planned, since the draws come off the
+// seed's own generator in a fixed order -- Kent, London and Birmingham never reach the fallback at
+// all (their worst seeds take 74, 110 and 91 tries), so for them this is a no-op.
+const MAX_TRIES = 120, MAX_BUILDS = 14, FALLBACK_TRIES = 1600, FALLBACK_BUILDS = 160;
 // a leg between two parts that would take more than 7 minutes is no use to a 15-minute test (and
 // searching the whole map for one that can't be driven is what makes a try slow)
 const MAX_LEG = 420;
