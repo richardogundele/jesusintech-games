@@ -4,7 +4,7 @@ import { label } from '../materials.js';
 import { mesh } from '../models.js';
 import { hdri, pbr, instanced } from '../assets.js';
 import { placeSigns } from '../cityroads.js';
-import { CITIES } from '../catalog.js';
+import { CITIES, signpost } from '../catalog.js';
 
 // The motorway you drive between cities: a compressed leg of dual carriageway along +z, laid out
 // the British way — you drive on the left, oncoming traffic is across the central reservation on
@@ -69,7 +69,7 @@ export function buildMotorway(renderer) {
   const setRoute = (from, to) => {
     route.from = from; route.to = to;
     const dest = CITIES[to]?.name || to;
-    const others = Object.keys(CITIES).filter((c) => c !== from && c !== to).map((c) => CITIES[c].name);
+    const others = signpost(from, to);
     gantries.forEach((g, i) => { const miles = Math.max(2, Math.round(((LEG - g.position.z) / LEG) * 60)); const fresh = label(`${dest} ${miles}`, { size: 1.5, sub: others.join(' · ') }); fresh.position.copy(g.position); scene.remove(g); scene.add(fresh); gantries[i] = fresh; });
     const fresh = label(`${dest}`, { size: 1.8, sub: 'Exit · leave the motorway' }); fresh.position.copy(exitBoard.position); scene.remove(exitBoard); scene.add(fresh); exitBoard = fresh;
   };

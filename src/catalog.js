@@ -205,6 +205,13 @@ export const ROADS_BETWEEN = {
 };
 export const roadBetween = (a, b) => ROADS_BETWEEN[key(a, b)] || { road: 'Motorway', miles: Math.round(km(a, b) * 0.75) };
 export const otherCities = (from) => Object.keys(CITIES).filter((c) => c !== from);
+/**
+ * The smaller print on a motorway sign: the places you pass on the way, nearest the destination
+ * first. A real gantry names two or three, and once there are ten cities every one of them on one
+ * line is not a sign anybody could read at 70 mph.
+ */
+export const signpost = (from, to, n = 2) => Object.keys(CITIES).filter((c) => c !== from && c !== to)
+  .sort((a, b) => km(a, to) - km(b, to)).slice(0, n).map((c) => CITIES[c].name);
 /** null if the jet can make it nonstop, else where it refuels */
 export function fuelStop(jet, from, to) {
   const rangeKm = parseFloat(String(jet.range).replace(/,/g, '')) * 1.852;
