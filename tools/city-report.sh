@@ -3,6 +3,7 @@
 #
 #   zsh tools/city-report.sh <region> [seeds]      e.g. zsh tools/city-report.sh leeds 10
 #
+#   0. elevation-check   the height grid is complete (a quota failure would bake a flat city)
 #   1. region-data.mjs   bake public/assets/<region>/region.json from the fetched OSM + elevation
 #   2. lanes-check       lane counts and connectivity
 #   3. testgen-check     can it plan a fair test, and how varied are the routes it plans
@@ -19,7 +20,9 @@ cd "${0:a:h}/.." || exit 1
 R=${1:?usage: city-report.sh <region> [seeds]}
 N=${2:-10}
 
-print -r -- "===== $R: bake"
+print -r -- "===== $R: elevation the bake will use"
+node tools/elevation-check.mjs "$R" || exit 1
+print -r -- "\n===== $R: bake"
 node tools/region-data.mjs "$R" || exit 1
 print -r -- "\n===== $R: lanes and connectivity"
 node tools/lanes-check.mjs "public/assets/$R/region.json"
