@@ -1280,6 +1280,20 @@ export class RoadNet {
     for (const r of node.ways) if (r.way !== mine && !r.way.rb && r.way.rank > mine.rank) return node;
     return null;
   }
+  /**
+   * Does `way` end at this node, rather than carry on through it? OSM splits a long road into several
+   * ways at its junctions, so a way ending here proves nothing on its own: the road goes on if any
+   * other arm is the same road by ref or name.
+   */
+  #endsAt(node, way) {
+    const last = way.pts.length - 1;
+    for (const r of node.ways) if (r.way === way && r.idx !== 0 && r.idx !== last) return false; // an interior vertex: straight through
+    for (const r of node.ways) {
+      const w = r.way; if (w === way || w.rb) continue;
+      if ((way.ref && way.ref === w.ref) || (way.name && way.name === w.name)) return false; // the same road, carried on
+    }
+    return true;
+  }
   #legHeading(leg, where) { // bearing of travel at the start or end of a leg
     const sEnd = where === 'end' ? leg.s1 : leg.s0, back = where === 'end' ? -leg.dir * 6 : leg.dir * 6;
     const a = this.pointAt(leg.way, sEnd), b = this.pointAt(leg.way, Math.max(0, Math.min(leg.way.len, sEnd + back)));
@@ -1304,10 +1318,18 @@ export class RoadNet {
     const evs = [];
     if (node.signals) evs.push({ kind: 'lights', s: s - 2, group: this.signalGroup.get(node.id) || `j-${node.id}`, node: node.id, text: null });
     const arms = node.arms().filter((a) => !(a.way === inW && a.dir === -m.inPiece.dir)); // every arm but the one we came in by
+    // A road that ENDS at the junction gives way to the road it meets, whatever the two are classed
+    // as: that is the only thing that marks out the stem of a T. Without it two residential roads
+    // meeting in a T leave the stem a plain turn with no give-way line at all - for the learner and
+    // for the traffic alike - so neither knows the through road has priority.
+    // A nameless way cannot be shown to end rather than carry on, and a slip road meeting a slip road
+    // is a merge, not a give-way, so neither gets the tie.
+    const ends = this.#endsAt(node, inW) && !inW.link && !!(inW.name || inW.ref);
     let thruRank = 0, thruWays = [];
     for (let i = 0; i < arms.length; i++) for (let j = i + 1; j < arms.length; j++) {
       const a = arms[i], b = arms[j], rk = Math.min(a.way.rank, b.way.rank);
-      if (Math.abs(norm180(a.bearing - b.bearing)) > 140 && rk > inW.rank && rk > thruRank) { thruRank = rk; thruWays = [a.way, b.way]; }
+      const need = ends && !a.way.link && !b.way.link ? inW.rank : inW.rank + 1;
+      if (Math.abs(norm180(a.bearing - b.bearing)) > 140 && rk >= need && rk > thruRank) { thruRank = rk; thruWays = [a.way, b.way]; }
     }
     // driving straight through on our own road: the only thing to decide is whether to give way to the
     // bigger road crossing here, so none of the turn, bend, merge and diverge wording below applies
