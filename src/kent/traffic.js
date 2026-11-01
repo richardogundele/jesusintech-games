@@ -503,6 +503,13 @@ export class KentTraffic {
       if (d2 > r2 && d2 > rr * rr) continue;
       if ((B.v < 1.5 || B.held) && d2 > 144) continue; // stopped or held away from the mouth: not coming
       if (B.v < 0.3 && B.stopT > 3 && d2 > 16) continue; // standing in a queue on the main road, not coming (else a queue across the mouth never lets anyone out)
+      // Stopped at its own give-way line, out of the mouth: not coming either. It is held, so its
+      // stopT never grows and the queue test above never lets it go; and when its own line is at the
+      // next junction along, the two cars each wait for the other for ever. On the Kent mock test this
+      // held a car at a give-way for the whole two-minute watchdog with fourteen cars queued behind it,
+      // giving way to a car 10 m off that was itself giving way. If it pulls out, it is moving and
+      // counts again on the next frame.
+      if (B.v < 0.3 && B.held && B.minorNode && B.minorNode !== nodeId && d2 > 16) continue;
 
       if (dx * B.fx + dz * B.fz < -2) continue; // past the junction, going away
       return true;
