@@ -9,6 +9,13 @@
 // Crossings (groups 'x-<node>', pelican / puffin / toucan / signals): green for traffic until a
 // pedestrian presses the button or a 35-70 s timer runs out, then amber 3 s, red 9 s (held while
 // anyone is still on the crossing, as a puffin does), red-amber 2 s and green again.
+// A crossing within 40 m of a signal junction is not left to its own timer: it is run by the
+// junction, as a pedestrian stage in the junction's cycle, the way an integrated crossing is in the
+// UK. It goes amber with the junction's last amber, red through the all-red and a 9 s stage in which
+// every arm of the junction is red (held while anyone is still on it), and green again with the
+// first arm's red-amber. Left to its own timer it could go red at any moment -- including while a
+// car that had crossed the junction's stop line on green was between the two, which then stood in
+// the middle of the junction across the arms that had the green and locked the junction solid.
 //
 // Headings are yaws in radians, the same as a head's `heading` and a car's: travel along
 // (sin h, cos h), x east, z south. A head's heading is the travel direction of the traffic facing it.
@@ -18,6 +25,7 @@ const DEG = Math.PI / 180;
 const REDAMBER = 2, GREEN = 14, AMBER = 3, ALLRED = 2, SLOT = REDAMBER + GREEN + AMBER + ALLRED;
 const WALK = 7; // all-red pedestrian stage at a one-phase junction
 const PED_RED = 9, PED_MAX_RED = 30, MIN_GREEN = 12; // crossing timings (s)
+const LINK = 40; // m: a crossing this close to a signal junction's node is run by the junction
 const SPLIT = 45 * DEG; // approaches further apart than this are different phases
 const STOP_DECEL = 4.5; // m/s2: on amber, a driver who can stop within this stops
 const SIGNAL_CROSSINGS = new Set(['pelican', 'puffin', 'toucan', 'signals']);
@@ -36,6 +44,7 @@ export class SignalSystem {
     this.list = [];
     this.#buildCrossings();
     this.#buildJunctions();
+    this.#linkCrossings();
     this.list = [...this.groups.values()];
     this.headPhase = new WeakMap(); // head -> its phase (junction heads), so the per-frame pass skips the angle maths
     this.#applyHeads();
@@ -86,6 +95,46 @@ export class SignalSystem {
     }
   }
 
+  /**
+   * Hand each crossing near a signal junction to that junction (the nearest, within LINK of any of
+   * its nodes) and give the junction's cycle a pedestrian stage after its last phase. j-321 in
+   * Canterbury is the case this is for: seven crossings round one junction, x-2831 8 m from a node.
+   */
+  #linkCrossings() {
+    const js = [...this.groups.values()].filter((g) => g.kind === 'junction');
+    for (const c of this.groups.values()) {
+      if (c.kind !== 'crossing') continue;
+      let best = LINK, bj = null;
+      for (const j of js) for (const nid of j.nodes) {
+        const n = this.net.nodes.get(nid); if (!n) continue;
+        const d = Math.hypot(n.x - c.x, n.z - c.z);
+        if (d < best) { best = d; bj = j; }
+      }
+      if (!bj) continue;
+      c.link = bj.id;
+      (bj.crossings ||= []).push(c);
+    }
+    for (const g of js) {
+      if (!g.crossings) continue;
+      g.pedAt = g.phases.length * SLOT; // the stage follows the last phase's all-red
+      g.pedLen = Math.max(PED_RED, g.phases.length === 1 ? WALK : 0); // replaces a one-phase junction's own walk stage
+      g.cycle = g.pedAt + g.pedLen;
+      g.t %= g.cycle; g.ext = 0;
+      this.#phaseStates(g);
+      for (const c of g.crossings) { c.state = null; this.#linkedState(c, g, 0); }
+    }
+  }
+  /** a linked crossing's state, read off its junction's place in the cycle */
+  #linkedState(c, g, dt) {
+    const t = g.t, P0 = g.pedAt;
+    const st = t >= P0 - ALLRED ? 'red' // the junction's last all-red, then the pedestrian stage
+      : t >= P0 - ALLRED - AMBER ? 'amber' // with the last phase's amber
+      : t < REDAMBER ? 'redamber' // with the first phase's red-amber
+      : 'green';
+    if (st !== c.state) { c.state = st; c.t = 0; } else c.t += dt;
+    c.held = 0; c.demand = false; // the junction has read them; people on it say so again next frame
+  }
+
   // ---------- running ----------
   /** the state of phase i at the group's time in its cycle */
   #phaseStates(g) {
@@ -109,9 +158,14 @@ export class SignalSystem {
   /** call once per frame (seconds) */
   update(dt) {
     if (dt > 0) for (const g of this.list) {
-      if (g.kind === 'crossing') { this.#stepCrossing(g, dt); continue; }
-      g.t = (g.t + dt) % g.cycle;
+      if (g.kind === 'crossing') { if (!g.link) this.#stepCrossing(g, dt); continue; } // a linked one is set by its junction
+      let step = dt;
+      // the pedestrian stage holds, every arm still red, while anyone is on one of its crossings
+      if (g.crossings && g.t >= g.pedAt && g.ext < PED_MAX_RED - g.pedLen && g.crossings.some((c) => c.held > 0)) { g.ext += dt; step = 0; }
+      g.t = (g.t + step) % g.cycle;
+      if (g.crossings && g.t < g.pedAt) g.ext = 0;
       this.#phaseStates(g);
+      if (g.crossings) for (const c of g.crossings) this.#linkedState(c, g, dt);
     }
     this.#applyHeads();
   }
@@ -159,6 +213,13 @@ export class SignalSystem {
   press(id) { const g = this.group(id); if (g && g.kind === 'crossing') g.demand = true; }
   /** someone is on the crossing this frame (keeps a puffin on red) */
   occupy(id) { const g = this.group(id); if (g && g.kind === 'crossing') g.held++; }
+  /**
+   * How long someone waits at this crossing before giving up and walking on. A crossing run by its
+   * junction gets its red once a cycle -- up to about 90 s at a four-arm junction -- so a pedestrian
+   * there waits out a cycle, as people do at a junction crossing; 45 s would have them walking off
+   * from half the stages they were waiting for.
+   */
+  patience(id) { const g = this.group(id); const j = g?.link ? this.group(g.link) : null; return j ? Math.max(45, j.cycle + 10) : 45; }
   /** the green man: traffic is on red and has been for less than `fresh` s (people don't start late) */
   pedGreen(id, fresh = 5) { const g = this.group(id); return !!g && g.kind === 'crossing' && g.state === 'red' && g.t < fresh; }
 }

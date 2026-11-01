@@ -960,7 +960,7 @@ export class KentTraffic {
     this.#stepTo(p, f.x + f.dz * p.lat, f.z - f.dx * p.lat, dt, false);
     p.heading = Math.atan2(-f.dz * p.side, f.dx * p.side); // facing across the road
     if (go) { p.state = 'cross'; p.t = 0; if (rec.zebra) this.stats.zebraCrossings++; else this.stats.signalCrossings++; }
-    else if (p.t > 45) { p.state = 'walk'; p.rec = null; this.stats[rec.zebra ? 'zebraGaveUp' : 'signalGaveUp']++; } // gave up
+    else if (p.t > (!rec.zebra && sig ? sig.patience(rec.group) : 45)) { p.state = 'walk'; p.rec = null; this.stats[rec.zebra ? 'zebraGaveUp' : 'signalGaveUp']++; } // gave up
   }
   #crossOver(p, dt) {
     const rec = p.rec, sig = this.signals;
