@@ -9,6 +9,8 @@
 
 export const LANE_OFF = 1.85; // lane centre offset from the centreline on a 7.3 m two-way road
 export const LW = 3.65; // lane width on one-way carriageways
+const TWO_LANE_R = 18;  // m: a ring this big (36 m across) has two circulating lanes, as UK design gives a normal roundabout
+const RB_FLARE = 40;    // roundabout approach widening (roads.js FLARE_LEN: the drawn flare's length)
 const DEG = 180 / Math.PI;
 const RANK = { trunk: 8, trunk_link: 7, primary: 7, primary_link: 6, secondary: 6, secondary_link: 5, tertiary: 5, unclassified: 4, residential: 3, living_street: 2, service: 1 };
 const ORD = ['1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th'];
@@ -304,19 +306,78 @@ export class RoadNet {
         a.entryLanes = Math.max(a.entryLanes || 1, lanesOf(a.entryWays));
         a.exitLanes = Math.max(a.exitLanes || 1, lanesOf(a.exitWays));
       }
-      // An untagged ring has exactly as many lanes as its widest approach, decided HERE because the
-      // dual-carriageway widening above is what makes some approaches two lanes. (The bake applies
-      // the same rule to what it can see; a small ring, r < 10, stays one lane whatever feeds it.)
+      // A normal-sized ring -- 36 m or more across, r >= TWO_LANE_R -- gets a left and a right lane
+      // whatever OSM says, so that choosing a lane (HC 184-187) is a real decision at every such
+      // roundabout and not only at the few that happened to be tagged multi-lane. A one-lane ring
+      // teaches nothing about lane discipline, and the whole apparatus for it -- approach, ring and
+      // exit lane faults, the sat nav's "use the right-hand lane" -- is dead on one.
+      // Smaller rings keep the rule they had. UK design gives compact roundabouts (about 28-36 m
+      // across) a single circulating lane, and forcing two onto them was measured to be dangerous:
+      // on a 20 m ring the outer lane runs 1.3 m further out than the single lane did, across the
+      // mouths of the arms, and the learner clipped a car waiting on the next arm. Over 60 Kent runs
+      // that version had 8 collisions against main's 2. Mini roundabouts are a node flag
+      // (node.mini), not rings in this map at all, so none of this touches them.
+      // Never narrows a ring: a tagged four-lane ring keeps its four.
       let lanes = Math.max(1, r.lanes || 1);
-      if (r.lanesSrc !== 'tag') {
+      {
         const widest = Math.max(1, ...rb.arms.filter((a) => a.entry).map((a) => a.entryLanes || 1));
-        const want = r.r < 10 ? 1 : Math.min(3, widest);
+        const want = r.r >= TWO_LANE_R ? Math.max(lanes, Math.min(3, Math.max(2, widest)))
+          : r.lanesSrc === 'tag' ? lanes : r.r < 10 ? 1 : Math.min(3, widest);
         if (want !== lanes) {
           lanes = want; rb.lanes = want;
           const laneW = r.laneW || (r.r < 12 ? 3.0 : LW);
           rb.island = Math.max(1.5, r.r - lanes * laneW);
           for (const id of r.ringWays || []) { const w = this.ways.get(id); if (w) { w.lanesF = lanes; w.width = lanes * laneW; w.halfW = w.width / 2; } }
         }
+      }
+      // A real approach to a two-lane roundabout flares to two lanes over the last few tens of
+      // metres: that is what makes choosing a lane a decision rather than a label. Mark the entry
+      // arms that can carry one, and leave the approach WAY at its own lane count -- a flare is a
+      // widening at the line, not a wider road, and claiming the lane on the way would make a short
+      // roundabout entry read as a dual carriageway (#roadMeta's `dual`, which test-routes.js uses
+      // to decide a route "has a dual carriageway" and to title it) and could fire the merge event
+      // just before the give-way line.
+      // Only two-way arms: roads.js draws its asymmetric flare (hwL/hwR over FLARE_LEN, with the
+      // splitter island) for those alone, and a lane the learner is told to use but cannot see drawn
+      // would be worse than no flare at all. One-way entries keep their own width.
+      // Give the approach the second lane too, so choosing a lane is a decision made before the
+      // give-way line and not a label applied after it. Two shapes of arm, and they need different
+      // things:
+      //
+      //  - a ONE-WAY entry way (93 of the 105 entry ways on Kent's two-lane rings): the roundabout
+      //    already has split entry and exit geometry, and these ways are short -- a median of about
+      //    28 m, which is flare length. Giving the way its second lane IS the flare, and roads.js
+      //    draws a one-way arm at lanesF * LW, so the drawn road and the lesson agree. Only short
+      //    ones: widening a 120 m approach would make a two-lane road, not a flare.
+      //  - a TWO-WAY arm: the way carries traffic both ways, so a second forward lane would widen it
+      //    on both sides for its whole length. roads.js already draws a proper asymmetric flare for
+      //    these (hwL/hwR ramped over FLARE_LEN, with a splitter island), so mark the arm and let it
+      //    exceed the way's own lane count there -- that is what a flare is. Only roads substantial
+      //    enough to flare in reality, because roads.js carries a warning from a previous attempt:
+      //    forcing the arm count up to the ring's once "put a dividing line and two or three lane
+      //    arrows on every one-lane street that happened to meet a two-lane roundabout".
+      //
+      // In both cases the ways keep `flare` so #roadMeta does not report them as dual carriageways
+      // (test-routes.js decides a route "has a dual carriageway" from that, and titles it so) and
+      // the merge event does not fire just short of a give-way line.
+      const FLARE_MAX = 45;
+      if (lanes >= 2 && r.r >= TWO_LANE_R) for (const a of rb.arms) {
+        if (!a.entry) continue;
+        let flared = false;
+        for (const id of a.entryWays || []) {
+          const w = this.ways.get(id);
+          if (!w || w.rb || w.link) continue;
+          if (w.oneway) {
+            if ((w.len || 0) > FLARE_MAX || (w.lanesF || 1) >= 2) { flared = flared || (w.lanesF || 1) >= 2; continue; }
+            w.lanesF = 2; w.flare = true; w.width = 2 * LW; w.halfW = w.width / 2;
+            flared = true;
+          } else if ((w.rank || 0) >= 6 && (w.limit || 0) >= 30 && (w.width || 0) >= 5.5) {
+            w.flare = true; flared = true;
+          }
+        }
+        if (!flared) continue;
+        a.flare = true;
+        a.entryLanes = Math.max(a.entryLanes || 1, 2);
       }
       let island = rb.island;
       if (lanes <= 1) { const want = Math.min(MIN_RING, r.r - 1.5); if (island == null || r.r - island < want) island = r.r - want; }
@@ -635,12 +696,23 @@ export class RoadNet {
     // the arm's entryLanes is the max over every way merged into that arm (a 1-lane side road next
     // to a 2-lane slip inherits 2), so clamp to the lanes the road we are actually on really has -
     // the examiner must never demand lane 2 of a one-lane street
-    const ownLanes = inLeg ? Math.max(1, this.laneCount(inLeg.way, inLeg.dir) || 1) : Infinity;
+    // On a flared arm the lanes at the line are the flare's, not the way's: a two-way approach keeps
+    // one forward lane for its length and gains the second only over the last FLARE_LEN metres, so
+    // clamping to the way's own count here would leave the examiner asking for the left-hand lane at
+    // a line that has two lanes painted on it.
+    const flareLanes = inArm.flare ? Math.max(1, Math.min(rb.lanes, inArm.entryLanes || 1)) : 1;
+    const ownLanes = inLeg ? Math.max(1, this.laneCount(inLeg.way, inLeg.dir) || 1, flareLanes) : Infinity;
     const entryLanes = Math.max(1, Math.min(ownLanes, inArm.entryLanes || 1)), signed = !!inArm.signed;
     let approachLane = 1;
     if (entryLanes >= 3) approachLane = pastStraight || uTurn ? entryLanes : exit === straightN && signed ? 2 : 1;
     else if (entryLanes === 2) approachLane = pastStraight || uTurn ? 2 : 1;
-    const ringLane = Math.max(1, Math.min(rb.lanes, approachLane));
+    // The ring lane follows the EXIT, not the approach. HC 186: for an exit right of straight ahead
+    // (or full circle) keep to the right-hand lane on the roundabout, and that is true however many
+    // lanes the approach road had. Deriving it from approachLane alone, as this once did, made it 1
+    // for every exit whenever the approach was single-lane -- so on a two-lane ring fed by a
+    // one-lane road the examiner would fault a learner for correctly keeping right for a right
+    // turn, and no bot run would ever show it, because the bot drives to ringLane.
+    const ringLane = Math.max(1, Math.min(rb.lanes, Math.max(approachLane, pastStraight || uTurn ? 2 : 1)));
     const exitLanes = Math.max(1, outArm.exitLanes || 1);
     const exitLane = Math.min(ringLane, exitLanes);
     return { exit, dir, approachLane, ringLane, exitLane, turn: Math.round(turn), straightExit: straightN, exits: n };
@@ -1133,6 +1205,22 @@ export class RoadNet {
         // exitS: where the path leaves the ring lane; signalLeftS: where it passes the exit before ours
         const exitS = m.exitPt ? sOf(m.exitPt) : entryS, signalLeftS = d.exit <= 1 ? entryS - 30 : m.prevExitPt ? sOf(m.prevExitPt) : Math.max(entryS, exitS - 15);
         events.push({ kind: 'rb', s: entryS, entryS, exitS, signalLeftS, exit: d.exit, dir: d.dir, approachLane, ringLane: d.ringLane, exitLane: d.exitLane, laneChangeS: Math.max(0, entryS - 120), node: info.entryNode.id, rb: rb.id, lanes: rb.lanes, text: `At the roundabout, take the ${ORD[d.exit - 1] || d.exit + 'th'} exit${label ? ', ' + label : ''}.${laneText}` });
+        // A two-way approach keeps its own lane count on the way -- a second forward lane there would
+        // widen the road both ways for its whole length -- so the flare roads.js draws over the last
+        // FLARE_LEN metres is invisible to the lesson, which reads a way-wide number. Road metadata
+        // is built per route point, so say it on the points instead: inside the flare the approach
+        // really does have two lanes, which is what makes the approach-lane fault and the sat nav's
+        // lane instruction fire. One-way entries need none of this; their way carries the two lanes.
+        if (info.inArm?.flare && info.inLeg && !info.inLeg.way.oneway) {
+          const want = Math.max(1, Math.min(rb.lanes, info.inArm.entryLanes || 1));
+          for (let i = pts.length - 1; i >= 0; i--) {
+            const pt = pts[i];
+            if (pt.s > entryS) continue;
+            if (entryS - pt.s > RB_FLARE) break;
+            if (pt.rb || pt.way !== info.inLeg.way.id || !pt.road || pt.road.lanes >= want) continue;
+            pt.road = { ...pt.road, lanes: want, flare: true };
+          }
+        }
         if (info.inLeg) for (const c of this.crossingsByWay.get(info.inLeg.way.id) || []) this.#crossingEvent(events, c, info.inLeg, pts, smooth, ptsIndex);
       } else if (m.kind === 'laneChange') {
         const p = m.piece, sC = sOf(m.pt), toRight = p.lane > p.laneChangeFrom;
@@ -1303,7 +1391,7 @@ export class RoadNet {
     return null;
   }
   /** what the lessons read off a path point: lanes the way of travel (against the way's direction on a two-way road, its backward lanes) */
-  #roadMeta(way, rb, dir = 1) { return { lanes: dir < 0 && !way.oneway ? way.lanesB : way.lanesF, limit: way.limit, nsl: !!way.nsl, dual: !!way.dual || (way.oneway && way.lanesF >= 2), rb: rb || null }; }
+  #roadMeta(way, rb, dir = 1) { return { lanes: dir < 0 && !way.oneway ? way.lanesB : way.lanesF, limit: way.limit, nsl: !!way.nsl, dual: !!way.dual || (way.oneway && way.lanesF >= 2 && !way.flare), flare: !!way.flare, rb: rb || null }; }
   #idxAt(way, s) { // vertex index at arc length s (within 0.2 m), else -1
     const i = this.segAt(way, s); if (Math.abs(way.cum[i] - s) < 0.2) return i; if (Math.abs(way.cum[i + 1] - s) < 0.2) return i + 1; return -1;
   }
@@ -1383,7 +1471,7 @@ export class RoadNet {
     const sameRoad = inW === outW || (inW.ref && inW.ref === outW.ref) || (!inW.ref && !outW.ref && inW.name && inW.name === outW.name);
     const myGiveWay = (node.giveWay || node.stop) && !node.rb;
     let e = null;
-    if (inW.link && !outW.link && outW.oneway && (outW.lanesF >= 2 || outW.dual) && Math.abs(turn) < 45) e = { kind: 'merge', s, dir: 'right', endS: s + 80, node: node.id, text: 'Merge onto the carriageway.' };
+    if (inW.link && !outW.link && outW.oneway && (outW.lanesF >= 2 || outW.dual) && !outW.flare && Math.abs(turn) < 45) e = { kind: 'merge', s, dir: 'right', endS: s + 80, node: node.id, text: 'Merge onto the carriageway.' };
     else if (!inW.link && outW.link && inW.oneway && (inW.lanesF >= 2 || inW.dual) && Math.abs(turn) < 45) e = { kind: 'diverge', s: s - 100, dir: 'left', lane: 1, node: node.id, text: 'Take the slip road on the left.' };
     else if (arms.length <= 1 && Math.abs(turn) >= 25) e = { kind: 'bend', s, dir: dir(turn), node: node.id, text: `Follow the road round to the ${dir(turn)}.` };
     else if (thruRank || myGiveWay) {

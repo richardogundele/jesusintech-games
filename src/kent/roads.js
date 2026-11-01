@@ -471,7 +471,13 @@ function ringArm(view, rb, way, nid) {
   // The arm's entryLanes is the max over every way the bake merged into that arm, so a one-lane
   // side road beside a two-lane slip inherits 2: clamp to what THIS way really has.
   const ownLanes = Math.max(1, d.oneway ? d.lanesF : dir === 1 ? d.lanesB : d.lanesF);
-  const entryLanes = Math.max(1, Math.min(ownLanes, num(data?.entryLanes, ownLanes)));
+  // ...except on an arm the net marked as flared. A flare IS wider than the road it widens from, so
+  // clamping it to the way's own lane count is exactly why one was never drawn on a two-way approach
+  // to a two-lane ring. Only arms carrying that mark, which the net gives to substantial roads only,
+  // so this does not revive the dividing line on every one-lane street.
+  const entryLanes = data?.flare && !d.oneway
+    ? Math.max(1, num(data.entryLanes, ownLanes))
+    : Math.max(1, Math.min(ownLanes, num(data?.entryLanes, ownLanes)));
   // the flare is painted with exactly as many lanes as the approach road really has. It used to be
   // forced up to the ring's lane count, which put a dividing line and two or three lane arrows on
   // every one-lane street that happened to meet a two-lane roundabout.
