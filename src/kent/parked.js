@@ -93,6 +93,13 @@ export class ParkedCatalogue {
           // start of every test live, and a car parked on the access road sat in the bay-park tail
           if (nearCentre(p)) { s += len + 1; space = null; continue; }
           const x = p[0] + d[1] * lat, z = p[1] - d[0] * lat; // leftOf(d) = (dz, -dx)
+          // not on another road's carriageway: two OSM ways can lie side by side or overlap (a road
+          // and a parallel service way, a slip running alongside), and a car parked at this one's kerb
+          // sat in the other's lane -- the learner drove past it a hand's width off (Burgess Hill)
+          if (this.#onOtherRoad(way, x, z)) { s += len + 1; space = null; continue; }
+          // nor on a bend: a car parked round a curve is in the line of anyone taking it (Beechwood Road,
+          // Birmingham: the learner clipped the second of three round a 60-degree bend)
+          { const d0 = net.dirAt(way, Math.max(0, mid - 8)), d1 = net.dirAt(way, Math.min(way.len, mid + 8)); if (d0[0] * d1[0] + d0[1] * d1[1] < 0.97) { s += len + 1; space = null; continue; } }
           list.push({ way: way.id, s: mid, len, side, x, z, yaw: Math.atan2(d[0] * side, d[1] * side), lat });
           if (space) { spaces.push(space); space = null; }
           if (++inCluster >= clusterMax) {
@@ -111,6 +118,26 @@ export class ParkedCatalogue {
       } else { s += 1.5; space = null; }
     }
     return list;
+  }
+
+  /** is (x, z) within another way's carriageway (plus a car's half-width)? */
+  #onOtherRoad(way, x, z) {
+    const net = this.net;
+    let hit = false;
+    for (let k = 0; k <= 1 && !hit; k++) {
+      net.grid.ring(x, z, k, (items) => {
+        if (hit) return;
+        for (const { way: o, i } of items) {
+          if (o === way || o.id === way.id) continue;
+          const a = o.pts[i], b = o.pts[i + 1];
+          if (!a || !b) continue;
+          const ex = b[0] - a[0], ez = b[1] - a[1], L2 = ex * ex + ez * ez || 1;
+          const u = Math.max(0, Math.min(1, ((x - a[0]) * ex + (z - a[1]) * ez) / L2));
+          if (hypot(x - a[0] - ex * u, z - a[1] - ez * u) < (o.halfW || 3) + 1.2) { hit = true; return; }
+        }
+      });
+    }
+    return hit;
   }
 
   /** the marked spaces on a way (see on()) */

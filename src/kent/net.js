@@ -1170,9 +1170,9 @@ export class RoadNet {
         const runs = this.parked.runs(p.way, p.dir), lo = Math.min(startS, endS), hi = Math.max(startS, endS);
         const inRange = runs.filter(([a, b]) => b > lo - 10 && a < hi + 10);
         if (inRange.length) {
-          const target = p.way.halfW - 3.5; // the passing car's centre from the centre line (parked car 1.0 in, 1.9 wide, 0.6 m gap, half a car)
+          const target = p.way.halfW - 3.65; // the passing car's centre from the centre line (parked car 1.0 in, 1.9 wide, 0.75 m gap, half a car)
           const shift = Math.max(0, this.laneOffset(p.way, 1) - target);
-          const RUN = 16, HOLD = 5; // 11 m to move out: a car lags its line, and a sharp move-out had it at the first parked car still coming across
+          const RUN = 22, HOLD = 5; // 17 m to move out: a car lags its line, and a sharper move-out had it weaving past the cars half a metre off its line
           p.parkShift = (s) => {
             let k = 0;
             for (const [a, b] of inRange) {
@@ -1410,9 +1410,12 @@ export class RoadNet {
       if (!Q) { const m = P[(c.i0 + c.i1) >> 1]; Q = [m.x, m.z]; }
       while (cursor < n && cum[cursor] < sA - 1e-6) out.push(P[cursor++]);
       const mIn = P[c.i0], mOut = P[c.i1], nB = Math.max(4, Math.round(turn / 12));
-      const Apt = { x: A[0], z: A[1], way: mIn.way, dir: mIn.dir, lane: mIn.lane, rb: null, blend: true }; out.push(Apt);
-      const mid = bez(A, Q, B, nB).map((q, j) => (j < nB / 2 ? { x: q[0], z: q[1], way: mIn.way, dir: mIn.dir, lane: mIn.lane, rb: null, blend: true } : { x: q[0], z: q[1], way: mOut.way, dir: mOut.dir, lane: mOut.lane, rb: null, blend: true }));
-      out.push(...mid, { x: B[0], z: B[1], way: mOut.way, dir: mOut.dir, lane: mOut.lane, rb: null, blend: true });
+      // (out round parked cars through the bend if either side of it is: the rounded points used to
+      // drop the flag, and a gap in it mid-run turned the meeting rules back on beside the cars)
+      const parked = !!(P.slice(Math.max(0, c.i0 - 1), Math.min(n, c.i1 + 2)).some((q) => q.parked));
+      const Apt = { x: A[0], z: A[1], way: mIn.way, dir: mIn.dir, lane: mIn.lane, rb: null, blend: true, parked }; out.push(Apt);
+      const mid = bez(A, Q, B, nB).map((q, j) => (j < nB / 2 ? { x: q[0], z: q[1], way: mIn.way, dir: mIn.dir, lane: mIn.lane, rb: null, blend: true, parked } : { x: q[0], z: q[1], way: mOut.way, dir: mOut.dir, lane: mOut.lane, parked, rb: null, blend: true }));
+      out.push(...mid, { x: B[0], z: B[1], way: mOut.way, dir: mOut.dir, lane: mOut.lane, rb: null, blend: true, parked });
       const middle = mid[mid.length >> 1] || Apt;
       while (cursor < n && cum[cursor] <= sB + 1e-6) replaced.set(P[cursor++], middle);
     });

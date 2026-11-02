@@ -942,7 +942,7 @@ export class KentTraffic {
       const p = pts[i];
       px[i] = p.x; pz[i] = p.z; ps[i] = p.s; A.park[i] = p.parked ? 1 : 0; // (parked: the path is out round parked cars here; not `park`, the examiner's car-park flag)
       if (p.way !== lastWay) { lastWay = p.way; cls = net.ways.get(p.way)?.cls; }
-      const lim = Math.min(p.road?.limit ?? 30, CRUISE[cls] ?? 30);
+      const lim = Math.min(p.road?.limit ?? 30, CRUISE[cls] ?? 30, p.parked ? 20 : 99); // (20 past parked cars, as a driver slows for them)
       vcap[i] = Math.max(4, (lim - A.under) * MPH);
     }
     // bends: heading change across +-3 m

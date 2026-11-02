@@ -364,7 +364,7 @@ async function runLesson(def, s0, bad = null, maxSec = 3600) {
       if (k !== (stall0.k ?? '0/0')) console.log(`   STALL/GRIND ${k} t ${elapsed.toFixed(1)} s ${run.s.toFixed(0)} gear ${car.gear} mph ${(car.vF * MPH).toFixed(1)} rpm ${car.rpm.toFixed(0)} pedal ${car.clutch.toFixed(2)} want ${((o.want ?? 0) * MPH).toFixed(1)} rev ${!!o.reverse} pb ${car.parkingBrake} moved ${run.moved} in ${JSON.stringify(o.input)}`);
       stall0.k = k;
     }
-    if (opt('dump') && !run.__dumped) { run.__dumped = true; const [a, b] = opt('dump').split(',').map(Number); for (const p of run.route.pts) if (p.s >= a && p.s <= b) console.log(`   PT s ${p.s.toFixed(1)} (${p.x.toFixed(2)}, ${p.z.toFixed(2)}) way ${p.way} lane ${p.lane} park ${p.park ? 1 : 0}${p.off != null ? ' off ' + p.off.toFixed(2) : ''}${p.man ? ' man' : ''}${p.rb ? ' rb' : ''}`); }
+    if (opt('dump') && !run.__dumped) { run.__dumped = true; const [a, b] = opt('dump').split(',').map(Number); for (const p of run.route.pts) if (p.s >= a && p.s <= b) console.log(`   PT s ${p.s.toFixed(1)} (${p.x.toFixed(2)}, ${p.z.toFixed(2)}) way ${p.way} lane ${p.lane} parked ${p.parked ? 1 : 0}${p.off != null ? ' off ' + p.off.toFixed(2) : ''}${p.man ? ' man' : ''}${p.rb ? ' rb' : ''}`); }
     const before = flag('trace') ? world.traffic.cars.map((c) => ({ c, x: c.x, z: c.z, v: c.v, held: c.held, ghost: c.ghost, block: c.blockId, ev: `${c.ev[c.evI]?.kind}@${((c.ev[c.evI]?.s ?? 0) - c.s).toFixed(0)}` })) : null;
     if (world.traffic.collide(car)) {
       car.sync(0); drive.trafficHit = world.traffic.lastHit?.blame !== 'other';

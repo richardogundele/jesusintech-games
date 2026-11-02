@@ -1236,7 +1236,8 @@ const PLAN = 1.6;    // m/s2 to slow for a bend or a lower limit ahead
 function speedPlan(run, bad) {
   const pts = run.route.pts, n = pts.length, v = new Float64Array(n);
   for (let i = 0; i < n; i++) {
-    const p = pts[i], lim = p.park ? 6 : p.road?.limit ?? 30;
+    // (20 past parked cars: a hazard, and the bot weaved at 25 mph through the move out round them)
+    const p = pts[i], lim = p.park ? 6 : p.parked ? Math.min(20, p.road?.limit ?? 30) : p.road?.limit ?? 30;
     let w = ((lim - 3) * (bad.speed || 1)) / MPH;
     if (p.rb) w = Math.min(w, 20 / MPH);
     if (p.man) w = Math.min(w, 14 / MPH);
