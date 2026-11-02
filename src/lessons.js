@@ -304,7 +304,10 @@ export class LessonRun {
     this.faults.push({ sev, cat, s: this.s, at: this.carPos && { x: +this.carPos.x.toFixed(1), z: +this.carPos.z.toFixed(1) }, extra: this.lastExtra });
     this.lastExtra = null;
     if (!this.def.real) this.hooks.flash?.(`${SEV[sev]}: ${cat}`, sev); // the real test keeps it for the debrief
-    if ((sev === 'dangerous' || sev === 'serious') && this.isTest() && !this.endNow) this.endNow = sev === 'dangerous' ? 'danger' : 'serious'; // ends the test (handled next frame in update)
+    // (NO_SERIOUS_STOP=1, headless only: drive on after a serious fault as the old game did, so a gate
+    // can be compared like for like with a baseline that never stopped on one)
+    const stopOnSerious = !(typeof process !== 'undefined' && process.env?.NO_SERIOUS_STOP);
+    if ((sev === 'dangerous' || (sev === 'serious' && stopOnSerious)) && this.isTest() && !this.endNow) this.endNow = sev === 'dangerous' ? 'danger' : 'serious'; // ends the test (handled next frame in update)
   }
 
   /** time-based "condition held for n seconds" helper */
