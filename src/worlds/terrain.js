@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { groundHeight } from './ground.js';
 
 // The real hills under a region: the EU-DEM 25 m grid baked into region.json by
 // tools/region-data.mjs, plus everything needed to put the world on top of it.
@@ -22,24 +23,11 @@ export function makeTerrain(data) {
     const zero = () => 0;
     return { has: false, heightAt: zero, gradeAt: zero, landGeometry: () => null, range: 0 };
   }
-  const { x0, z0, step, nx, nz, heights } = T;
+  const { x0, z0, step, nx, nz } = T;
   const x1 = x0 + (nx - 1) * step, z1 = z0 + (nz - 1) * step;
-  const at = (i, j) => heights[j * nx + i];
 
-  /** ground height at a world point; 0 outside the grid, so the jet centre past it stays flat */
-  function heightAt(x, z) {
-    if (x < x0 || x > x1 || z < z0 || z > z1) return 0;
-    const fx = (x - x0) / step, fz = (z - z0) / step;
-    let i = Math.floor(fx), j = Math.floor(fz);
-    if (i >= nx - 1) i = nx - 2; if (i < 0) i = 0;
-    if (j >= nz - 1) j = nz - 2; if (j < 0) j = 0;
-    const u = fx - i, v = fz - j;
-    const h00 = at(i, j), h10 = at(i + 1, j), h01 = at(i, j + 1), h11 = at(i + 1, j + 1);
-    // planar inside whichever triangle the point falls in
-    return u + v <= 1
-      ? h00 + u * (h10 - h00) + v * (h01 - h00)
-      : h11 + (1 - u) * (h01 - h11) + (1 - v) * (h10 - h11);
-  }
+  // ground height at a world point (ground.js, shared with the road network's bridge decks)
+  const heightAt = groundHeight(T);
 
   /** rise per metre along `heading` — what the drivetrain turns into gravity */
   function gradeAt(x, z, heading) {

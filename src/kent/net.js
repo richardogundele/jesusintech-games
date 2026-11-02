@@ -8,6 +8,7 @@
 // clockwise seen from above (north up) and what UK left-hand traffic does; -1 would be the opposite.
 
 import { ParkedCatalogue } from './parked.js';
+import { groundHeight } from '../worlds/ground.js';
 
 export const LANE_OFF = 1.85; // lane centre offset from the centreline on a 7.3 m two-way road
 export const LW = 3.65; // lane width on one-way carriageways
@@ -94,6 +95,17 @@ function segCross(ax, az, bx, bz, cx, cz, dx, dz) {
   const d1 = o(ax, az, bx, bz, cx, cz), d2 = o(ax, az, bx, bz, dx, dz);
   const d3 = o(cx, cz, dx, dz, ax, az), d4 = o(cx, cz, dx, dz, bx, bz);
   return ((d1 > 0) !== (d2 > 0)) && ((d3 > 0) !== (d4 > 0));
+}
+
+/** a [s, h] profile sorted by s, read at s: linear between samples, held flat past either end */
+function interp(samples, s) {
+  if (s <= samples[0][0]) return samples[0][1];
+  const last = samples[samples.length - 1];
+  if (s >= last[0]) return last[1];
+  let lo = 0, hi = samples.length - 1; // samples[lo][0] < s <= samples[hi][0]
+  while (hi - lo > 1) { const m = (lo + hi) >> 1; if (samples[m][0] < s) lo = m; else hi = m; }
+  const [s0, h0] = samples[lo], [s1, h1] = samples[hi];
+  return s1 === s0 ? h1 : h0 + (h1 - h0) * ((s - s0) / (s1 - s0));
 }
 
 export class RoadNet {
@@ -431,8 +443,8 @@ export class RoadNet {
   }
   // ---------- bridges: a deck height per way, and ramps on the roads that run up to one ----------
   // OSM says which ways are bridges and on which layer; it says nothing about height, so a layer is
-  // DECK metres up (6 m clears a double-decker). A bridge way is flat at its deck for its whole
-  // length; any other way that ends on a bridge's node climbs to that node's height over its last
+  // DECK metres up (6 m clears a double-decker). A bridge way is up at its deck for its whole
+  // length, spanning straight over any dip in the ground beneath (#spanDecks); any other way that ends on a bridge's node climbs to that node's height over its last
   // RAMP metres, so the approach embankment is the road itself, not a cliff. A road that merely
   // passes beneath shares no node with the bridge and stays on the ground: that is the whole point.
   #buildDecks() {
@@ -461,55 +473,159 @@ export class RoadNet {
     // slip roads. A minor road tagged `bridge` is a little span over a river, rail or canal that in
     // life is near-flat — decking it just put a 6 m hump on an ordinary street.
     const DECKS = /^(motorway|trunk|primary)(_link)?$/;
-    const seeds = []; // the deck nodes: where the road surface is already up on a flyover
+    const decks = [];
     for (const w of this.ways.values()) {
       w.deckH = DECKS.test(w.cls) && w.bridge && !w.tunnel && (w.layer || 0) > 0 && crossesLower(w) ? DECK * Math.min(3, w.layer) : 0;
-      if (!w.deckH) continue;
-      for (const nid of w.nodes) if (nid) {
-        this.nodeDeck.set(nid, Math.max(this.nodeDeck.get(nid) || 0, w.deckH));
-        seeds.push({ nid, h: w.deckH, ramp: rampLen(w) });
-      }
+      w.span = null;
+      if (w.deckH) decks.push(w);
     }
-    // Spread each deck's height out along the road graph so the rise reaches the ground over a real
-    // run of tarmac (rampLen), however many short ways the approach is split into. nodeH(node) is the
-    // greatest height any deck can still give it; it falls linearly to 0 at rampLen metres away.
+    // the road graph, each link marked when it is itself part of a deck
     const adj = new Map();
-    const link2 = (nid, to, len) => { let a = adj.get(nid); if (!a) adj.set(nid, (a = [])); a.push({ to, len }); };
-    for (const l of this.links) if (l.a && l.b) { link2(l.a, l.b, l.len); link2(l.b, l.a, l.len); }
-    const nodeH = new Map();
-    const heap = new Heap();
-    for (const s of seeds) heap.push(0, s); // ordered by distance from the deck
-    while (heap.size) {
-      const [dist, s] = heap.pop();
-      const h = s.h * (1 - dist / s.ramp);
-      if (h <= (nodeH.get(s.nid) || 0)) continue;
-      nodeH.set(s.nid, h);
-      for (const e of adj.get(s.nid) || []) {
-        const nd = dist + e.len, nh = s.h * (1 - nd / s.ramp);
-        if (nh > 0 && nh > (nodeH.get(e.to) || 0)) heap.push(nd, { nid: e.to, h: s.h, ramp: s.ramp });
+    const link2 = (nid, to, len, deck) => { let a = adj.get(nid); if (!a) adj.set(nid, (a = [])); a.push({ to, len, deck }); };
+    for (const l of this.links) if (l.a && l.b) { const d = !!l.way.deckH; link2(l.a, l.b, l.len, d); link2(l.b, l.a, l.len, d); }
+    // Spread heights out from seed nodes along the road graph so a rise reaches the ground over a
+    // real run of tarmac (rampLen), however many short ways it is split into. A node gets the
+    // greatest height any seed can still give it, falling linearly to 0 at that seed's rampLen.
+    const spread = (seeds, overDecks) => {
+      const nodeH = new Map(), heap = new Heap();
+      for (const s of seeds) heap.push(0, s); // ordered by distance from the seed
+      while (heap.size) {
+        const [dist, s] = heap.pop();
+        const h = s.h * (1 - dist / s.ramp);
+        if (h <= (nodeH.get(s.nid) || 0)) continue;
+        nodeH.set(s.nid, h);
+        for (const e of adj.get(s.nid) || []) {
+          if (e.deck && !overDecks) continue;
+          const nd = dist + e.len, nh = s.h * (1 - nd / s.ramp);
+          if (nh > 0 && nh > (nodeH.get(e.to) || 0)) heap.push(nd, { nid: e.to, h: s.h, ramp: s.ramp });
+        }
       }
-    }
-    // each way's deck height is nodeH sampled at its own graph nodes, linear by arc length between
-    // them: deck ways read a flat 6 m, approach ways a gentle slope, and a boundary node agrees for
-    // both ways that meet there, so there are no steps.
-    const interp = (samples, s) => {
-      if (s <= samples[0][0]) return samples[0][1];
-      const last = samples[samples.length - 1];
-      if (s >= last[0]) return last[1];
-      for (let k = 1; k < samples.length; k++) if (s <= samples[k][0]) {
-        const [s0, h0] = samples[k - 1], [s1, h1] = samples[k];
-        return s1 === s0 ? h1 : h0 + (h1 - h0) * ((s - s0) / (s1 - s0));
-      }
-      return last[1];
+      return nodeH;
     };
+    const deckSeeds = (hAt) => {
+      const out = [];
+      for (const w of decks) for (let i = 0; i < w.nodes.length; i++) if (w.nodes[i]) out.push({ nid: w.nodes[i], h: hAt(w, i), ramp: rampLen(w) });
+      return out;
+    };
+    // What the layers alone ask of each node. Where a 12 m deck sits between 6 m ones, the 6 m deck
+    // beyond it has to come down from 12 like a ramp, not drop 6 m at the joint: this is that ramp.
+    const layerH = spread(deckSeeds((w) => w.deckH), true);
+    this.#spanDecks(decks, layerH);
+    // every deck meeting at a node now agrees on its height there (#spanDecks pins them to it)
+    for (const w of decks) for (let i = 0; i < w.nodes.length; i++) {
+      const nid = w.nodes[i];
+      if (nid) this.nodeDeck.set(nid, Math.max(this.nodeDeck.get(nid) || 0, interp(w.span, w.cum[i])));
+    }
+    // The roads that run onto a deck ramp down from those heights. Not along the decks themselves:
+    // a deck is laid by its span, and a node lifted over a dip mid-span must not lift its banks.
+    const nodeH = spread(deckSeeds((w, i) => this.nodeDeck.get(w.nodes[i])), false);
+    // each way's deck height: a deck reads its span (a flat 6 m on flat ground); any other way reads
+    // nodeH at its own graph nodes, linear by arc length between them, so an approach is a gentle
+    // slope and a boundary node agrees for both ways that meet there, with no steps.
     this.maxDeck = 0; // the tallest deck in this region, so deckNear can bound what it holds
     for (const w of this.ways.values()) {
-      const samples = [];
-      for (let i = 0; i < w.nodes.length; i++) { const nid = w.nodes[i]; if (nid) samples.push([w.cum[i], w.deckH || nodeH.get(nid) || 0]); }
+      const samples = w.span ? w.span : [];
+      if (!w.span) for (let i = 0; i < w.nodes.length; i++) { const nid = w.nodes[i]; if (nid) samples.push([w.cum[i], nodeH.get(nid) || 0]); }
       if (!samples.length || samples.every((s) => s[1] <= 0)) { w.deck = null; w.hasDeck = false; continue; }
       for (const s of samples) if (s[1] > this.maxDeck) this.maxDeck = s[1];
       w.deck = (s) => interp(samples, s);
       w.hasDeck = true;
+    }
+  }
+  /**
+   * A bridge spans. On a region with real hills the ground under a long deck dips into whatever it
+   * crosses, and "6 m above the ground beneath" laid the deck into that dip with it: the M60 over
+   * the Mersey sagged 6 m, the M1 at Mill Hill 2 m. So each run of decks joined end to end is laid
+   * along the upper hull of (ground + deck height): straight across every dip, still up with the
+   * ground over a rise so it never loses its clearance, and pinned at both banks so the ramps meet
+   * it. Each bank is pinned at whatever the other decks and the layers ask of that node (layerH),
+   * so a deck that ends where a higher one runs on meets it instead of stepping. w.span is then
+   * [arc length, height above the ground] every 2 m; on flat ground with one layer, a flat 6 m.
+   */
+  #spanDecks(decks, layerH) {
+    const ground = groundHeight(this.data.terrain); // 0 everywhere on a flat region
+    // the decks meeting at each end node; a node where exactly two meet joins them into one run
+    const ends = new Map();
+    for (const w of decks) for (const n of [w.nodes[0], w.nodes[w.nodes.length - 1]]) if (n) {
+      let a = ends.get(n); if (!a) ends.set(n, (a = [])); a.push(w);
+    }
+    const through = (n) => !!n && ends.get(n)?.length === 2;
+    const other = (w, n) => ends.get(n).find((o) => o !== w);
+    const farEnd = (w, n) => (w.nodes[0] === n ? w.nodes[w.nodes.length - 1] : w.nodes[0]);
+    const runs = [], done = new Set();
+    for (const w0 of decks) {
+      if (done.has(w0)) continue;
+      // back up to the first deck of this run (inner: its end that leads on into the run)...
+      let w = w0, n = w0.nodes[0], inner = w0.nodes[w0.nodes.length - 1];
+      const back = new Set([w0]);
+      while (through(n)) { const o = other(w, n); if (!o || back.has(o)) break; back.add(o); inner = n; n = farEnd(o, n); w = o; }
+      // ...then walk it forward, each deck oriented the way the run goes
+      const run = [];
+      let enter = null, n0 = null;
+      while (w && !done.has(w)) {
+        done.add(w);
+        const last = w.nodes.length - 1;
+        const rev = enter == null ? w.nodes[0] === inner && w.nodes[last] !== inner : w.nodes[0] !== enter;
+        if (enter == null) n0 = rev ? w.nodes[last] : w.nodes[0];
+        run.push({ w, rev });
+        enter = rev ? w.nodes[0] : w.nodes[last];
+        w = through(enter) ? other(w, enter) : null;
+      }
+      if (!run.length) continue;
+      // sample ground + deck along the whole run (a joint is sampled once for each deck that meets
+      // there, at the same run position, so every deck's span covers it)
+      const S = [], Y = [], G = [], own = [];
+      let base = 0;
+      for (const { w: d, rev } of run) {
+        const k = Math.max(1, Math.round(d.len / 2));
+        for (let j = 0; j <= k; j++) {
+          const s = (d.len * j) / k, p = this.pointAt(d, rev ? d.len - s : s), g = ground(p[0], p[1]);
+          S.push(base + s); G.push(g); Y.push(g + d.deckH); own.push([d, rev ? d.len - s : s]);
+        }
+        base += d.len;
+      }
+      runs.push({ run, S, Y, G, own, n0, n1: enter, pin0: layerH.get(n0) || 0, pin1: layerH.get(enter) || 0 });
+    }
+    // lay one run along the upper hull of its samples, its two banks pinned at pin0 / pin1
+    const fit = (R) => {
+      const { run, S, G, own } = R, Y = R.Y.slice(), last = S.length - 1;
+      Y[0] = Math.max(Y[0], G[0] + R.pin0); Y[last] = Math.max(Y[last], G[last] + R.pin1);
+      const hull = [];
+      for (let i = 0; i < S.length; i++) {
+        while (hull.length >= 2) {
+          const a = hull[hull.length - 2], b = hull[hull.length - 1];
+          // drop b while it lies on or below the line from a to i (keeps the hull concave)
+          if ((Y[b] - Y[a]) * (S[i] - S[a]) <= (Y[i] - Y[a]) * (S[b] - S[a])) hull.pop(); else break;
+        }
+        hull.push(i);
+      }
+      for (const { w: d } of run) d.span = [];
+      for (let i = 0, h = 0; i < S.length; i++) {
+        while (h < hull.length - 2 && S[hull[h + 1]] <= S[i]) h++;
+        const a = hull[h], b = hull[Math.min(h + 1, hull.length - 1)];
+        const top = S[b] === S[a] ? Math.max(Y[a], Y[b]) : Y[a] + ((Y[b] - Y[a]) * (S[i] - S[a])) / (S[b] - S[a]);
+        const [d, s] = own[i];
+        d.span.push([s, Math.max(d.deckH, top - G[i])]);
+      }
+      // a deck walked backwards collected its samples from its far end
+      for (const { w: d, rev } of run) if (rev) d.span.reverse();
+    };
+    for (const R of runs) fit(R);
+    for (const w of decks) if (!w.span) w.span = [[0, w.deckH], [w.len, w.deckH]]; // never walked: flat, as before
+    // A run that ends on another deck (a slip road leaving a viaduct mid-span, three decks at one
+    // node) is pinned to the height that deck has there, and refitted, until every deck agrees.
+    for (let pass = 0; pass < 8; pass++) {
+      const at = new Map();
+      for (const w of decks) for (let i = 0; i < w.nodes.length; i++) {
+        const nid = w.nodes[i];
+        if (nid) at.set(nid, Math.max(at.get(nid) || 0, interp(w.span, w.cum[i])));
+      }
+      let moved = false;
+      for (const R of runs) {
+        const p0 = Math.max(R.pin0, at.get(R.n0) || 0), p1 = Math.max(R.pin1, at.get(R.n1) || 0);
+        if (p0 > R.pin0 + 0.01 || p1 > R.pin1 + 0.01) { R.pin0 = p0; R.pin1 = p1; fit(R); moved = true; }
+      }
+      if (!moved) break;
     }
   }
   /** deck height (0 on the ground) at arc length s along a way */
