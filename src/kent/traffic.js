@@ -199,7 +199,7 @@ export class KentTraffic {
     const look = Math.min(130, 18 + (v * v) / 6 + A.L);
     const front = s + A.L / 2;
     let freeD = Infinity, held = false, blockId = 0, nudge = 0, firstGroup = null, byMe = false;
-    A.minorNode = 0; A.minorNode2 = 0;
+    A.minorNode = 0; A.minorNode2 = 0; A.busyBy = 0;
     // the route's lines: lights, ring entries, give-ways, zebras
     for (let k = A.evI; k < A.ev.length; k++) {
       const e = A.ev[k];
@@ -313,11 +313,16 @@ export class KentTraffic {
         const box = obstacle.heading != null && obstacle.L, ofx = box ? Math.sin(obstacle.heading) : 1, ofz = box ? Math.cos(obstacle.heading) : 0;
         // oncoming and on my right, close: ease over to pass it, as with another car (and squeeze by with less room)
         const oncoming = box && A.fx * ofx + A.fz * ofz < -0.5;
+        // the thin margin is for passing a car coming the other way in a narrow street. Head-on only:
+        // a car at an angle -- the learner stopped mid-turn across a junction mouth -- is an obstacle
+        // to clear by the usual margin; #onPath is an estimate from the path's points, and with 0.1 m
+        // a car turning past such a learner clipped its corner (Driveuk, every run).
+        const headOn = oncoming && A.fx * ofx + A.fz * ofz < -0.85;
         if (oncoming && d2 < 196) {
           const lat = dx * A.fz - dz * A.fx, room = (A.W + obstacle.W) / 2 + 0.9;
           if (lat < 0 && -lat < room) nudge = Math.max(nudge, Math.min(NUDGE, room + lat));
         }
-        const arc = this.#onPath(A, obstacle.x, obstacle.z, ofx, ofz, box ? obstacle.L / 2 : obstacle.r, box ? obstacle.W / 2 : obstacle.r, oncoming ? 0.1 : 0.4, Math.sqrt(d2), s + look + 3);
+        const arc = this.#onPath(A, obstacle.x, obstacle.z, ofx, ofz, box ? obstacle.L / 2 : obstacle.r, box ? obstacle.W / 2 : obstacle.r, headOn ? 0.1 : 0.4, Math.sqrt(d2), s + look + 3);
         if (arc >= 0) {
           // Record that it is the PLAYER slowing this car, the way the car-vs-car branch records
           // blockId. Without it a car stopped for the learner is indistinguishable from a car
@@ -333,7 +338,21 @@ export class KentTraffic {
           if (v < 0.3 && A.stopT > 4 && me.v < 0.3 && obstacle.heading != null && A.fx * Math.sin(obstacle.heading) + A.fz * Math.cos(obstacle.heading) < -0.5 && g < 8 && A.backUp <= 0 && !A.noRoom) A.backUp = 2.5;
           // and if neither of us can move for 25 s (someone behind each of us), squeeze past like a gridlock
           // (not when following it: a queue behind the player at a red light is just a queue)
-          if (v < 0.3 && A.stopT > 25 && me.v < 0.3 && !A.held && g < 8 && obstacle.heading != null && A.fx * Math.sin(obstacle.heading) + A.fz * Math.cos(obstacle.heading) < 0.5) { A.ghost = 5; this.stats.squeezed = (this.stats.squeezed || 0) + 1; }
+          if (v < 0.3 && A.stopT > 25 && me.v < 0.3 && !A.held && g < 8 && obstacle.heading != null && A.fx * Math.sin(obstacle.heading) + A.fz * Math.cos(obstacle.heading) < 0.5) { A.ghost = 5; this.stats.squeezed = (this.stats.squeezed || 0) + 1; this.stats.squeezedMe = (this.stats.squeezedMe || 0) + 1; }
+        }
+      }
+      // The player crossing my path: where it will be in a moment, not only where it is now. A car
+      // moving off across a junction mouth (out of a side road, or on again after being held up past
+      // its line) judged the player by where it was, set off, and met it side-on a second later --
+      // in the city runs the learner was struck like this at junction after junction.
+      const me = this.me, ofx = Math.sin(obstacle.heading ?? 0), ofz = Math.cos(obstacle.heading ?? 0);
+      if (obstacle.heading != null && obstacle.L && me.v > 1.5 && d2 < 1600 && Math.abs(A.fx * ofx + A.fz * ofz) < 0.7) {
+        for (const t of [0.6, 1.2, 1.8]) {
+          const qx = obstacle.x + me.fx * me.v * t, qz = obstacle.z + me.fz * me.v * t;
+          const arc = this.#onPath(A, qx, qz, ofx, ofz, obstacle.L / 2, obstacle.W / 2, 0.4, Math.hypot(qx - A.x, qz - A.z), s + 30);
+          if (arc < 0) continue;
+          const g = arc - s - A.L / 2 - this.ext - GAP;
+          if (g < v * t + ACCEL * t * t / 2 + 2) { const was = want; want = follow(want, g, 0, v); if (want < was) byMe = true; if (g < freeD) freeD = g; break; }
         }
       }
     }
@@ -491,13 +510,28 @@ export class KentTraffic {
     // to wait between them): its main road has to be clear as well
     return !!e.node2 && this.#busyAt(A, e, e.nx2, e.nz2, e.node2, r, yaw);
   }
+  /**
+   * Is stopped car B, through its queue, waiting on A? Following blockId: B behind C behind ... behind A.
+   * Giving way to such a car is a loop nobody can break -- on Driveuk a car held at a staggered
+   * crossroads gave way to a car standing in the box, which was queued behind the car that was
+   * itself waiting on the one giving way, and a forty-car queue stood for the whole watchdog.
+   */
+  #waitsOn(B, A) {
+    for (let k = 0, id = B.blockId; id > 0 && k < 30; k++) {
+      if (id === A.id) return true;
+      const C = this.byId?.get(id) ?? this.cars.find((c) => c.id === id);
+      if (!C || C.v >= 0.3) return false;
+      id = C.blockId;
+    }
+    return false;
+  }
   #busyAt(A, e, nx, nz, nodeId, r, yaw) {
     const ox = yaw == null ? 0 : Math.sin(yaw), oz = yaw == null ? 0 : Math.cos(yaw);
     const cars = this.cars, r2 = r * r;
     for (let b = 0; b < cars.length; b++) {
       const B = cars[b];
       if (B === A || B.minorNode === nodeId || B.minorNode2 === nodeId) continue; // itself giving way here, at this node or at the one its own line answers for
-      if (B.v < 0.3 && B.blockId === A.id) continue; // it's waiting for me to get my nose out of its way
+      if (B.v < 0.3 && this.#waitsOn(B, A)) continue; // it's waiting for me to get my nose out of its way, or queued behind someone who is
       if (yaw != null && B.fx * ox + B.fz * oz > -0.5) continue; // not oncoming
       const dx = nx - B.x, dz = nz - B.z, d2 = dx * dx + dz * dz, rr = B.v * 5.5; // or within 5.5 s
       if (d2 > r2 && d2 > rr * rr) continue;
@@ -512,13 +546,14 @@ export class KentTraffic {
       if (B.v < 0.3 && B.held && B.minorNode && B.minorNode !== nodeId && d2 > 16) continue;
 
       if (dx * B.fx + dz * B.fz < -2) continue; // past the junction, going away
+      A.busyBy = B.id; // diagnostic: who it is giving way to (lesson-check's stall chain prints it)
       return true;
     }
     // the player coming along the main road (not behind me on my own road, nor waiting at this junction)
     const me = this.me;
     if (me.x != null && me.v > 1.5 && A.fx * me.fx + A.fz * me.fz < 0.7 && (yaw == null || me.fx * ox + me.fz * oz <= -0.5)) {
       const dx = nx - me.x, dz = nz - me.z, d2 = dx * dx + dz * dz, rr = me.v * 5.5;
-      if ((d2 <= r2 || d2 <= rr * rr) && dx * me.fx + dz * me.fz > -2) return true;
+      if ((d2 <= r2 || d2 <= rr * rr) && dx * me.fx + dz * me.fz > -2) { A.busyBy = 'me'; return true; }
     }
     return false;
   }

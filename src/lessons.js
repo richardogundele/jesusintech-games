@@ -1259,6 +1259,9 @@ function carefulKent(run, car, st, bad) {
           if (toLine < 1.6 && room && !run.majorBusy(e, car, 6, 50)) e.botGo = true;
           if (bad.noStops) e.botGo = toLine < 0.8;
         }
+        // gone, but held up at the mouth (a car crossing in front) before the car is clear of the line:
+        // the gap it went for is old by now, so look again before carrying on into the main road
+        if (e.botGo && !bad.noStops && toLine > -4 && toLine < 1.6 && Math.abs(v) < 1.5 && run.majorBusy(e, car, 4, 40)) want = 0;
         if (bad.noStops && toLine < 30 && toLine > -2) want = Math.max(want, 16 / MPH);
         break;
       }
@@ -1430,7 +1433,10 @@ function oncoming(run, car, e, secs, r = 60) {
 /** a car about to come onto the ring from the arm before mine (it shouldn't, but it might) */
 function ringEntering(run, e, car) {
   const rb = run.world.net.roundabouts.get(e.rb), p = posAtS(run, e.entryS);
-  return (run.world.traffic?.cars || []).some((c) => c.v > 1 && !c.lane?.rb && Math.hypot(c.x - p.x, c.z - p.z) < 14 && Math.hypot(c.x - rb.x, c.z - rb.z) < rb.r + 10 && Math.hypot(c.x - car.pos.x, c.z - car.pos.z) > 4);
+  // heading in towards the ring: a car LEAVING it down the exit beside our entry passes just as close
+  // to the line, and counting those held the learner at a busy ring for the whole two-minute watchdog
+  return (run.world.traffic?.cars || []).some((c) => c.v > 1 && !c.lane?.rb && Math.hypot(c.x - p.x, c.z - p.z) < 14 && Math.hypot(c.x - rb.x, c.z - rb.z) < rb.r + 10 && Math.hypot(c.x - car.pos.x, c.z - car.pos.z) > 4
+    && (rb.x - c.x) * c.fx + (rb.z - c.z) * c.fz > 0);
 }
 /** joining from a slip road: the speed that has us arrive in a gap, not alongside someone */
 function mergeGap(run, car, e, want) {
