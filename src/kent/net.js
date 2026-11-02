@@ -1234,9 +1234,12 @@ export class RoadNet {
       // that point. No car can follow the hairpin, so the approach's point goes and the corner
       // rounds from the one before it (the turn into Coventry's test centre: the pavement, or the
       // eyesight car, on a seed that took it at 4 mph).
-      if (q && q.corner && pt.pieceStart && !q.rb && !pt.rb && cleaned.length >= 2) {
-        const o = cleaned[cleaned.length - 2], ax = q.x - o.x, az = q.z - o.z, bx = pt.x - q.x, bz = pt.z - q.z;
-        if (ax * bx + az * bz < 0 && hypot(bx, bz) < 6) { cleaned.pop(); replaced.set(q, pt); pt.corner = true; cleaned.push(pt); continue; }
+      // (judged against the way's own direction at the corner, not the previous point: a tiny step
+      // back there made a straight join on Herne Bay's seafront a "hairpin", and the jog that put
+      // in its place had the car on the kerb)
+      if (q && q.corner && pt.pieceStart && !q.rb && !pt.rb && q.way && q.sWay != null && cleaned.length >= 2) {
+        const d = this.dirAt(q.way, q.sWay), ax = d[0] * (q.dir || 1), az = d[1] * (q.dir || 1), bx = pt.x - q.x, bz = pt.z - q.z, bl = hypot(bx, bz) || 1;
+        if ((ax * bx + az * bz) / bl < -0.3 && bl < 6) { cleaned.pop(); replaced.set(q, pt); pt.corner = true; cleaned.push(pt); continue; }
       }
       if (q && hypot(pt.x - q.x, pt.z - q.z) < (pt.pieceStart && !q.rb && !q.blend ? 2.5 : 0.6)) {
         replaced.set(pt, q); if (pt.corner) q.corner = true;
