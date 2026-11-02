@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { drapeGeometry } from '../worlds/terrain.js';
+import { macroVary } from '../materials.js';
 import {
   LW, LW_RING_SMALL, PAVE_W, KERB_W, KERB_H, Y_ROAD, Y_MARK, Y_DECAL, Y_PAVE,
   PATTERNS, centrePattern, hazardPattern, lanePattern, edgeWidth, hazardReach, arrowLength, wordHeight,
@@ -644,10 +645,13 @@ function roadSurface(way, cls, limit, pave) {
 }
 
 export function makeRoadMaterials({ pbr, decal = null, planting = null } = {}) {
+  // Every surface gets a slow world-space variation on top of its tiles: a road is not one tone
+  // for a mile, it is patched, damp in the shade, worn pale where the wheels run; and the tile's
+  // repeat, obvious down a long straight, stops being findable.
   const tex = (name, color, extra = {}) => {
     const m = pbr(name, { repeat: [1, 1], color, roughness: 1, ...extra });
     for (const k of ['map', 'normalMap', 'aoMap', 'roughnessMap', 'metalnessMap']) if (m[k]) m[k].repeat.set(1 / 4, 1 / 4);
-    return m;
+    return macroVary(m, { scale: 17, amount: 0.09, warm: 0.02 });
   };
   const flat = (color, extra = {}) => new THREE.MeshStandardMaterial({ color, roughness: 0.7, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2, ...extra });
   const asphalt = tex('clean_asphalt', 0x8c8c8c);

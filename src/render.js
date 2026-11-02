@@ -17,10 +17,14 @@ const GradeShader = {
     uVignette: { value: 0.16 },
     uLift: { value: new THREE.Vector3(0.002, 0.002, 0.004) },
     uGain: { value: new THREE.Vector3(1.02, 1.0, 0.97) },
+    // a breath of film grain, strongest in the mid-tones: the clean render reads as a diagram,
+    // and a little texture over everything is what makes the flat surfaces sit in one image
+    uGrain: { value: 0.028 },
+    uTime: { value: 0 },
   },
   vertexShader: `varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
   fragmentShader: `
-    uniform sampler2D tDiffuse; uniform float uContrast, uSaturation, uVignette; uniform vec3 uLift, uGain;
+    uniform sampler2D tDiffuse; uniform float uContrast, uSaturation, uVignette, uGrain, uTime; uniform vec3 uLift, uGain;
     varying vec2 vUv;
     void main() {
       vec4 c = texture2D(tDiffuse, vUv);
@@ -30,6 +34,8 @@ const GradeShader = {
       col = mix(vec3(l), col, uSaturation);
       vec2 d = vUv - 0.5;
       col *= 1.0 - uVignette * smoothstep(0.25, 0.85, dot(d, d) * 2.2);
+      float g = fract(sin(dot(gl_FragCoord.xy + fract(uTime) * 61.0, vec2(12.9898, 78.233))) * 43758.5453) - 0.5;
+      col += g * uGrain * (1.0 - abs(l - 0.5) * 1.2);
       gl_FragColor = vec4(clamp(col, 0.0, 1.0), c.a);
     }`,
 };
@@ -58,6 +64,7 @@ export function createPipeline(renderer, camera) {
     composer, bloom, grade,
     render(scene) {
       renderPass.scene = scene;
+      grade.uniforms.uTime.value = (performance.now() / 1000) % 1000;
       composer.render();
     },
     setSize(w, h) {

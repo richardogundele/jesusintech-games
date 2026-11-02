@@ -157,9 +157,13 @@ export const UK_DAY = {
  */
 export const UK_GOLDEN = {
   exposure: 1.0,
-  envIntensity: 0.85,
+  // One light that clearly comes from somewhere: a touch more sun and a little less sky fill, so
+  // the lit face of a wall and the shaded one are two different tones and a kerb throws a line of
+  // shadow. At 0.85 fill the scene read evenly lit from everywhere, which is how a render looks
+  // and not how a street does.
+  envIntensity: 0.72,
   sunColor: 0xffb26b,
-  sunIntensity: 3.6,
+  sunIntensity: 4.1,
   fogDensity: 0.0011,
   fogTint: 1.15,
   sunElevationDeg: 19,

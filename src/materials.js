@@ -23,6 +23,43 @@ function injectWorldVaryings(shader) {
 }
 
 /**
+ * Large-scale variation over a tiled surface, in world space: a slow value noise (two octaves, tens
+ * of metres) that darkens and lightens the diffuse colour and drifts its warmth a little. A tiled
+ * grass or asphalt set repeats every few metres and the eye finds the repeat at once across a field
+ * or down a road; this breaks it the way real ground varies -- damp patches, worn strips, a change
+ * of soil -- without another texture. Composes with a material's own onBeforeCompile.
+ *   scale: metres per noise cell (the first octave); amount: +-brightness at full swing;
+ *   warm: how far the warm/cool drift goes (0 for none).
+ */
+export function macroVary(mat, { scale = 23, amount = 0.14, warm = 0.03 } = {}) {
+  const prev = mat.onBeforeCompile;
+  const uniforms = { uMacroScale: { value: scale }, uMacroAmt: { value: amount }, uMacroWarm: { value: warm } };
+  mat.onBeforeCompile = (shader, renderer) => {
+    if (prev) prev(shader, renderer);
+    Object.assign(shader.uniforms, uniforms);
+    if (!shader.vertexShader.includes('varying vec3 vWPos;')) injectWorldVaryings(shader);
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', `#include <common>
+      uniform float uMacroScale, uMacroAmt, uMacroWarm;
+      float macroHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+      float macroNoise(vec2 p) {
+        vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+        return mix(mix(macroHash(i), macroHash(i + vec2(1, 0)), f.x), mix(macroHash(i + vec2(0, 1)), macroHash(i + vec2(1, 1)), f.x), f.y);
+      }`)
+      .replace('#include <color_fragment>', `#include <color_fragment>
+      {
+        vec2 mp = vWPos.xz / uMacroScale;
+        float mn = macroNoise(mp) * 0.65 + macroNoise(mp * 3.1 + 7.3) * 0.35 - 0.5;
+        diffuseColor.rgb *= 1.0 + mn * 2.0 * uMacroAmt;
+        diffuseColor.rgb *= vec3(1.0 + mn * uMacroWarm, 1.0, 1.0 - mn * uMacroWarm);
+      }`);
+  };
+  const prevKey = mat.customProgramCacheKey?.bind(mat);
+  mat.customProgramCacheKey = () => `${prevKey ? prevKey() : ''}-macro-${scale}-${amount}-${warm}`;
+  return mat;
+}
+
+/**
  * A PBR texture set mapped in WORLD space (triplanar by dominant normal), so it works on geometry
  * that has no UVs at all: merged hip roofs, instanced gable prisms and hedge boxes. `color` tints
  * it; with `vertexColors` the per-building tint still multiplies through.

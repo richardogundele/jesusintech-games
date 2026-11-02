@@ -8,6 +8,7 @@ import * as THREE from 'three';
 import { setupSky, UK_GOLDEN, Colliders } from './common.js';
 import { makeTerrain } from './terrain.js';
 import { hdri, pbr, misc, instanced } from '../assets.js';
+import { macroVary } from '../materials.js';
 import { markingTexture } from '../signs.js';
 import { buildJet, buildCar, buildPedestrian } from '../models.js';
 import { JETS, STARTER_JETS, TRAFFIC } from '../catalog.js';
@@ -46,9 +47,11 @@ export function buildKent(renderer) {
   const scenery = makeSceneryBuilder({ net, tickers, colliders, scene, groundY: terrain.has ? terrain.heightAt : null });
   // with hills the land is the terrain grid's own triangles (draped roads agree with it exactly),
   // but the sea polygon is still cut out so the water shows; flat Kent keeps the old single plate
+  // (the grass set repeats every few metres and read as a printed sheet across a field: a slow
+  // world-space variation on top of it breaks the repeat the way real ground does)
   const land = new THREE.Mesh(
     terrain.has ? terrain.landGeometry(0.12, 1200, scenery.inSea) : scenery.landGeometry(-0.05),
-    pbr('leafy_grass', { repeat: [1, 1], color: 0x6f9450 }),
+    macroVary(pbr('leafy_grass', { repeat: [1, 1], color: 0x6f9450 }), { scale: 31, amount: 0.16, warm: 0.05 }),
   );
   land.receiveShadow = true;
   scene.add(land);
