@@ -79,12 +79,17 @@ export function buildKentRoute(net, spec, { rnd = Math.random, legs = null } = {
   }
   const route = net.route({ x: spec.start.x, z: spec.start.z, maxD: 30 }, to, { via: spec.vias || [], noUturn: !!spec.noUturn, avoid: spec.avoid || [], legs }); // legs: test-routes.js remembers legs across its tries
   if (!route) throw new Error(`no route for ${spec.id || 'lesson'}`);
-  const lp = net.lanePath(route, { end: spec.end === 'baypark' ? 'pullup' : spec.end || 'pullup' });
+  const lp = net.lanePath(route, { end: spec.end === 'baypark' || spec.end === 'parallel' ? 'pullup' : spec.end || 'pullup' });
   const pts = lp.pts;
   let events = lp.events.filter((e) => e.kind !== 'pullup' || spec.end !== 'baypark');
   fixLines(net, pts, events);
   events = dedupe(events);
   const viaXZ = (spec.vias || []).map((v) => (typeof v === 'number' ? { x: net.nodes.get(v).x, z: net.nodes.get(v).z } : v));
+  // parking practice: the pull-up at the end becomes the parallel park into the space the spec names
+  if (spec.end === 'parallel' && spec.space) {
+    const pu = events.find((e) => e.kind === 'pullup');
+    if (pu) Object.assign(pu, { kind: 'parallel', space: spec.space, text: 'Pull up alongside the car in front of the marked space, about a metre out from it, then reverse into the space behind it. Finish parallel to the kerb and inside the lines.' });
+  }
   const out = { pts, events, length: lp.length, start: lp.start, layout, route, tc, viaXZ, spec, net }; // spec as resolved (the manoeuvre picked)
   if (spec.end === 'baypark' && layout.lot) addBayPark(out, layout, rnd);
   // part-way pull-ups and the pull up on the right: on quiet, straight stretches of town road

@@ -1196,7 +1196,7 @@ export class RoadNet {
       }
       let lastPt = null;
       for (const s of ss) {
-        const c = lanePt(p, s); lastPt = push(c.x, c.z, { way: p.way, dir: p.dir, lane: p.lane, rb: null, sWay: s, pieceStart: first, park: !!(p.parkShift && p.parkShift(s)) }); first = false;
+        const c = lanePt(p, s); lastPt = push(c.x, c.z, { way: p.way, dir: p.dir, lane: p.lane, rb: null, sWay: s, pieceStart: first, parked: !!(p.parkShift && p.parkShift(s)) }); first = false;
         // A junction the route drives straight through, in the middle of its own way: a bigger road
         // crossing here still has priority, so it needs a give-way line of its own. Without this the
         // only line is the next one the route turns at, which on a dual carriageway is the far
@@ -1255,7 +1255,7 @@ export class RoadNet {
     // 3. resample every 1.5 m with cumulative s
     const pts = [], ptsIndex = new Map();
     let s = 0, carry = 0;
-    const meta = (r) => ({ way: r.way.id, lane: r.lane, rb: r.rb, dir: r.dir, park: !!r.park, road: this.#roadMeta(r.way, r.rb, r.dir) });
+    const meta = (r) => ({ way: r.way.id, lane: r.lane, rb: r.rb, dir: r.dir, parked: !!r.parked, road: this.#roadMeta(r.way, r.rb, r.dir) });
     for (let i = 0; i < smooth.length; i++) {
       const r = smooth[i];
       if (i === 0) { pts.push({ x: r.x, z: r.z, s: 0, ...meta(r) }); ptsIndex.set(r, 0); continue; }

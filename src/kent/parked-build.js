@@ -4,12 +4,15 @@
 // collapsed to one geometry per material, and drawn as that many InstancedMeshes per tile.
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { PARKED_W, PARKED_L } from './parked.js';
+import { PARKED_W, PARKED_L, SPACE_L } from './parked.js';
 
 /**
  * net: RoadNet (net.parked is the catalogue); buildCar(spec) -> { root }; bodies: the catalog's
  * TRAFFIC list; groundY(x, z) -> y for the hills, or null.
  */
+const lineGeo = new THREE.BoxGeometry(1, 0.02, 1);
+const lineMat = new THREE.MeshStandardMaterial({ color: 0xf2f2ee, roughness: 0.7, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 });
+
 export function makeParkedBuilder({ net, buildCar, bodies, groundY = null, colliders: world = null }) {
   const protos = new Map(); // key -> [{ geometry, material }]
   const specs = [];
@@ -78,6 +81,25 @@ export function makeParkedBuilder({ net, buildCar, bodies, groundY = null, colli
         colliders.push({ cx: c.x, cz: c.z, w: PARKED_W, d: PARKED_L, yaw: c.yaw, carOnly: false });
       }
       const o = new THREE.Object3D();
+      // the marked spaces: a white outline on the road, a car and a half by a car's width
+      const spaces = [];
+      const seenWays = new Set();
+      for (const c of cars) { if (seenWays.has(c.way)) continue; seenWays.add(c.way); for (const sp of net.parked.spacesOn(net.ways.get(c.way))) if (sp.x >= tile.x0 && sp.x < tile.x1 && sp.z >= tile.z0 && sp.z < tile.z1) spaces.push(sp); }
+      if (spaces.length) {
+        const lines = new THREE.InstancedMesh(lineGeo, lineMat, spaces.length * 4);
+        spaces.forEach((sp, i) => {
+          const fx = Math.sin(sp.yaw), fz = Math.cos(sp.yaw), lx = fz, lz = -fx, y = (groundY ? groundY(sp.x, sp.z) : 0) + 0.025;
+          const W = PARKED_W + 0.3, L = SPACE_L;
+          const seg = (j, cx, cz, yaw, len) => { o.position.set(cx, y, cz); o.rotation.set(0, yaw, 0); o.scale.set(0.1, 1, len); o.updateMatrix(); lines.setMatrixAt(i * 4 + j, o.matrix); };
+          seg(0, sp.x + lx * W / 2, sp.z + lz * W / 2, sp.yaw, L);
+          seg(1, sp.x - lx * W / 2, sp.z - lz * W / 2, sp.yaw, L);
+          seg(2, sp.x + fx * L / 2, sp.z + fz * L / 2, sp.yaw + Math.PI / 2, W);
+          seg(3, sp.x - fx * L / 2, sp.z - fz * L / 2, sp.yaw + Math.PI / 2, W);
+        });
+        lines.castShadow = false;
+        lines.receiveShadow = true;
+        group.add(lines);
+      }
       for (const [k, list] of byProto) {
         const parts = proto(k);
         for (const { geometry, material } of parts) {

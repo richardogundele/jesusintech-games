@@ -120,6 +120,10 @@ const KENT = [
     intro: "Test skills today. At some point I'll say 'Stop!': brake firmly and quickly, like a child just ran out. Later I'll ask you to pull up on the right and reverse about two car lengths, and we'll finish by parking in a bay at the test centre. Mirrors before you reverse.",
   },
   {
+    id: 'park', world: 'kent', park: true, centre: 'herne', title: 'Parking practice: parallel park', blurb: 'The sat nav takes you to the nearest marked space between two parked cars. Pull up alongside the front car, reverse in, finish straight and close to the kerb.',
+    intro: "Parking today. I'll take you to a marked space between two parked cars. Pull up alongside the car in front of it, about a metre out, then reverse into the space. Take it slowly, keep looking all round, and finish parallel to the kerb.",
+  },
+  {
     id: 'mock', world: 'kent', route: 'mock', title: 'Driving test: Herne Bay', blurb: 'The real format from the Herne Bay centre: eyesight check, show me/tell me, the A299, Eddington, Greenhill, the town, about 20 minutes on the sat nav, a manoeuvre, sometimes an emergency stop. 15 driving faults or fewer and no serious faults to pass.', mock: true,
     checks: true, estop: 1 / 7, independent: [0.22, 0.72], showMe: 0.78,
     intro: DT1_START,
@@ -246,6 +250,7 @@ export class LessonRun {
     if (def.indepSpec) { this.indep = [def.indepSpec.s0, def.indepSpec.s1]; this.indepMode = def.indepSpec.mode; this.signsTarget = def.indepSpec.target || null; }
     if (def.showMe) this.showMeS = def.showMe * this.route.length;
     this.events = this.route.events.map((e) => ({ ...e }));
+    this.endEv = this.events.find((e) => e.kind === 'pullup' || e.kind === 'baypark' || e.kind === 'parallel');
     if (this.kent) for (const e of this.events) e.text = dt1Text(e, !!def.mock);
     this.faults = [];
     this.t = 0;
@@ -420,7 +425,8 @@ export class LessonRun {
     const pullingUp = s > this.route.length - 60;
     const here = this.route.pts[this.idx];
     const dual = here.road?.lanes === 2;
-    const parkPhase = this.kent ? !!(here.park || this.route.layout?.inLot(car.pos.x, car.pos.z)) : inLot(car.pos.x, car.pos.z);
+    // (a parallel park: the last stretch and the park itself are the manoeuvre, not normal driving)
+    const parkPhase = this.kent ? !!(here.park || this.route.layout?.inLot(car.pos.x, car.pos.z) || (this.endEv?.kind === 'parallel' && s > this.endEv.s - 30)) : inLot(car.pos.x, car.pos.z);
     if (this.kent) this.kentPosition(dt, car, here, nearJ, parkPhase);
     else if (dual && !nearJ && this.dist < 12) {
       // dual carriageway: lane 1 is the route; lane 2 is about one lane width to the right
@@ -528,14 +534,18 @@ export class LessonRun {
     if (this.dist < 6) this.offSaid = false;
 
     // ---- pulling up at the end ----
-    const end = this.events.find((e) => e.kind === 'pullup' || e.kind === 'baypark');
-    const nearEnd = end.kind === 'baypark' ? parkPhase && s > end.s - 25 : s > end.s - 55 && this.dist < 10;
+    const end = this.endEv;
+    // a parallel park ends when the car is secured in or about the space after a reverse (or after
+    // standing there a while: a learner who gives up still gets the report)
+    const nearEnd = end.kind === 'baypark' ? parkPhase && s > end.s - 25
+      : end.kind === 'parallel' ? Math.hypot(car.pos.x - end.space.x, car.pos.z - end.space.z) < 14 && (this.dirChanges > 0 || this.stopT > 10)
+      : s > end.s - 55 && this.dist < 10;
     if (nearEnd && (!this.estop || this.estop.state !== 'braking')) {
       this.stopT = mph < 0.5 ? this.stopT + dt : 0;
       // the learner gearbox: secure the car (handbrake on) before the lesson ends; 6 s and it ends anyway, with a fault
       const secured = !car.drive || car.parkingBrake || this.stopT > 6;
       if (car.drive && this.stopT > 1 && !car.parkingBrake && !this.def.mock) this.coachText = 'Handbrake on (Space), please.';
-      if (this.stopT > (end.kind === 'baypark' ? 1.6 : 1.2) && secured) {
+      if (this.stopT > (end.kind === 'baypark' || end.kind === 'parallel' ? 1.6 : 1.2) && secured) {
         if (car.drive && !car.parkingBrake) this.fault('minor', 'Control: parking brake (not applied at the end)');
         this.finish(end, car);
       }
@@ -941,6 +951,16 @@ export class LessonRun {
           : BAYS.some((b) => Math.abs(car.pos.x - b.x) < 0.55 && Math.abs(car.pos.z - b.z) < 0.9) && Math.abs(Math.cos(car.heading)) > 0.96;
         if (!inBay) this.fault('serious', 'Manoeuvres: bay park accuracy (not inside the bay)');
         if (this.dirChanges > 2) this.fault('minor', 'Manoeuvres: control (too many shunts)');
+      } else if (end.kind === 'parallel') {
+        // inside the lines: along the space with room at each end, within half a metre of its
+        // centre line (which is a kerb's distance in), and straight
+        const sp = end.space, fx = Math.sin(sp.yaw), fz = Math.cos(sp.yaw), dx = car.pos.x - sp.x, dz = car.pos.z - sp.z;
+        const along = dx * fx + dz * fz, lat = dx * fz - dz * fx;
+        let dh = car.heading - sp.yaw; dh = Math.atan2(Math.sin(dh), Math.cos(dh));
+        const inSpace = Math.abs(along) < (sp.len - car.model.length) / 2 + 0.3 && Math.abs(lat) < 0.55 && Math.abs(dh) < 0.17;
+        if (!inSpace) this.fault('serious', 'Manoeuvres: parallel park accuracy (not inside the space)');
+        else if (Math.abs(lat) > 0.3 || Math.abs(dh) > 0.1) this.fault('minor', 'Manoeuvres: parallel park (not straight and close to the kerb)');
+        if (this.dirChanges > 4) this.fault('minor', 'Manoeuvres: control (too many shunts)');
       } else {
         if (!signalled(this.sig, 'left', end.s - 110)) this.fault('minor', 'Signals: necessary (pulling up)');
         if (!this.mirror.some((m) => m.s >= end.s - 120)) this.fault('minor', 'Mirrors: signalling (pulling up)');
@@ -1051,7 +1071,7 @@ const MARK_KENT = ['turn', 'emerge', 'rb', 'mini'];
 const WAIT_WM = ['lights', 'zebra', 'emerge', 'rb'];
 const WAIT_KENT = ['lights', 'zebra', 'emerge', 'rb', 'cross', 'mini', 'merge', 'stop', 'pullright', 'turn'];
 const MANOEUVRES = ['turn', 'emerge', 'cross', 'mini', 'rb', 'merge', 'diverge', 'laneChange', 'stop', 'pullright'];
-const TALK_ANYWAY = ['stop', 'pullright', 'baypark', 'pullup']; // the examiner still asks for these during independent driving
+const TALK_ANYWAY = ['stop', 'pullright', 'baypark', 'pullup', 'parallel']; // the examiner still asks for these during independent driving
 const SATNAV = ['turn', 'emerge', 'cross', 'mini', 'rb', 'merge', 'diverge'];
 /** a person touching the car's body (its box, with a hand's width to spare) */
 function touching(car, p) {
@@ -1076,6 +1096,7 @@ function dt1Text(e, test) {
     case 'stop': return test ? (e.angled ? 'Pull up on the left just before you get to the next parked car, please.' : 'Pull up on the left at a safe place, please.') : e.text;
     case 'pullright': return test ? 'Pull up on the right when it is safe to do so, please.' : e.text;
     case 'baypark': return test ? 'At the end of the road turn left into the test centre car park, please. I would like you to drive forward into a convenient parking bay, either to the left or the right. Finish within one of the bays.' : e.text;
+    case 'parallel': return e.text;
     case 'pullup': return test ? 'Pull up on the left at a safe place, please.' : e.text;
   }
   return e.text;
@@ -1371,7 +1392,7 @@ function carefulKent(run, car, st, bad) {
         }
         break;
       }
-      case 'pullup': if (ahead < 45) want = Math.min(want, Math.max(0, ahead - 12) * 0.35); break;
+      case 'pullup': case 'parallel': if (ahead < 45) want = Math.min(want, Math.max(0, ahead - 12) * 0.35); break; // (the bot pulls up alongside; it does not reverse park)
       case 'baypark': if (e.s - s < 30) want = Math.min(want, stopIn(e.s - 0.25 - s)); break;
     }
   }
@@ -1388,12 +1409,12 @@ function carefulKent(run, car, st, bad) {
   // Meeting traffic at parked cars: the route ahead moves out round them, and the side with the
   // obstruction gives way (Highway Code 155): wait short of the run while a car is coming the
   // other way through it or towards it, then go; once in the run, carry on through.
-  if (run.kent && !pts[run.idx].park) {
+  if (run.kent && !pts[run.idx].parked) {
     let j = run.idx + 1;
-    while (j < pts.length && pts[j].s - s < 16 && !pts[j].park) j++;
-    if (j < pts.length && pts[j].park && pts[j].s - s < 16) {
+    while (j < pts.length && pts[j].s - s < 16 && !pts[j].parked) j++;
+    if (j < pts.length && pts[j].parked && pts[j].s - s < 16) {
       let k = j;
-      while (k < pts.length && pts[k].park) k++;
+      while (k < pts.length && pts[k].parked) k++;
       const dStart = pts[j].s - s, dEnd = pts[Math.min(k, pts.length - 1)].s - s;
       const mine = (dEnd + 8) / Math.max(car.vF, 4) + 1.5; // my time to be through, against its time to reach the far end
       const coming = traffic.some((c) => {
@@ -1417,7 +1438,7 @@ function carefulKent(run, car, st, bad) {
   // (nor where the road ahead bends: the turn into a car park is no event, and the ease put the car
   // on the pavement there)
   const bendAhead = run.kent && (() => { const hd = (i) => { const a = pts[Math.max(0, i - 1)], b = pts[Math.min(pts.length - 1, i + 1)]; return Math.atan2(b.x - a.x, b.z - a.z); }; let d = hd(idxAtS(pts, s + 22)) - hd(run.idx); d = Math.atan2(Math.sin(d), Math.cos(d)); return Math.abs(d) > 0.3; })();
-  if (run.kent && !nearEv && !bendAhead && pts[run.idx] && !pts[run.idx].park && !pts[run.idx].rb) {
+  if (run.kent && !nearEv && !bendAhead && pts[run.idx] && !pts[run.idx].parked && !pts[run.idx].rb) {
     const w = run.world.net.ways.get(pts[run.idx].way);
     const room = w && !w.oneway ? Math.max(0, w.halfW - Math.abs(run.world.net.laneOffset(w, 1)) - car.model.width / 2 - 0.25) : 0;
     if (room > 0.1) {

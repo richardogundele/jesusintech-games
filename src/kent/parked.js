@@ -22,8 +22,10 @@ function mulberry32(seed) {
 
 const STREETS = { residential: [0.2, 0.42], living_street: [0.12, 0.3], unclassified: [0.08, 0.25] };
 
+export const SPACE_L = 7.4; // a marked parallel-parking space: a car and a half
+
 export class ParkedCatalogue {
-  constructor(net) { this.net = net; this.cache = new Map(); this.enabled = !(typeof process !== 'undefined' && process.env?.NO_PARKED); } // NO_PARKED=1: a headless run without them, to tell their effect from everything else's
+  constructor(net) { this.net = net; this.cache = new Map(); this.spaces = new Map(); this.enabled = !(typeof process !== 'undefined' && process.env?.NO_PARKED); } // NO_PARKED=1: a headless run without them, to tell their effect from everything else's
 
   /** does this street get parked cars at all? */
   eligible(w) {
@@ -41,7 +43,9 @@ export class ParkedCatalogue {
     let list = this.cache.get(way.id);
     if (list) return list;
     list = [];
+    const spaces = [];
     this.cache.set(way.id, list);
+    this.spaces.set(way.id, spaces);
     if (!this.eligible(way)) return list;
     const net = this.net, r = mulberry32(way.id * 2654435761 + 7);
     // one side for the whole road, not per OSM way: a road is several ways between its junctions,
@@ -75,26 +79,58 @@ export class ParkedCatalogue {
     // in clusters of one to three with a clear 12 m or more between clusters: a car out round a
     // cluster is on the centre line for a few seconds, and meets the other way at the gaps, as a
     // real street works; one long run would be single file for its whole length
-    let s = 2 + r() * 6, inCluster = 0, clusterMax = 1 + Math.floor(r() * 3);
+    // A marked space now and then: a car and a half of kerb left between two cars, with the lines
+    // painted, for the parking practice -- the car ahead of it has to be there, so the space's
+    // own next car is placed whatever the occupancy says.
+    let s = 2 + r() * 6, inCluster = 0, clusterMax = 1 + Math.floor(r() * 3), space = null;
+    const nearCentre = (p) => (net.testCentres || []).some((tc) => hypot(tc.x - p[0], tc.z - p[1]) < 90);
     while (s + PARKED_L < way.len) {
       const len = PARKED_L + (r() - 0.5) * 0.8;
       if (!blocked(s, s + len)) {
-        if (r() < occ) {
+        if (space || r() < occ) {
           const mid = s + len / 2, p = net.pointAt(way, mid), d = net.dirAt(way, mid);
           // not round a test centre: its approach is where the bay park, the eyesight car and the
           // start of every test live, and a car parked on the access road sat in the bay-park tail
-          if ((net.testCentres || []).some((tc) => hypot(tc.x - p[0], tc.z - p[1]) < 90)) { s += len + 1; continue; }
+          if (nearCentre(p)) { s += len + 1; space = null; continue; }
           const x = p[0] + d[1] * lat, z = p[1] - d[0] * lat; // leftOf(d) = (dz, -dx)
           list.push({ way: way.id, s: mid, len, side, x, z, yaw: Math.atan2(d[0] * side, d[1] * side), lat });
-          if (++inCluster >= clusterMax) { inCluster = 0; clusterMax = 1 + Math.floor(r() * 3); s += len + 12 + r() * 14; }
-          else s += len + 0.5 + r() * 0.9;
+          if (space) { spaces.push(space); space = null; }
+          if (++inCluster >= clusterMax) {
+            inCluster = 0; clusterMax = 1 + Math.floor(r() * 3);
+            const sa = s + len + 0.4, sb = sa + SPACE_L;
+            if (r() < 0.45 && !blocked(sa - 2, sb + PARKED_L + 2) && !nearCentre(net.pointAt(way, (sa + sb) / 2))) {
+              const sm = (sa + sb) / 2, q = net.pointAt(way, sm), e = net.dirAt(way, sm);
+              space = { way: way.id, s: sm, len: SPACE_L, side, x: q[0] + e[1] * lat, z: q[1] - e[0] * lat, yaw: Math.atan2(e[0] * side, e[1] * side), lat };
+              s = sb + 0.4;
+            } else s += len + 12 + r() * 14;
+          } else s += len + 0.5 + r() * 0.9;
           continue;
         }
         if (inCluster) { inCluster = 0; clusterMax = 1 + Math.floor(r() * 3); s += len + 12 + r() * 14; }
         else s += len + 1 + r() * 3;
-      } else s += 1.5;
+      } else { s += 1.5; space = null; }
     }
     return list;
+  }
+
+  /** the marked spaces on a way (see on()) */
+  spacesOn(way) { this.on(way); return this.spaces.get(way.id) || []; }
+
+  /** the nearest marked space within r m of a point, or null */
+  nearestSpace(x, z, r) {
+    const net = this.net, seen = new Set();
+    let best = null, bd = r;
+    const rings = Math.ceil((r + 6) / net.grid.cell);
+    for (let k = 0; k <= rings; k++) {
+      net.grid.ring(x, z, k, (items) => {
+        for (const { way } of items) {
+          if (seen.has(way.id)) continue;
+          seen.add(way.id);
+          for (const sp of this.spacesOn(way)) { const d = hypot(sp.x - x, sp.z - z); if (d < bd) { bd = d; best = sp; } }
+        }
+      });
+    }
+    return best;
   }
 
   /** the cars a vehicle travelling `dir` along the way passes on its left, in travel order */
