@@ -187,9 +187,17 @@ export class KentTraffic {
       car.pos.x += ax * depth;
       car.pos.z += az * depth;
       const into = car.vel.x * ax + car.vel.y * az;
-      if (into < 0) { car.vel.x -= ax * into * 1.3; car.vel.y -= az * into * 1.3; car.vel.multiplyScalar(0.7); }
-      c.v = 0;
-      c.stun = 2.5;
+      // An impact scrubs speed; a slow scrape only stops the push into the other car. Scrubbing a
+      // third of the speed on every frame of contact glued the learner to a car that had nosed into
+      // its rear corner: each move off swung the tail onto it again, and it crawled at under 1 mph
+      // for half a minute (Herne Bay seeds 20 and 28).
+      if (into < 0) { car.vel.x -= ax * into * 1.3; car.vel.y -= az * into * 1.3; if (into < -1) car.vel.multiplyScalar(0.7); }
+      // A car with the player behind its tail drives on and the touch ends, unless the two met with
+      // a real impact (rear-ended, it stops). Stunned on every frame of contact, it stood glued to
+      // the learner it had brushed: cutting in ahead at the lights, or eased sideways in a queue
+      // onto a learner's corner (Stoke seed 6, Driveuk seed 12).
+      const closing = c.v * (c.fx * ax + c.fz * az) - into;
+      if (dx * c.fx + dz * c.fz > -c.L / 2 || closing > 1) { c.v = 0; c.stun = 2.5; }
       hit = true;
     }
     return hit;
@@ -359,7 +367,7 @@ export class KentTraffic {
         // when the other lane is clear of oncoming traffic for a while; otherwise I wait behind it.
         // Without this an oncoming queue sat nose to nose with the parked learner, which backed
         // off from it and crept up again and never moved off (Driveuk seed 2).
-        let passing = false;
+        let passing = false, passOn = false;
         {
           // measured from where my PATH is, not from where the nudge has already put me: measured
           // from the car it shrinks as the car moves out, and the move settled at half what was needed
@@ -383,11 +391,16 @@ export class KentTraffic {
           if (start && !(A.passT > 0)) A.passOff = Math.max(-2.8, -(room - lat));
           // (passing only counts once the car has actually moved out: the nudge takes a second or two,
           // and dropping the far test the moment it was decided drove the car into the learner's corner)
-          if (committed || start) { nudge = Math.min(nudge, A.passOff); A.passT = 3; passing = A.nudge <= A.passOff + 0.4; }
+          if (committed || start) { nudge = Math.min(nudge, A.passOff); A.passT = 3; passing = A.nudge <= A.passOff + 0.4; passOn = true; }
         }
-        if (oncoming && d2 < 196) {
+        // Easing left for it only while it is on my right of my own lane's line, and never once I am
+        // passing it: a learner crossing to pull up on the right came onto my side, my ease left took
+        // me kerbwards with it, measured from where the ease had put me it still looked on my right,
+        // and the ease (applied after the pass) cancelled every pass -- each oncoming car sat nose to
+        // nose with it until the gridlock squeeze (London seed 11: 30 cars ghosted past the learner).
+        if (oncoming && d2 < 196 && !passOn) {
           const lat = dx * A.fz - dz * A.fx, room = (A.W + obstacle.W) / 2 + 0.9;
-          if (lat < 0 && -lat < room && !(A.park && A.park[A.idx])) nudge = Math.max(nudge, Math.min(NUDGE, room + lat)); // (not while out round parked cars: the ease left would be into them)
+          if (lat < 0 && lat + A.nudge < 0 && -lat < room && !(A.park && A.park[A.idx])) nudge = Math.max(nudge, Math.min(NUDGE, room + lat)); // (not while out round parked cars: the ease left would be into them)
         }
         const arc = passing ? -1 : this.#onPath(A, obstacle.x - A.fz * A.nudge, obstacle.z + A.fx * A.nudge, ofx, ofz, box ? obstacle.L / 2 : obstacle.r, box ? obstacle.W / 2 : obstacle.r, headOn ? 0.1 : 0.4, Math.sqrt(d2), s + look + 3);
         if (arc >= 0) {
