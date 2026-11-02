@@ -1,4 +1,6 @@
-// The phone (P or Tab): today's goals, logging real wins, the dealer, the hangar, giving, your profile.
+// The phone (P or Tab): Drive (lessons, parking practice, the mock and the test, your results), Settings
+// (the gearbox you learn in, the lesson car, its paint and plate), the dealer, the hangar, the wardrobe,
+// your profile, and today's goals.
 import { state, formatMoney } from './state.js';
 import { CARS, JETS, PAINTS, flightTime, fuelStop } from './catalog.js';
 import * as P from './progress.js';
@@ -8,7 +10,9 @@ import { LOOKS, CIVILIANS } from './character.js';
 
 const $ = (id) => document.getElementById(id);
 const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-const TABS = [['lessons', 'Settings'], ['dealer', 'Dealer'], ['hangar', 'Hangar'], ['wardrobe', 'Wardrobe'], ['me', 'Profile']];
+// Drive first: what a learner opens the phone for is to start something, so starting things is the
+// first tab and the first thing on it. The settings it used to share a page with get their own tab.
+const TABS = [['drive', 'Drive'], ['settings', 'Settings'], ['dealer', 'Dealer'], ['hangar', 'Hangar'], ['wardrobe', 'Wardrobe'], ['me', 'Profile']];
 
 export class Phone {
   /** hooks: { homeId(), crowdSize(), onCarBought(id, home), onJetBought(id), sfx(kind) } */
@@ -16,7 +20,7 @@ export class Phone {
     this.hooks = hooks;
     this.el = $('phone');
     this.body = $('phone-body');
-    this.tab = 'lessons';
+    this.tab = 'drive';
     $('phone-tabs').innerHTML = TABS.map(([id, label]) => `<button data-tab="${id}">${label}</button>`).join('');
     this.el.addEventListener('click', (e) => {
       const b = e.target.closest('button');
@@ -41,6 +45,7 @@ export class Phone {
       if (act === 'mock') { this.hooks.close(); this.hooks.startTest(id, null, 'mock'); return; }
       if (act === 'real') { this.hooks.close(); this.hooks.startTest(id, null, 'real'); return; }
       if (act === 'signs') { this.hooks.signDrill(); return; }
+      if (act === 'jump') { $(id)?.scrollIntoView({ block: 'start', behavior: 'smooth' }); return; } // a quick-start button: down to its section
       if (act === 'retest') { const [c, sd] = id.split(':'); this.hooks.close(); this.hooks.startTest(c, +sd, 'mock'); return; }
       if (act === 'gohome') { this.hooks.close(); this.hooks.goHome(); return; }
       if (act === 'look') { state.look[b.dataset.part] = id; this.hooks.setLook(state.look); }
@@ -66,7 +71,7 @@ export class Phone {
     this.body.scrollTop = 0;
   }
 
-  lessons() {
+  drive() {
     const uk = state.uk, trans = uk.trans;
     // As in real life: you drive, you take mocks, then you take the test. No lesson ladder.
     const h = uk.history || [];
@@ -76,6 +81,30 @@ export class Phone {
     const lic = uk.licence === 'full' ? 'Full' : uk.licence === 'auto' ? 'Automatic' : 'Provisional';
     return `<div class="hero"><div class="big">${lic}<span>UK licence</span></div>
         <div class="s">${uk.licence === 'auto' ? 'Automatic cars only: pass a test in a manual for a full licence. ' : uk.licence === 'full' ? 'Manual and automatic. ' : ''}Real UK rules on real roads: drive on the left, mph limits, give way to the right at roundabouts. Z and X are the indicators, Q checks your mirrors.</div></div>
+      <h3>Start here</h3>
+      <p class="note">Pick one. Lessons are ten to twenty minutes with an instructor talking you through; a mock is the real test format with nothing riding on it; the test is the one that counts.</p>
+      <div class="seg" style="flex-wrap:wrap"><button data-act="jump" data-id="ph-lessons">Lessons</button><button data-act="lesson" data-id="park">Parking practice</button><button data-act="jump" data-id="ph-mock">Mock test</button><button data-act="jump" data-id="ph-test">Driving test</button></div>
+      <p class="note">Free driving needs no button: close the phone (P), get in the car (E) and go. The gearbox, the lesson car and its paint are under <b>Settings</b>.</p>
+      <div id="ph-lessons"></div>
+      ${this.practice(trans)}
+      <div id="ph-mock"></div>
+      <h3>Mock test</h3>
+      <p class="note">The real format, marked the way the examiner marks it, but nothing rides on it: a new route from the centre you pick with roundabouts, lights and crossings, a dual carriageway or 40 road, independent driving, a manoeuvre and sometimes an emergency stop. Each fault is shown as it happens so you learn on the way round.${mocks.length ? ` You've taken ${mocks.length} mock${mocks.length === 1 ? '' : 's'} and passed ${mocksPassed}.` : ''}</p>
+      ${centres('mock')}
+      <div id="ph-test"></div>
+      <h3>The driving test</h3>
+      <p class="note">The one that counts. Same route maker, same DL25 marking: 15 driving faults or fewer and no serious faults to pass. The examiner says nothing about a fault until the debrief. A pass gets you your licence and pays €5m.${reals.length ? ` ${reals.length} attempt${reals.length === 1 ? '' : 's'} so far.` : mocksPassed ? '' : ' Take a mock first if you want to see how you are marked.'}</p>
+      ${centres('real')}
+      <p class="note">Kent's routes were written by hand; the city ones are planned off the real map around the centre the moment you press the button.</p>
+      ${this.testHistory()}
+      <h3>Study</h3><div class="row"><div class="grow"><div class="t">Road signs</div><div class="s">Name ten Highway Code signs. Not marked: just practice.</div></div><button class="buy" data-act="signs">Start</button></div>`;
+  }
+
+  /** the gearbox you learn in, the car you take lessons and tests in, its paint and plate */
+  settings() {
+    const uk = state.uk, trans = uk.trans;
+    return `<h3 style="margin-top:4px">Settings</h3>
+      <p class="note">How you learn and what you drive. Starting a lesson or a test is under <b>Drive</b>.</p>
       <h3>Learning in</h3>
       <div class="seg"><button class="${trans === 'manual' ? 'on' : ''}" data-act="trans" data-id="manual">Manual</button><button class="${trans === 'auto' ? 'on' : ''}" data-act="trans" data-id="auto">Automatic</button></div>
       <p class="note">${trans === 'manual'
@@ -84,22 +113,13 @@ export class Phone {
       <h3>Lesson car</h3>
       <div class="seg" style="flex-wrap:wrap">${this.hooks.lessonCars().map((c) => `<button class="${c.sel ? 'on' : ''}" data-act="lessoncar" data-id="${c.id}">${c.name}</button>`).join('')}</div>
       <p class="note">Take your test in any car you own — it wears L plates and drives like a learner car. No more taxi.</p>
-      ${this.practice(trans)}
       <h3>Your car</h3>
       <div class="swatches"><button class="sw own ${uk.paint == null ? 'on' : ''}" data-act="paint" data-id="own" title="The car's own colour"></button>${PAINTS.map(([name, hex]) =>
         `<button class="sw ${uk.paint === hex ? 'on' : ''}" data-act="paint" data-id="${hex.toString(16)}" title="${name}" style="background:#${hex.toString(16).padStart(6, '0')}"></button>`).join('')}</div>
       <p class="note">${uk.paint == null ? 'Its own colour' : PAINTS.find(([, h]) => h === uk.paint)?.[0] || 'Custom'}. The paint goes on whichever car you take your test in.</p>
       <div class="plate-row"><input id="plate-in" maxlength="8" value="${esc(this.hooks.myPlate())}" spellcheck="false" autocomplete="off" aria-label="Your number plate" /><button class="buy" data-act="plate">Set plate</button></div>
       <p class="note">Your registration, front and back. Letters, numbers and a space, up to eight characters.</p>
-      <h3>Mock test</h3>
-      <p class="note">The real format, marked the way the examiner marks it, but nothing rides on it: a new route from the centre you pick with roundabouts, lights and crossings, a dual carriageway or 40 road, independent driving, a manoeuvre and sometimes an emergency stop. Each fault is shown as it happens so you learn on the way round.${mocks.length ? ` You've taken ${mocks.length} mock${mocks.length === 1 ? '' : 's'} and passed ${mocksPassed}.` : ''}</p>
-      ${centres('mock')}
-      <h3>The driving test</h3>
-      <p class="note">The one that counts. Same route maker, same DL25 marking: 15 driving faults or fewer and no serious faults to pass. The examiner says nothing about a fault until the debrief. A pass gets you your licence and pays €5m.${reals.length ? ` ${reals.length} attempt${reals.length === 1 ? '' : 's'} so far.` : mocksPassed ? '' : ' Take a mock first if you want to see how you are marked.'}</p>
-      ${centres('real')}
-      <p class="note">Kent's routes were written by hand; the city ones are planned off the real map around the centre the moment you press the button.</p>
-      ${this.testHistory()}
-      <h3>Study</h3><div class="row"><div class="grow"><div class="t">Road signs</div><div class="s">Name ten Highway Code signs. Not marked: just practice.</div></div><button class="buy" data-act="signs">Start</button></div>`;
+      `;
   }
 
   /** one thing at a time before a mock: moving off, junctions, roundabouts... in the gearbox you picked above */

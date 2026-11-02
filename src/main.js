@@ -197,8 +197,8 @@ coachKeyIn?.addEventListener('keydown', (e) => {
 hud.onGoals = () => { if (mode === 'foot' || mode === 'car') { phone.tab = 'today'; togglePhone(); } };
 // the top-left Settings button: straight to the phone's Settings tab (manual/auto, which car, tests)
 hud.onSettings = () => {
-  if (mode === 'phone') { phone.tab = 'lessons'; phone.render(); return; }
-  if (mode === 'foot' || mode === 'car') { phone.tab = 'lessons'; togglePhone(); }
+  if (mode === 'phone') { phone.tab = 'drive'; phone.render(); return; }
+  if (mode === 'foot' || mode === 'car') { phone.tab = 'drive'; togglePhone(); }
 };
 // the "stop and get my report" button on the lesson card: ends it now, faults so far only
 hud.onStopLesson = () => { if (lesson && car) lesson.quit(car); };
@@ -1351,7 +1351,7 @@ $('start').onclick = () => {
     hud.toast('Your learner car is outside. Get in with E and drive: the game shows you the controls as you go. Mock and real driving tests are on your phone (P).', 9000);
   } else {
     const hello = { kent: 'Welcome home to Kent.', london: 'Welcome to London.', birmingham: 'Welcome to Birmingham.', manchester: 'Welcome to Manchester.' }[world.id] || 'Welcome back.';
-    hud.toast(`${hello} Press P for your phone: today's goals are waiting.`, 5000);
+    hud.toast(`${hello} Press E by the red Polo to get in and drive. Press P for your phone: lessons, parking practice and the driving test are under Drive.`, 7000);
   }
 };
 
