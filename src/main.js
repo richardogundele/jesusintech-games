@@ -1080,7 +1080,7 @@ async function goCity(id) {
   await fade(0);
 }
 async function startLesson(id) {
-  const def = typeof id === 'object' ? id : LESSONS.find((l) => l.id === id);
+  let def = typeof id === 'object' ? id : LESSONS.find((l) => l.id === id); // (let: the parking practice resolves its route where the car is, below)
   // Kent lessons start at their test centre; the Whitmore ones are practice in the made-up town; a
   // city's test starts at that city's centre
   const where = def.world === 'kent' ? 'kent' : REGION_WORLDS.includes(def.world) ? def.world : 'uk';
