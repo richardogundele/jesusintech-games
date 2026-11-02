@@ -365,7 +365,7 @@ export class KentTraffic {
           const al = dx * A.fx + dz * A.fz, lat = dx * A.fz - dz * A.fx + A.nudge, room = (A.W + obstacle.W) / 2 + 0.9;
           // Once out, stay out until the learner is behind me, whatever it does: it moving off (or
           // pulling in to the kerb at walking pace) ended the pass, and the car eased back into its side.
-          const committed = A.passT > 0 && al > -(A.L + obstacle.L) / 2 - 1;
+          const committed = A.passT > 0 && al > -(A.L + obstacle.L) / 2 - 6; // (a car length past it before easing back in: the tail swung into the learner's rear corner on the way back)
           // Not with a car standing ahead of me in my own lane: it is waiting to pass too, and a car
           // that moved out behind one sat in the other lane, holding the queue the first was waiting on.
           const start = headOn && this.me.v < 0.3 && d2 < 400 && lat > 0.3 && lat < room && !this.#queueAhead(A, 15) && this.#oppositeClear(A, 55);

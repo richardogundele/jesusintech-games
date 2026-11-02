@@ -81,6 +81,9 @@ export class ParkedCatalogue {
       if (!blocked(s, s + len)) {
         if (r() < occ) {
           const mid = s + len / 2, p = net.pointAt(way, mid), d = net.dirAt(way, mid);
+          // not round a test centre: its approach is where the bay park, the eyesight car and the
+          // start of every test live, and a car parked on the access road sat in the bay-park tail
+          if ((net.testCentres || []).some((tc) => hypot(tc.x - p[0], tc.z - p[1]) < 90)) { s += len + 1; continue; }
           const x = p[0] + d[1] * lat, z = p[1] - d[0] * lat; // leftOf(d) = (dz, -dx)
           list.push({ way: way.id, s: mid, len, side, x, z, yaw: Math.atan2(d[0] * side, d[1] * side), lat });
           if (++inCluster >= clusterMax) { inCluster = 0; clusterMax = 1 + Math.floor(r() * 3); s += len + 12 + r() * 14; }

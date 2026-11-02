@@ -1428,7 +1428,7 @@ function carefulKent(run, car, st, bad) {
         if (!(c.fx * fx + c.fz * fz < -0.5 || c.v < 0.5)) continue;
         need = Math.max(need, (c.W || 1.9) / 2 + car.model.width / 2 + 0.35 + latC);
       }
-      if (need > 0) meetOff = Math.min(room, run.lat + need);
+      if (need > 0) meetOff = Math.max(0, Math.min(room, run.lat + need)); // (never to the right: a car already right of its line was steered further over)
     }
   }
   // traffic and people on my path ahead

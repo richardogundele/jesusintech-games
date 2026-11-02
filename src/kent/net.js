@@ -1229,6 +1229,15 @@ export class RoadNet {
     // its lane a couple of car lengths past the junction.
     for (let ri = 0; ri < raw.length; ri++) {
       const pt = raw[ri], q = cleaned[cleaned.length - 1];
+      // A corner that doubles back: the approach's last lane point sits past the turn (a lane's
+      // offset into the junction) and the new way's first point, a few metres down it, is behind
+      // that point. No car can follow the hairpin, so the approach's point goes and the corner
+      // rounds from the one before it (the turn into Coventry's test centre: the pavement, or the
+      // eyesight car, on a seed that took it at 4 mph).
+      if (q && q.corner && pt.pieceStart && !q.rb && !pt.rb && cleaned.length >= 2) {
+        const o = cleaned[cleaned.length - 2], ax = q.x - o.x, az = q.z - o.z, bx = pt.x - q.x, bz = pt.z - q.z;
+        if (ax * bx + az * bz < 0 && hypot(bx, bz) < 6) { cleaned.pop(); replaced.set(q, pt); pt.corner = true; cleaned.push(pt); continue; }
+      }
       if (q && hypot(pt.x - q.x, pt.z - q.z) < (pt.pieceStart && !q.rb && !q.blend ? 2.5 : 0.6)) {
         replaced.set(pt, q); if (pt.corner) q.corner = true;
         const nxt = raw[ri + 1];
