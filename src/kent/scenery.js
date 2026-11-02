@@ -1270,8 +1270,16 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
       } else {
         col.set(b.col);
         walls.walls(b.poly, gy, gy + b.h, col);
-        if (b.pitched) roofs.hip(b.poly, gy + b.h, roofH, clamp(Math.min(b.obb.w, b.obb.d) * 0.4, 1.2, 4), col.set(b.roofCol));
-        else walls.cap(b.poly, gy + b.h, col);
+        if (b.pitched) {
+          const inset = clamp(Math.min(b.obb.w, b.obb.d) * 0.4, 1.2, 4);
+          roofs.hip(b.poly, gy + b.h, roofH, inset, col.set(b.roofCol));
+          // a chimney at one end of the ridge, as the instanced houses have: a street of pitched
+          // roofs with not one chimney on it reads as a model village
+          if (near && b.kind !== 'church' && rng() < 0.75) {
+            const q = insetPoly(b.poly, inset);
+            if (q && q.length > 1) chimneys.push({ x: q[0][0], z: q[0][1], y: gy + b.h + roofH * 0.7, yaw: Math.atan2(q[1][0] - q[0][0], q[1][1] - q[0][1]) });
+          }
+        } else walls.cap(b.poly, gy + b.h, col);
         // the box round an L-shaped or rambling footprint can reach over a road: no invisible wall there
         if (near && !obbOnRoad(b.obb)) cs.add(b.obb.cx, b.obb.cz, b.obb.w, b.obb.d, b.obb.yaw);
       }
