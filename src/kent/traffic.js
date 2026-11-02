@@ -369,7 +369,9 @@ export class KentTraffic {
         // head-on, the same thin margin as the far test: a van passing the learner in a narrow street
         // with 0.1 m to spare is meant to, and padding it stopped the pair nose to nose for good
         // (boxDepth allows 0.1 m a side, so a pad of 0.3 is 0.05 m of real clearance: a graze is still a hit)
-        const pad = A.fx * ofx0 + A.fz * ofz0 < -0.85 ? 0.3 : 0.6;
+        // (0.9 for a car at an angle: the body is checked at the path's points, and the tail of a car
+        // turning across the learner's nose swept the 0.2 m that 0.6 left between the points)
+        const pad = A.fx * ofx0 + A.fz * ofz0 < -0.85 ? 0.3 : 0.9;
         const pb = { x: obstacle.x, z: obstacle.z, fx: ofx0, fz: ofz0, L: obstacle.L, W: obstacle.W }, px = A.px, pz = A.pz, ps = A.ps;
         for (let j = A.idx; j < n && ps[j] < s + 8; j++) {
           const k = j + 1 < n ? j + 1 : j, m = j > 0 ? j - 1 : j;
