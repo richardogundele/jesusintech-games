@@ -324,9 +324,19 @@ export class KentTraffic {
         // Without this an oncoming queue sat nose to nose with the parked learner, which backed
         // off from it and crept up again and never moved off (Driveuk seed 2).
         let passing = false;
-        if (headOn && this.me.v < 0.3 && d2 < 400) {
-          const lat = dx * A.fz - dz * A.fx, room = (A.W + obstacle.W) / 2 + 0.9;
-          if (lat > 0.3 && lat < room && this.#oppositeClear(A, 55)) { nudge = Math.min(nudge, -(room - lat)); passing = true; }
+        {
+          // measured from where my PATH is, not from where the nudge has already put me: measured
+          // from the car it shrinks as the car moves out, and the move settled at half what was needed
+          const al = dx * A.fx + dz * A.fz, lat = dx * A.fz - dz * A.fx + A.nudge, room = (A.W + obstacle.W) / 2 + 0.9;
+          // Once out, stay out until the learner is behind me, whatever it does: it moving off (or
+          // pulling in to the kerb at walking pace) ended the pass, and the car eased back into its side.
+          const committed = A.passT > 0 && al > -(A.L + obstacle.L) / 2 - 1;
+          // Not with a car standing ahead of me in my own lane: it is waiting to pass too, and a car
+          // that moved out behind one sat in the other lane, holding the queue the first was waiting on.
+          const start = headOn && this.me.v < 0.3 && d2 < 400 && lat > 0.3 && lat < room && !this.#queueAhead(A, 15) && this.#oppositeClear(A, 55);
+          // (passing only counts once the car has actually moved out: the nudge takes a second or two,
+          // and dropping the far test the moment it was decided drove the car into the learner's corner)
+          if (committed || start) { nudge = Math.min(nudge, -(room - lat)); A.passT = 3; passing = A.nudge <= -(room - lat) + 0.4; }
         }
         if (oncoming && d2 < 196) {
           const lat = dx * A.fz - dz * A.fx, room = (A.W + obstacle.W) / 2 + 0.9;
@@ -566,13 +576,27 @@ export class KentTraffic {
     return false;
   }
   /** nobody coming the other way within r m ahead on my right (the lane I would pass a parked car in), nor alongside there */
+  /** a car standing in my own lane within d m ahead */
+  #queueAhead(A, d) {
+    for (const B of this.cars) {
+      if (B === A || B.v > 1) continue;
+      const dx = B.x - A.x, dz = B.z - A.z, al = dx * A.fx + dz * A.fz, lat = dx * A.fz - dz * A.fx;
+      if (al > 0 && al < d && Math.abs(lat - A.nudge) < 1.3) return true;
+    }
+    return false;
+  }
   #oppositeClear(A, r) {
+    // The lane I would pass in: the strip a lane's width to my right. The car ahead of me in MY lane
+    // is not in it (a queue behind a parked learner could never pass at all, each car seeing the one
+    // in front as "alongside"), and a car coming the other way blocks me by the time it will take to
+    // reach me, not by a fixed distance: a stream at 8 m/s passing 20 m off is a gap, 50 m off is not.
+    const v = A.v;
     for (const B of this.cars) {
       if (B === A) continue;
       const dx = B.x - A.x, dz = B.z - A.z, al = dx * A.fx + dz * A.fz, lat = dx * A.fz - dz * A.fx;
-      if (lat > 0.5 || lat < -5) continue;
-      if (al > -6 && al < 12) return false; // alongside or just ahead, whichever way it faces
-      if (al >= 12 && al < r + B.v * 4 && B.fx * A.fx + B.fz * A.fz < -0.3) return false; // coming towards me
+      if (lat > -1.2 || lat < -5.5) continue;
+      if (al > -8 && al < 14) return false; // alongside or just ahead, whichever way it faces
+      if (al >= 14 && al < r + B.v * 6 && B.fx * A.fx + B.fz * A.fz < -0.3 && al / (B.v + v + 0.5) < 7) return false; // coming towards me, here within 7 s
     }
     return true;
   }
@@ -615,6 +639,7 @@ export class KentTraffic {
     A.v += dv > ACCEL * dt ? ACCEL * dt : dv < -MAX_BRAKE * dt ? -MAX_BRAKE * dt : dv;
     if (A.v < 0) A.v = 0;
     if (A.stun > 0) A.stun -= dt;
+    if (A.passT > 0) A.passT -= dt;
     A.stunned = A.stun > 0;
     const n = A.n, ps = A.ps;
     // where I am now, to come back to if the move would push me into someone
@@ -814,7 +839,7 @@ export class KentTraffic {
       // start at a speed that can still stop for the first line on the route (lights, a give-way)
       const first = A.ev.length ? A.ev[0].s - A.L / 2 : Infinity;
       A.v = Math.min(A.vcap[0] * 0.9, Math.sqrt(2 * STOP_BRAKE * Math.max(0, first - 3))); A.stun = 0; A.stopT = 0; A.extTried = false; A.lastGroup = null; A.lastGroupS = -1e9;
-      A.held = false; A.freeD = Infinity; A.minorNode = 0; A.minorNode2 = 0; A.nudge = 0; A.nudgeT = 0; A.blockId = 0; A.blockedByMe = false; A.backUp = 0; A.noRoom = false; A.ghost = 0;
+      A.held = false; A.freeD = Infinity; A.minorNode = 0; A.minorNode2 = 0; A.nudge = 0; A.nudgeT = 0; A.blockId = 0; A.blockedByMe = false; A.backUp = 0; A.noRoom = false; A.ghost = 0; A.passT = 0;
       this.#move(A, 0);
       this.cars.push(A);
       this.stats.spawned++;

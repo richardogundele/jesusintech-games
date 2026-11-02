@@ -109,7 +109,20 @@ export class RoadNet {
 
   // ---------- construction ----------
   #buildWays() {
-    for (const w of this.data.ways) {
+    for (let w of this.data.ways) {
+      // A vertex repeated in place (a zero-length segment: every region has a few, Driveuk's grid
+      // one at most crossroads) gives dirAt a zero direction there, which puts the lane's centre
+      // ON the centreline, and traffic turning in at such a node then drove the whole next road a
+      // hand's width from the centre line, grazing the learner stopped in the opposite lane.
+      if (w.pts.length > 1) {
+        const pts = [w.pts[0]], nodes = w.nodes ? [w.nodes[0]] : null;
+        for (let i = 1; i < w.pts.length; i++) {
+          const a = w.pts[i - 1], b = w.pts[i];
+          if (hypot(b[0] - a[0], b[1] - a[1]) < 0.05) { if (nodes && !nodes[nodes.length - 1]) nodes[nodes.length - 1] = w.nodes[i]; continue; }
+          pts.push(b); if (nodes) nodes.push(w.nodes[i]);
+        }
+        if (pts.length !== w.pts.length) { w = { ...w, pts }; if (nodes) w.nodes = nodes; }
+      }
       const n = w.pts.length, cum = new Float64Array(n);
       for (let i = 1; i < n; i++) cum[i] = cum[i - 1] + hypot(w.pts[i][0] - w.pts[i - 1][0], w.pts[i][1] - w.pts[i - 1][1]);
       // give the tightest two-way streets a little more room: a learner kept drifting over the centre
@@ -1171,7 +1184,24 @@ export class RoadNet {
     const cleaned = [];
     // a piece's first point sits on the same node as the previous piece's last one, a few decimetres
     // off because the two ways' directions differ: keep only the first of the pair
-    for (const pt of raw) { const q = cleaned[cleaned.length - 1]; if (q && hypot(pt.x - q.x, pt.z - q.z) < (pt.pieceStart && !q.rb && !q.blend ? 2.5 : 0.6)) { replaced.set(pt, q); if (pt.corner) q.corner = true; continue; } cleaned.push(pt); }
+    // -- but not across a turn. At a corner the two lane points are a lane's offset apart in each
+    // direction, 2.4 m on a 7 m street, and dropping the second sent the path from the corner in a
+    // straight line to the next vertex of the new way: on a two-vertex way, 400 m along a line a
+    // hand's width from the centre, where it grazed the learner stopped in the opposite lane
+    // (Driveuk, every crossroads). Only a pair that continues the same way is one point.
+    for (const pt of raw) {
+      const q = cleaned[cleaned.length - 1];
+      if (q) {
+        const d = hypot(pt.x - q.x, pt.z - q.z);
+        let same = d < 0.6;
+        if (!same && d < 2.5 && pt.pieceStart && !q.rb && !q.blend && q.way && pt.way && q.sWay != null && pt.sWay != null) {
+          const a = this.dirAt(q.way, q.sWay), b = this.dirAt(pt.way, pt.sWay);
+          same = (a[0] * b[0] + a[1] * b[1]) * (q.dir || 1) * (pt.dir || 1) > 0.85;
+        }
+        if (same) { replaced.set(pt, q); if (pt.corner) q.corner = true; continue; }
+      }
+      cleaned.push(pt);
+    }
     const smooth = this.#smoothCorners(cleaned, replaced, bez);
     const ptOf = (pt) => { while (replaced.has(pt)) pt = replaced.get(pt); return pt; };
     // 3. resample every 1.5 m with cumulative s
