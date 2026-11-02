@@ -23,7 +23,7 @@ function mulberry32(seed) {
 const STREETS = { residential: [0.2, 0.42], living_street: [0.12, 0.3], unclassified: [0.08, 0.25] };
 
 export class ParkedCatalogue {
-  constructor(net) { this.net = net; this.cache = new Map(); this.enabled = true; }
+  constructor(net) { this.net = net; this.cache = new Map(); this.enabled = !(typeof process !== 'undefined' && process.env?.NO_PARKED); } // NO_PARKED=1: a headless run without them, to tell their effect from everything else's
 
   /** does this street get parked cars at all? */
   eligible(w) {
@@ -50,7 +50,11 @@ export class ParkedCatalogue {
     let sideKey = way.id;
     if (way.name) { sideKey = 0; for (let i = 0; i < way.name.length; i++) sideKey = (sideKey * 31 + way.name.charCodeAt(i)) >>> 0; }
     const side = mulberry32(sideKey * 2654435761 + 3)() < 0.5 ? 1 : -1;
-    const [lo, hi] = STREETS[way.cls], occ = lo + r() * (hi - lo);
+    // thinned on a small map: the sim puts the same eighty cars on Driveuk's 56 ways as on Kent's
+    // 4,216, and a street with that much through traffic is not one people park along (every
+    // route there jammed solid at the first run of them)
+    const dens = Math.min(1, net.ways.size / 500);
+    const [lo, hi] = STREETS[way.cls], occ = (lo + r() * (hi - lo)) * dens;
     // the stretches nothing may park on
     const blocks = [];
     const block = (s, d) => blocks.push([s - d, s + d]);

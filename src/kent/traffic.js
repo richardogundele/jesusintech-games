@@ -50,7 +50,8 @@ const STOP_BRAKE = 3.5;   // m/s2 to stop at a line
 const FOLLOW_BRAKE = 5;   // m/s2 at most behind a car
 const ACCEL = 2.4, MAX_BRAKE = 9;
 const GAP = 1.6;          // bumper to bumper in a queue (m)
-const GIVE_WAY_AT_PARKED = true;  // traffic waits short of a run of parked cars for oncoming traffic (see #plan)
+const EXIT_CLEAR = false;  // traffic waits at a junction line unless there is room to come out the other side (see #exitBlocked)
+const GIVE_WAY_AT_PARKED = false; // traffic waits short of a run of parked cars for oncoming traffic (see #plan)
 const NUDGE = 0.7;        // how far a driver eases left to pass oncoming traffic in a squeeze (m): a car out round parked cars sits on the centre line, and 0.5 did not clear it
 const SPAWN_MIN = 150, SPAWN_MAX = 700, DESPAWN = 900, UNSEEN = 120, HIDE = 420, STUCK = 120;
 const PED_MIN = 60, PED_MAX = 350, PED_DROP = 450, PED_HIDE = 160;
@@ -218,6 +219,7 @@ export class KentTraffic {
           if (e.go) break; // committed on amber
           if (!this.signals.isStop(e.group, e.yaw, d, v)) { // green, or amber and too close to stop: go
             if (this.signals.stateFor(e.group, e.yaw) === 'amber') e.go = true; // and keep going
+            if (!e.go && d > -0.5 && this.#exitBlocked(A, d)) { stop = true; break; } // green, but no room to come out the other side: wait at the line
             break;
           }
           if ((v * v) / 16 > d + 0.5 && this.signals.stateFor(e.group, e.yaw) === 'red') break; // already at the line when it went red
@@ -237,7 +239,10 @@ export class KentTraffic {
           want = Math.min(want, Math.sqrt(16 + 4 * Math.max(0, d))); // creep up to the line
           if (d < 30) {
             A.minorNode = e.node; A.minorNode2 = e.node2 || 0;
-            if (!e.go) { if (this.#majorBusy(A, e, e.kind === 'mini' ? 15 : 30)) stop = true; else if (d < 1 && v > 0.5) e.go = true; }
+            // and not into the junction without room to come out of it (Highway Code 151): a queue
+            // on the far side -- behind a car waiting at a run of parked cars, say -- had cars stop
+            // in the box, and Driveuk's crossroads locked up round them
+            if (!e.go) { if (this.#majorBusy(A, e, e.kind === 'mini' ? 15 : 30) || this.#exitBlocked(A, d)) stop = true; else if (d < 1 && v > 0.5) e.go = true; }
           }
           break;
         }
@@ -246,7 +251,7 @@ export class KentTraffic {
           if (d < 25) {
             want = Math.min(want, Math.sqrt(25 + 4 * Math.max(0, d)));
             A.minorNode = e.node; A.minorNode2 = e.node2 || 0;
-            if (!e.go) { if (this.#majorBusy(A, e, 30, e.yaw)) stop = true; else if (d < 1 && v > 0.5) e.go = true; }
+            if (!e.go) { if (this.#majorBusy(A, e, 30, e.yaw) || this.#exitBlocked(A, d)) stop = true; else if (d < 1 && v > 0.5) e.go = true; }
           }
           break;
         }
@@ -637,16 +642,23 @@ export class KentTraffic {
     // in the run already, or will reach it before I am through (my time to clear it, at a few
     // metres a second at the least, against its time to reach the far end)
     const mine = (dTo + 8) / Math.max(A.v, 4) + 1.5;
+    // moving cars only: one standing in its own lane beside the run is no reason to wait, and
+    // waiting on one that was itself waiting on this queue closed a ring round Driveuk's crossroads
     const test = (x, z, fx, fz, v) => {
-      if (fx * A.fx + fz * A.fz > -0.5) return false; // not oncoming
+      if (v < 0.5 || fx * A.fx + fz * A.fz > -0.5) return false; // not oncoming, or not coming
       const dx = x - A.x, dz = z - A.z, al = dx * A.fx + dz * A.fz, lat = Math.abs(dx * A.fz - dz * A.fx);
       if (lat > 4.5 || al < dFrom - 6) return false;
-      return al < dTo + 8 || (v > 0.5 && (al - dTo) / v < mine);
+      return al < dTo + 8 || (al - dTo) / v < mine;
     };
     for (const B of this.cars) if (B !== A && test(B.x, B.z, B.fx, B.fz, B.v)) return true;
     const me = this.me;
     if (obstacle && me.x != null && me.hx != null && test(me.x, me.z, me.hx, me.hz, me.v)) return true;
     return false;
+  }
+  /** the car ahead (last frame's) is inside the junction d m ahead, or not far enough past it for me to clear the box */
+  #exitBlocked(A, d) {
+    if (!EXIT_CLEAR) return false;
+    return A.freeD < d + 14 + A.L && A.blockId > 0 && (this.cars.find((c) => c.id === A.blockId)?.v ?? 9) < 2;
   }
   #busyAt(A, e, nx, nz, nodeId, r, yaw) {
     const ox = yaw == null ? 0 : Math.sin(yaw), oz = yaw == null ? 0 : Math.cos(yaw);
