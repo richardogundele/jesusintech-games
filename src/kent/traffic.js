@@ -131,6 +131,7 @@ export class KentTraffic {
   /** obstacle: { x, z, r } for the player (on foot or in a car) or null; camPos: where the camera is */
   update(dt, obstacle, camPos) {
     const t0 = now();
+    this.clock = (this.clock || 0) + dt; // simulation seconds, for collide()'s meetings
     const P = obstacle || camPos;
     if (P) { this.P.x = P.x; this.P.z = P.z; }
     // the player's car as the give-way rules see it: where it is going and how fast (from the last frame)
@@ -164,6 +165,7 @@ export class KentTraffic {
    */
   collide(car) {
     let hit = false;
+    const clock = this.clock || 0;
     this.lastHit = null; // { blame: 'player' | 'other' }: who drove into whom, for the driving lessons
     const L = car.model.length ?? 4.4, W = car.model.width ?? 1.8, fx = Math.sin(car.heading), fz = Math.cos(car.heading);
     for (const c of this.cars) {
@@ -188,8 +190,21 @@ export class KentTraffic {
       const d = Math.hypot(dx, dz) || 1, ux = -dx / d, uz = -dz / d; // from the player to the traffic car
       const mine = car.vel.x * ux + car.vel.y * uz, theirs = -c.v * (c.fx * ux + c.fz * uz), ahead = -(dx * fx + dz * fz);
       const vMe = Math.hypot(car.vel.x, car.vel.y);
-      const player = vMe > 0.3 && (ahead > L / 2 || c.v < vMe + 1) && mine > 0.3 && mine >= theirs - 0.5;
-      if (!this.lastHit || this.lastHit.blame !== 'player') this.lastHit = { blame: player ? 'player' : 'other', id: c.id };
+      // A car still coming through a junction where it had to give way -- onto a ring, out of a
+      // side road, turning right across the learner -- is the one at fault, however fast the learner
+      // was: judged by closing speeds alone, a car joining a roundabout into the side of a learner
+      // going round it gave the learner the dangerous fault. (Not a learner running into its tail
+      // once it is out and going the learner's way; and on a ring only a learner already going round
+      // it, not one joining from the next arm on into a car that was on first.)
+      let entering = c.yieldS != null && c.s - c.yieldS < (c.yieldRing ? 8 : 15) && !(fx * c.fx + fz * c.fz > 0.8 && dx * c.fx + dz * c.fz < -c.L / 2);
+      if (entering && c.yieldRb) entering = this.#circulating(c.yieldRb, car.pos.x, car.pos.z, fx, fz);
+      let player = !entering && vMe > 0.3 && (ahead > L / 2 || c.v < vMe + 1) && mine > 0.3 && mine >= theirs - 0.5;
+      // One meeting, one verdict, taken as it starts. Judged again every frame, the car the hit had
+      // stopped dead was "standing still" from the second frame on, the learner still rolling forward
+      // "drove into it", and one frame of that was a dangerous fault for being hit.
+      if (c.touchT != null && clock - c.touchT < 0.35) player = c.touchPlayer; else c.touchPlayer = player;
+      c.touchT = clock;
+      if (!this.lastHit || this.lastHit.blame !== 'player') this.lastHit = { blame: player ? 'player' : 'other', id: c.id, entering };
       car.pos.x += ax * depth;
       car.pos.z += az * depth;
       const into = car.vel.x * ax + car.vel.y * az;
@@ -215,7 +230,7 @@ export class KentTraffic {
     let want = Math.min(A.vcap[A.idx], A.vcap[Math.min(n - 1, A.idx + 1)]);
     const look = Math.min(130, 18 + (v * v) / 6 + A.L);
     const front = s + A.L / 2;
-    let freeD = Infinity, held = false, blockId = 0, nudge = 0, firstGroup = null, byMe = false, gMe = Infinity;
+    let freeD = Infinity, held = false, blockId = 0, nudge = 0, firstGroup = null, byMe = false, gMe = Infinity, ringE = null;
     A.minorNode = 0; A.minorNode2 = 0; A.busyBy = 0;
     // the route's lines: lights, ring entries, give-ways, zebras
     for (let k = A.evI; k < A.ev.length; k++) {
@@ -244,11 +259,14 @@ export class KentTraffic {
         case 'rb': {
           want = Math.min(want, Math.sqrt(36 + 5 * Math.max(0, d))); // about 13 mph at the line
           if (d < 30) {
-            A.minorNode = e.node; A.minorNode2 = e.node2 || 0;
+            A.minorNode = e.node; A.minorNode2 = e.node2 || 0; ringE = e;
             // and not onto a small ring with no room to come off it (Highway Code 185): Guildford's Slyfield
             // ring, 100 m above the A320 lights, filled with cars queued for the exit to them, each one sitting
             // across the next entry, and the ring locked solid on test after test from the centre
             if (!e.go) { if (this.#ringBusy(A, e) || (e.rb.r < 20 && this.#exitBlocked(A, d, Math.PI * e.rb.r))) stop = true; else if (d < 1.5 && v > 1) e.go = true; }
+            // moving off, but not yet over the line: the learner close now stops me after all, as it
+            // would stop a driver who had only just started to roll
+            else if (d > 0.3 && this.#meComing(A, e, 2.5)) { e.go = false; stop = true; this.stats.ringAbort = (this.stats.ringAbort || 0) + 1; }
           }
           break;
         }
@@ -486,13 +504,19 @@ export class KentTraffic {
       // same hazard, and a car behind or ahead going my way finds the future box further off, not nearer.
       // Only a player going too fast to be stopping: one creeping up to a give-way line was read as
       // about to cross the main road, the main road stopped for it, and then it waited on them.
+      // On the ring I am about to join, it comes round the ring, not straight on along its heading:
+      // projected straight, a learner circulating towards my entry was always somewhere off the ring.
+      // (the ring I am joining: still ahead of me, or just crossed into -- pulling out is the moment)
+      const rb = ringE?.rb ?? (A.yieldRb && A.s - A.yieldS < 10 ? A.yieldRb : null), Rme = rb ? len(obstacle.x - rb.x, obstacle.z - rb.z) : 0;
+      const onRing = rb && this.#circulating(rb, obstacle.x, obstacle.z, me.fx, me.fz), th0 = onRing ? Math.atan2(obstacle.z - rb.z, obstacle.x - rb.x) : 0;
       if (obstacle.heading != null && obstacle.L && me.v > 3 && d2 < 1600) {
         for (const t of [0.6, 1.2, 1.8]) {
-          const qx = obstacle.x + me.fx * me.v * t, qz = obstacle.z + me.fz * me.v * t;
-          const arc = this.#onPath(A, qx, qz, ofx, ofz, obstacle.L / 2, obstacle.W / 2, 0.4, Math.hypot(qx - A.x, qz - A.z), s + 30);
+          let qx = obstacle.x + me.fx * me.v * t, qz = obstacle.z + me.fz * me.v * t, qfx = ofx, qfz = ofz;
+          if (onRing) { const th = th0 + (rb.sense * me.v * t) / Rme; qx = rb.x + Rme * Math.cos(th); qz = rb.z + Rme * Math.sin(th); qfx = -Math.sin(th) * rb.sense; qfz = Math.cos(th) * rb.sense; }
+          const arc = this.#onPath(A, qx, qz, qfx, qfz, obstacle.L / 2, obstacle.W / 2, 0.4, Math.hypot(qx - A.x, qz - A.z), s + 30);
           if (arc < 0) continue;
           const g = arc - s - A.L / 2 - this.ext - GAP;
-          if (g < v * t + ACCEL * t * t / 2 + 2) { const was = want; want = follow(want, g, 0, v); if (want < was) byMe = true; if (g < freeD) freeD = g; if (g < gMe) gMe = g; break; }
+          if (g < v * t + ACCEL * t * t / 2 + 2) { const was = want; want = follow(want, g, 0, v); if (want < was) { byMe = true; if (onRing) this.stats.ringCurve = (this.stats.ringCurve || 0) + 1; } if (g < freeD) freeD = g; if (g < gMe) gMe = g; break; }
         }
       }
       // Neither of us can move for 25 s (someone behind each of us): squeeze past like a gridlock,
@@ -635,15 +659,33 @@ export class KentTraffic {
       if (arc < Math.max(12, B.v * 3.2)) return true;
     }
     // the player's car on the ring has priority too (it isn't in this.cars)
-    const me = this.me;
-    if (me.x != null && me.v > 1) {
-      const R = len(me.x - rb.x, me.z - rb.z);
-      if (R < rb.r + 0.5 && R > (rb.island ?? 0) - 0.5) {
-        let d = (e.thE - Math.atan2(me.z - rb.z, me.x - rb.x)) * rb.sense; d = ((d % TAU) + TAU) % TAU;
-        if ((TAU - d) * R < 5 || d * R < Math.max(12, me.v * 3.2)) return true;
-      }
-    }
-    return false;
+    return this.#meComing(A, e, 3.2);
+  }
+  /**
+   * The learner coming round the ring to my entry within about `secs`, or driving onto the ring on
+   * an arm upstream of mine. Counted only once it was on the ring, a learner joining from the arm on
+   * my right did not exist until it was in front of me: I pulled out as it came on, into its side.
+   */
+  #meComing(A, e, secs) {
+    const me = this.me, rb = e.rb;
+    if (me.x == null || me.v < 1) return false;
+    const R = len(me.x - rb.x, me.z - rb.z);
+    let d = (e.thE - Math.atan2(me.z - rb.z, me.x - rb.x)) * rb.sense; d = ((d % TAU) + TAU) % TAU;
+    if (R < rb.r + 0.5 && R > (rb.island ?? 0) - 0.5) return (TAU - d) * R < 5 || d * R < Math.max(12, me.v * secs);
+    // not on it yet: coming in towards it, close, on another arm (on mine it is behind me, waiting its turn)
+    if (R > rb.r + 15 || me.v < 2 || A.fx * me.fx + A.fz * me.fz > 0.7) return false;
+    if ((me.fx * (rb.x - me.x) + me.fz * (rb.z - me.z)) / R < 0.5) return false;
+    const ring = d * (rb.r + (rb.island ?? 0)) / 2;
+    const coming = ring > 4 && ring + R - rb.r < Math.max(12, me.v * secs);
+    if (coming) this.stats.meJoining = (this.stats.meJoining || 0) + 1;
+    return coming;
+  }
+  /** is (x, z), facing (fx, fz), going round ring rb (on it, and facing along it, not across it)? */
+  #circulating(rb, x, z, fx, fz) {
+    const R = len(x - rb.x, z - rb.z);
+    if (R > rb.r + 0.5 || R < (rb.island ?? 0) - 0.5) return false;
+    const th = Math.atan2(z - rb.z, x - rb.x);
+    return (fx * -Math.sin(th) + fz * Math.cos(th)) * rb.sense > 0.6;
   }
   /**
    * Something on the main road coming to this junction (moving, within r m or 5.5 s, not itself
@@ -806,6 +848,9 @@ export class KentTraffic {
     const front = A.s + A.L / 2;
     while (A.evI < A.ev.length && A.ev[A.evI].s <= front) {
       const e = A.ev[A.evI++];
+      // over a line where I give way (onto a ring, out of a side road, a right turn across the
+      // oncoming lane): until I am through the junction, a meeting with the learner is my fault
+      if (!e.signalled && (e.kind === 'rb' || e.kind === 'emerge' || e.kind === 'cross' || e.kind === 'mini' || e.kind === 'right')) { A.yieldS = e.s; A.yieldRing = e.kind === 'rb'; A.yieldRb = e.kind === 'rb' ? e.rb : null; }
       if (e.kind === 'lights' && !(A.lastGroup === e.group && e.s - A.lastGroupS < 90)) { A.lastGroup = e.group; A.lastGroupS = e.s; }
       if (this.onEvent) this.onEvent('line', A, e);
     }
@@ -1070,7 +1115,7 @@ export class KentTraffic {
       }
     }
     ev.sort((a, b) => a.s - b.s);
-    A.ev = ev; A.evI = 0;
+    A.ev = ev; A.evI = 0; A.yieldS = null; A.yieldRb = null; // a new route: no give-way line crossed on it yet
     // ring membership, from the give-way line on (the blend before it is still the approach)
     const rbArr = A.rbArr; rbArr.length = n; rbArr.fill(null);
     for (const e of ev) {
