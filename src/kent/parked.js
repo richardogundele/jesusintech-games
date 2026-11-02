@@ -23,9 +23,13 @@ function mulberry32(seed) {
 const STREETS = { residential: [0.2, 0.42], living_street: [0.12, 0.3], unclassified: [0.08, 0.25] };
 
 export const SPACE_L = 7.4; // a marked parallel-parking space: a car and a half
+// Off until the gate is clean with them on: on the 2026-11-02 gate, traffic wedged against the
+// learner for thousands of frames on streets lined with them (Kent, Leeds, the cities). PARKED=1
+// turns them on in a headless run, to keep working on them.
+export const PARKED_ON = typeof process !== 'undefined' && !!process.env?.PARKED;
 
 export class ParkedCatalogue {
-  constructor(net) { this.net = net; this.cache = new Map(); this.spaces = new Map(); this.enabled = !(typeof process !== 'undefined' && process.env?.NO_PARKED); } // NO_PARKED=1: a headless run without them, to tell their effect from everything else's
+  constructor(net) { this.net = net; this.cache = new Map(); this.spaces = new Map(); this.enabled = PARKED_ON && !(typeof process !== 'undefined' && process.env?.NO_PARKED); } // NO_PARKED=1: a headless run without them, to tell their effect from everything else's
 
   /** does this street get parked cars at all? */
   eligible(w) {

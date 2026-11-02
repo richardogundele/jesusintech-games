@@ -6,6 +6,7 @@ import { CARS, JETS, PAINTS, flightTime, fuelStop } from './catalog.js';
 import * as P from './progress.js';
 import { DL25_ROWS } from './dl25.js';
 import { LESSONS } from './lessons.js';
+import { PARKED_ON } from './kent/parked.js';
 import { LOOKS, CIVILIANS } from './character.js';
 
 const $ = (id) => document.getElementById(id);
@@ -83,7 +84,7 @@ export class Phone {
         <div class="s">${uk.licence === 'auto' ? 'Automatic cars only: pass a test in a manual for a full licence. ' : uk.licence === 'full' ? 'Manual and automatic. ' : ''}Real UK rules on real roads: drive on the left, mph limits, give way to the right at roundabouts. Z and X are the indicators, Q checks your mirrors.</div></div>
       <h3>Start here</h3>
       <p class="note">Pick one. Lessons are ten to twenty minutes with an instructor talking you through; a mock is the real test format with nothing riding on it; the test is the one that counts.</p>
-      <div class="seg" style="flex-wrap:wrap"><button data-act="jump" data-id="ph-lessons">Lessons</button><button data-act="lesson" data-id="park">Parking practice</button><button data-act="jump" data-id="ph-mock">Mock test</button><button data-act="jump" data-id="ph-test">Driving test</button></div>
+      <div class="seg" style="flex-wrap:wrap"><button data-act="jump" data-id="ph-lessons">Lessons</button>${PARKED_ON ? '<button data-act="lesson" data-id="park">Parking practice</button>' : ''}<button data-act="jump" data-id="ph-mock">Mock test</button><button data-act="jump" data-id="ph-test">Driving test</button></div>
       <p class="note">Free driving needs no button: close the phone (P), get in the car (E) and go. The gearbox, the lesson car and its paint are under <b>Settings</b>.</p>
       <div id="ph-lessons"></div>
       ${this.practice(trans)}
@@ -124,7 +125,7 @@ export class Phone {
 
   /** one thing at a time before a mock: moving off, junctions, roundabouts... in the gearbox you picked above */
   practice(trans) {
-    const lessons = LESSONS.filter((l) => l.world === 'kent' && !l.mock && (!l.trans || l.trans === trans));
+    const lessons = LESSONS.filter((l) => l.world === 'kent' && !l.mock && (!l.trans || l.trans === trans) && (!l.park || PARKED_ON)); // (parking practice needs the parked cars)
     const rows = lessons.map((l) => `<div class="row"><div class="grow"><div class="t">${l.title}</div><div class="s">${l.blurb}</div></div>
       <button class="buy ghost" data-act="lesson" data-id="${l.id}">Start</button></div>`).join('');
     return `<h3>Practice lessons</h3><p class="note">Work on one thing at a time before you take a mock, with an instructor talking you through it. Shown for the gearbox you're learning in.</p>${rows}`;
