@@ -279,7 +279,7 @@ export class LessonRun {
         if (MANOEUVRES.includes(e.kind)) prevEnd = endOf(e);
       }
       // the parked car an angled start pulls up behind
-      for (const e of this.events) if (e.parked) e.parkedH = hooks.parkedCar?.(e.parked);
+      for (const e of this.events) if (e.parked && !e.parked.existing) e.parkedH = hooks.parkedCar?.(e.parked);
       this.satnav = { next: null, called: {} };
     }
   }
@@ -299,7 +299,7 @@ export class LessonRun {
     this.faults.push({ sev, cat, s: this.s, at: this.carPos && { x: +this.carPos.x.toFixed(1), z: +this.carPos.z.toFixed(1) }, extra: this.lastExtra });
     this.lastExtra = null;
     if (!this.def.real) this.hooks.flash?.(`${SEV[sev]}: ${cat}`, sev); // the real test keeps it for the debrief
-    if (sev === 'dangerous' && this.isTest()) this.endNow = true; // a dangerous fault ends the test (handled next frame in update)
+    if ((sev === 'dangerous' || sev === 'serious') && this.isTest() && !this.endNow) this.endNow = sev === 'dangerous' ? 'danger' : 'serious'; // ends the test (handled next frame in update)
   }
 
   /** time-based "condition held for n seconds" helper */
@@ -335,7 +335,7 @@ export class LessonRun {
   /** ctl: { indicator: 'left'|'right'|null, mirrorPressed: bool, hit: bool } */
   update(dt, car, ctl) {
     if (this.done || this.waiting) return;
-    if (this.endNow) { this.endOnDanger(car); return; } // a dangerous fault last frame: stop the test now
+    if (this.endNow) { this.endOnFault(car, this.endNow); return; } // a dangerous or serious fault last frame: stop the test now
     this.t += dt;
     this.carPos = car.pos;
     const prevS = this.s;
@@ -440,6 +440,19 @@ export class LessonRun {
       if (this.held('wrong', this.lat < -2.6, dt, 1.5)) this.fault('serious', 'Positioning: driving on the wrong side', 'pos2', 12);
       if (this.held('kerb', this.lat > 1.05, dt, 0.15)) this.fault('minor', 'Control: steering (hit the kerb)', 'kerb', 8);
       if (this.held('pave', this.lat > 1.9, dt, 0.3)) this.fault('serious', 'Control: steering (mounted the pavement)', 'pave', 10);
+    }
+    // clearance past the cars parked along the street: a door's width is the standard, and a hand's
+    // width is a scrape waiting to happen (the route itself passes them with 0.6 m to spare)
+    if (this.kent && this.world.net?.parked && mph > 3 && this.t - (this.clearT || -9) > 0.25) {
+      this.clearT = this.t;
+      const fx = Math.sin(car.heading), fz = Math.cos(car.heading), hw = car.model.width / 2, hl = car.model.length / 2;
+      for (const c of this.world.net.parked.near(car.pos.x, car.pos.z, 8)) {
+        const dx = c.x - car.pos.x, dz = c.z - car.pos.z, al = dx * fx + dz * fz, la = Math.abs(dx * fz - dz * fx);
+        if (Math.abs(al) > hl + c.len / 2) continue;
+        const gap = la - hw - 0.95;
+        if (gap < 0.15) this.fault('serious', 'Clearance: too close to a parked car', 'clear', 10);
+        else if (gap < 0.35) this.fault('minor', 'Clearance: passing parked cars', 'clear', 10);
+      }
     }
     // manoeuvre: count changes of direction and look before reversing
     if (parkPhase) {
@@ -940,9 +953,13 @@ export class LessonRun {
   /** A test ends the moment you commit a dangerous fault — the examiner stops you for safety and
    * hands over the full report there and then (real tests run on, but Richard asked for this). */
   isTest() { return !!(this.def.mock || this.def.generated); }
-  endOnDanger(car) {
-    this.say('That is a dangerous fault, so I am going to stop the test here for safety. Pull up on the left when it is safe, and I will give you your report.');
-    this.report(car, 'danger');
+  endOnFault(car, kind) {
+    // a serious fault ends it too: a real examiner drives on to the end, but Richard wants the
+    // ride cancelled the moment the test is failed, so the report comes there and then
+    this.say(kind === 'danger'
+      ? 'That is a dangerous fault, so I am going to stop the test here for safety. Pull up on the left when it is safe, and I will give you your report.'
+      : 'That is a serious fault, which means the test is failed, so I am going to stop here. Pull up on the left when it is safe, and I will give you your report.');
+    this.report(car, kind);
   }
 
   /** The player asked to stop now, from the "Stop and get my report" button: faults so far only,
@@ -1368,6 +1385,25 @@ function carefulKent(run, car, st, bad) {
     if (st.t - st.backOff.t < 10) { out.input.brake = true; steerKent(run, car, out, bad, 0); return out; }
     st.backOff = null;
   }
+  // Meeting traffic at parked cars: the route ahead moves out round them, and the side with the
+  // obstruction gives way (Highway Code 155): wait short of the run while a car is coming the
+  // other way through it or towards it, then go; once in the run, carry on through.
+  if (run.kent && !pts[run.idx].park) {
+    let j = run.idx + 1;
+    while (j < pts.length && pts[j].s - s < 16 && !pts[j].park) j++;
+    if (j < pts.length && pts[j].park && pts[j].s - s < 16) {
+      let k = j;
+      while (k < pts.length && pts[k].park) k++;
+      const dStart = pts[j].s - s, dEnd = pts[Math.min(k, pts.length - 1)].s - s;
+      const mine = (dEnd + 8) / Math.max(car.vF, 4) + 1.5; // my time to be through, against its time to reach the far end
+      const coming = traffic.some((c) => {
+        if (c.fx * fx + c.fz * fz > -0.5) return false;
+        const dx = c.x - car.pos.x, dz = c.z - car.pos.z, al = dx * fx + dz * fz, lat = Math.abs(dx * fz - dz * fx);
+        return lat < 4.5 && al > dStart - 6 && (al < dEnd + 8 || (c.v > 0.5 && (al - dEnd) / c.v < mine));
+      });
+      if (coming) want = Math.min(want, stopIn(dStart - half - 1.5));
+    }
+  }
   // traffic and people on my path ahead
   const free = want;
   want = Math.min(want, pathClear(run, car, want));
@@ -1383,7 +1419,27 @@ function carefulKent(run, car, st, bad) {
   else if (car.drive && st.blockedT > 6 && touchingCar(run, car) && clearBehind(run, car, 2.5)) { st.blockedT = 0; st.backOff = { to: run.s - 1.8, t: st.t }; out.mirror = true; }
   if (st.debug) st.dbg = { plan: plan[run.idx], events: free, traffic: pathWant };
   if (bad.speed && !run.estop) want = Math.max(want, 0);
-  steerKent(run, car, out, bad, want);
+  // Meeting: a car coming the other way, or standing, out on the centre line -- out round the
+  // parked cars on its side -- leaves no room at my lane's centre. Ease left as far as my lane
+  // allows, as the traffic does, rather than stop and wait on a queue that is waiting on something
+  // else (Driveuk, every route, once the streets had parked cars). Not while I am out round parked
+  // cars myself: left is where they are.
+  let meetOff = 0;
+  if (run.kent && pts[run.idx] && !pts[run.idx].park && !pts[run.idx].rb) {
+    const w = run.world.net.ways.get(pts[run.idx].way);
+    const room = w && !w.oneway ? Math.max(0, w.halfW - Math.abs(run.world.net.laneOffset(w, 1)) - car.model.width / 2 - 0.25) : 0;
+    if (room > 0.1) {
+      let need = 0;
+      for (const c of traffic) {
+        const dx = c.x - car.pos.x, dz = c.z - car.pos.z, al = dx * fx + dz * fz, latC = dx * fz - dz * fx; // latC + = left of me
+        if (al < -1 || al > 25 || latC > 0 || latC < -3.2) continue;
+        if (!(c.fx * fx + c.fz * fz < -0.5 || c.v < 0.5)) continue;
+        need = Math.max(need, (c.W || 1.9) / 2 + car.model.width / 2 + 0.35 + latC);
+      }
+      if (need > 0) meetOff = Math.min(room, run.lat + need);
+    }
+  }
+  steerKent(run, car, out, bad, want, meetOff);
   if (v < want - 0.4) out.input.up = true;
   else if (v > want + 0.6) out.input.down = true;
   if (want < 0.05 && v < 0.6) { out.input.up = false; out.input.down = false; out.input.brake = true; }
@@ -1411,11 +1467,16 @@ function signalFor(e, s) {
   return null;
 }
 /** pure pursuit on the lane path; the wrong-lane driver stays in lane 1 when the path wants another */
-function steerKent(run, car, out, bad, want) {
+function steerKent(run, car, out, bad, want, off = 0) {
   const pts = run.route.pts, v = Math.abs(car.vF);
   const Ld = 2.6 + 0.32 * Math.max(v, want * 0.5);
   const i = idxAtS(pts, run.s + Ld), p = pts[Math.min(pts.length - 1, Math.max(run.idx + 1, i))];
   let tx = p.x, tz = p.z;
+  if (off) { // aim off the line, + = left (meeting a car out on the centre line)
+    const q = pts[Math.min(pts.length - 1, Math.max(run.idx + 1, i) + 1)], o = pts[Math.max(0, Math.max(run.idx + 1, i) - 1)];
+    const h = Math.atan2(q.x - o.x, q.z - o.z);
+    tx += Math.cos(h) * off; tz -= Math.sin(h) * off;
+  }
   if (bad.wrongLane && (p.lane || 1) > 1) {
     const q = pts[Math.min(pts.length - 1, Math.max(run.idx + 1, i) + 1)], o = pts[Math.max(0, Math.max(run.idx + 1, i) - 1)];
     if (p.rb) { const rb = run.world.net.roundabouts.get(p.rb), R = Math.hypot(p.x - rb.x, p.z - rb.z), k = (R + (p.lane - 1) * rb.laneW) / R; tx = rb.x + (p.x - rb.x) * k; tz = rb.z + (p.z - rb.z) * k; }

@@ -7,6 +7,8 @@
 // Ring sense: +1 means the position angle atan2(z - cz, x - cx) grows while circulating, which is
 // clockwise seen from above (north up) and what UK left-hand traffic does; -1 would be the opposite.
 
+import { ParkedCatalogue } from './parked.js';
+
 export const LANE_OFF = 1.85; // lane centre offset from the centreline on a 7.3 m two-way road
 export const LW = 3.65; // lane width on one-way carriageways
 const TWO_LANE_R = 18;  // m: a ring this big (36 m across) has two circulating lanes, as UK design gives a normal roundabout
@@ -105,6 +107,7 @@ export class RoadNet {
     this.crossingsByWay = new Map();
     this.calmingByWay = new Map();
     this.#buildWays(); this.#buildNodes(); this.#widenThinDuals(); this.#buildMedians(); this.#buildRoundabouts(); this.#buildLinks(); this.#buildExtras(); this.#dressWays();
+    this.parked = new ParkedCatalogue(this); // the cars parked along the streets (lazy, per way)
   }
 
   // ---------- construction ----------
@@ -1079,6 +1082,7 @@ export class RoadNet {
       const c = this.laneCentre(p.way, p.dir > 0 ? p.lane : -p.lane, s);
       let x = this.splitExtra(p.way, s);
       if (p.endShift) { const to = Math.abs(p.s1 - s), u = Math.max(0, 1 - to / p.endShift.len); x += p.endShift.d * u * u * (3 - 2 * u); } // ease into the next road's lane before the join
+      if (p.parkShift) x += p.parkShift(s); // out round the parked cars (negative: towards the centre line)
       if (x) { c.x += c.dir[1] * x; c.z -= c.dir[0] * x; } // leftOf(dir) = (dz, -dx)
       return c;
     };
@@ -1159,6 +1163,29 @@ export class RoadNet {
         else if (Math.abs(offA - offB) > 0.3 && !next.laneChangeFrom) next.skipTo = next.s0 + next.dir * Math.min(run, Math.abs(next.s1 - next.s0) * 0.5);
       }
       let ss = sampleS(p, startS, endS);
+      // Parked cars on the left of this lane: the path moves out round each run of them, to pass
+      // with a door's width to spare, and back in after -- which on a 7 m street means the centre
+      // line, as it does in life. Extra samples shape the move; lanePt applies it.
+      if (p.lane === 1 && !p.way.rb && !p.way.oneway && this.parked) {
+        const runs = this.parked.runs(p.way, p.dir), lo = Math.min(startS, endS), hi = Math.max(startS, endS);
+        const inRange = runs.filter(([a, b]) => b > lo - 10 && a < hi + 10);
+        if (inRange.length) {
+          const target = p.way.halfW - 3.5; // the passing car's centre from the centre line (parked car 1.0 in, 1.9 wide, 0.6 m gap, half a car)
+          const shift = Math.max(0, this.laneOffset(p.way, 1) - target);
+          const RUN = 16, HOLD = 5; // 11 m to move out: a car lags its line, and a sharp move-out had it at the first parked car still coming across
+          p.parkShift = (s) => {
+            let k = 0;
+            for (const [a, b] of inRange) {
+              if (s < a - RUN || s > b + RUN) continue;
+              k = Math.max(k, s < a - HOLD ? (s - (a - RUN)) / (RUN - HOLD) : s > b + HOLD ? ((b + RUN) - s) / (RUN - HOLD) : 1);
+            }
+            return -shift * Math.min(1, Math.max(0, k));
+          };
+          const extra = [];
+          for (const [a, b] of inRange) for (const s of [a - RUN, a - HOLD, b + HOLD, b + RUN]) if (s > lo + 0.05 && s < hi - 0.05) extra.push(s);
+          if (extra.length) { ss = [...ss, ...extra]; ss.sort((u, v) => (p.dir > 0 ? u - v : v - u)); ss = ss.filter((s, i) => i === 0 || Math.abs(s - ss[i - 1]) > 0.05); }
+        }
+      }
       let first = true;
       if (p.laneChangeFrom) { // short diagonal into the new lane: no way vertices inside it, or the path would double back
         const c0 = this.laneCentre(p.way, p.dir > 0 ? p.laneChangeFrom : -p.laneChangeFrom, startS);
@@ -1169,7 +1196,7 @@ export class RoadNet {
       }
       let lastPt = null;
       for (const s of ss) {
-        const c = lanePt(p, s); lastPt = push(c.x, c.z, { way: p.way, dir: p.dir, lane: p.lane, rb: null, sWay: s, pieceStart: first }); first = false;
+        const c = lanePt(p, s); lastPt = push(c.x, c.z, { way: p.way, dir: p.dir, lane: p.lane, rb: null, sWay: s, pieceStart: first, park: !!(p.parkShift && p.parkShift(s)) }); first = false;
         // A junction the route drives straight through, in the middle of its own way: a bigger road
         // crossing here still has priority, so it needs a give-way line of its own. Without this the
         // only line is the next one the route turns at, which on a dual carriageway is the far
@@ -1219,7 +1246,7 @@ export class RoadNet {
     // 3. resample every 1.5 m with cumulative s
     const pts = [], ptsIndex = new Map();
     let s = 0, carry = 0;
-    const meta = (r) => ({ way: r.way.id, lane: r.lane, rb: r.rb, dir: r.dir, road: this.#roadMeta(r.way, r.rb, r.dir) });
+    const meta = (r) => ({ way: r.way.id, lane: r.lane, rb: r.rb, dir: r.dir, park: !!r.park, road: this.#roadMeta(r.way, r.rb, r.dir) });
     for (let i = 0; i < smooth.length; i++) {
       const r = smooth[i];
       if (i === 0) { pts.push({ x: r.x, z: r.z, s: 0, ...meta(r) }); ptsIndex.set(r, 0); continue; }

@@ -85,7 +85,7 @@ export function buildKentRoute(net, spec, { rnd = Math.random, legs = null } = {
   fixLines(net, pts, events);
   events = dedupe(events);
   const viaXZ = (spec.vias || []).map((v) => (typeof v === 'number' ? { x: net.nodes.get(v).x, z: net.nodes.get(v).z } : v));
-  const out = { pts, events, length: lp.length, start: lp.start, layout, route, tc, viaXZ, spec }; // spec as resolved (the manoeuvre picked)
+  const out = { pts, events, length: lp.length, start: lp.start, layout, route, tc, viaXZ, spec, net }; // spec as resolved (the manoeuvre picked)
   if (spec.end === 'baypark' && layout.lot) addBayPark(out, layout, rnd);
   // part-way pull-ups and the pull up on the right: on quiet, straight stretches of town road
   const used = [];
@@ -156,12 +156,28 @@ function quietAt(out, s0, s1, pad = 45, used = []) {
 }
 const wayAt = (out, i) => out.route.ways.find((r) => r.way.id === out.pts[i].way)?.way;
 /** pick a quiet stretch of `len` m somewhere around fraction `frac` of the route */
-function pickStretch(out, len, used, frac, rnd, wayOk = null) {
+function pickStretch(out, len, used, frac, rnd, wayOk = null, sides = [1]) {
   const L = out.length, tries = [];
   for (let k = 0; k < 60; k++) tries.push(L * Math.min(0.9, Math.max(0.08, frac + (rnd() - 0.5) * 0.5)));
   for (let s = 140; s < L - 140; s += 25) tries.push(s);
-  for (const s0 of tries) if (quietAt(out, s0, s0 + len, 45, used) && (!wayOk || wayOk(wayAt(out, idxAtS(out.pts, s0 + len / 2))))) return s0;
+  for (const s0 of tries) if (quietAt(out, s0, s0 + len, 45, used) && (!wayOk || wayOk(wayAt(out, idxAtS(out.pts, s0 + len / 2)))) && sides.every((side) => kerbClear(out, s0 - 12, s0 + len + 12, side))) return s0;
   return null;
+}
+/**
+ * No car parked along the kerb on this side (+1 left of travel, -1 right) between s0 and s1: a
+ * pull-up there would stop on top of one, and the path there is already bent out round them.
+ */
+function kerbClear(out, s0, s1, side) {
+  const net = out.net, pts = out.pts;
+  if (!net?.parked) return true;
+  for (let i = idxAtS(pts, Math.max(0, s0)); i < pts.length && pts[i].s <= s1; i += 3) {
+    const p = pts[i], h = yawAt(pts, i), fx = Math.sin(h), fz = Math.cos(h);
+    for (const c of net.parked.near(p.x, p.z, 7)) {
+      const lat = (c.x - p.x) * fz - (c.z - p.z) * fx; // + = left of travel
+      if (lat * side > 0) return false;
+    }
+  }
+  return true;
 }
 /** shift path points sideways (+ = left) by off(s) between s0 and s1, marking them as a manoeuvre */
 function shift(pts, s0, s1, off, tag) {
@@ -205,7 +221,7 @@ function netLaneOff(w) { return w.oneway ? 0 : w.halfW / 2; }
  * kerb over 25 m, stop, reverse 8 m, then back to the left over 30 m. Needs a quiet two-way street.
  */
 function addPullRight(out, used, rnd) {
-  const len = 110, s0 = pickStretch(out, len, used, 0.55, rnd, (w) => w.cls === 'residential' || w.cls === 'unclassified') ?? pickStretch(out, len, used, 0.55, rnd);
+  const len = 110, s0 = pickStretch(out, len, used, 0.55, rnd, (w) => w.cls === 'residential' || w.cls === 'unclassified', [1, -1]) ?? pickStretch(out, len, used, 0.55, rnd, null, [1, -1]);
   if (s0 == null) return;
   used.push([s0, s0 + len]);
   const pts = out.pts, w = wayAt(out, idxAtS(pts, s0 + 40));

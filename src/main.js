@@ -938,6 +938,7 @@ const lessonHooks = {
     if (r.passed) P.emit('lesson');
     $('res-name').textContent = r.mock ? `${r.title} · ${r.trans === 'manual' ? 'manual' : 'automatic'}` : `Lesson · ${r.title}`;
     $('res-medal').textContent = r.terminated === 'danger' ? 'TEST STOPPED · DANGEROUS FAULT'
+      : r.terminated === 'serious' ? 'TEST STOPPED · SERIOUS FAULT'
       : r.terminated === 'player' ? 'STOPPED EARLY · REPORT SO FAR'
       : !r.passed ? 'NOT PASSED'
       : r.real ? (uk.licence === 'full' ? 'PASSED · FULL UK LICENCE' : 'PASSED · AUTOMATIC LICENCE')

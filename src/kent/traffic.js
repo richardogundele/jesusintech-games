@@ -50,7 +50,8 @@ const STOP_BRAKE = 3.5;   // m/s2 to stop at a line
 const FOLLOW_BRAKE = 5;   // m/s2 at most behind a car
 const ACCEL = 2.4, MAX_BRAKE = 9;
 const GAP = 1.6;          // bumper to bumper in a queue (m)
-const NUDGE = 0.5;        // how far a driver eases left to pass oncoming traffic in a squeeze (m)
+const GIVE_WAY_AT_PARKED = true;  // traffic waits short of a run of parked cars for oncoming traffic (see #plan)
+const NUDGE = 0.7;        // how far a driver eases left to pass oncoming traffic in a squeeze (m): a car out round parked cars sits on the centre line, and 0.5 did not clear it
 const SPAWN_MIN = 150, SPAWN_MAX = 700, DESPAWN = 900, UNSEEN = 120, HIDE = 420, STUCK = 120;
 const PED_MIN = 60, PED_MAX = 350, PED_DROP = 450, PED_HIDE = 160;
 const SIGNAL_CROSSINGS = new Set(['pelican', 'puffin', 'toucan', 'signals']);
@@ -273,12 +274,15 @@ export class KentTraffic {
       // oncoming and close on my right (a narrow road, a bend): ease over towards the kerb to pass
       if (cosR < -0.5 && d2 < 196) {
         const lat = dx * A.fz - dz * A.fx, room = (A.W + B.W) / 2 + 0.9; // lat > 0: on my left
-        if (lat < 0 && -lat < room) nudge = Math.max(nudge, Math.min(NUDGE, room + lat));
+        if (lat < 0 && -lat < room && !(A.park && A.park[A.idx])) nudge = Math.max(nudge, Math.min(NUDGE, room + lat)); // (not while out round parked cars: the ease left would be into them)
       }
       // in my way if its body reaches into the strip my body sweeps along my path (a car alongside
       // in the next lane is not)
       const chord = Math.sqrt(d2);
-      const arc = this.#onPath(A, B.x, B.z, B.fx, B.fz, B.L / 2, B.W / 2, 0.15, chord, s + look + 3);
+      // (measured from where my nudge has put me, not from my path's line: a car out on the centre line
+      // round parked cars is in my path's way and not in mine once I have eased left, and measured from
+      // the line I stopped behind it for good)
+      const arc = this.#onPath(A, B.x - A.fz * A.nudge, B.z + A.fx * A.nudge, B.fx, B.fz, B.L / 2, B.W / 2, 0.15, chord, s + look + 3);
       if (arc >= 0) {
         // two cars each waiting for the other (a squeeze on a bend, a turn across a junction mouth):
         // whoever can actually get past the other's body without touching it goes; both can, lower id
@@ -302,6 +306,32 @@ export class KentTraffic {
           want = Math.min(want, Math.sqrt(2 * FOLLOW_BRAKE * Math.max(0, g)));
           if (want < was) blockId = B.id;
           if (g < freeD) freeD = g;
+        }
+      }
+    }
+    // Meeting oncoming traffic at parked cars: the path ahead moves out round them (A.park), and the
+    // side with the obstruction gives way (Highway Code 155). Wait short of the run while anyone is
+    // coming the other way through it or towards it; once in it, carry on through.
+    // (A first version held cars for oncoming traffic only, and a car that entered a run behind a
+    // queue stopped out on the centre line, blocking the road both ways.)
+    if (GIVE_WAY_AT_PARKED && A.park && !A.park[A.idx]) {
+      const ps = A.ps, n = A.n;
+      let j = A.idx + 1;
+      while (j < n && ps[j] - s < 14 && !A.park[j]) j++;
+      if (j < n && A.park[j] && ps[j] - s < 14) {
+        let k = j;
+        while (k < n && A.park[k]) k++;
+        // and not into a run I would have to stop in: a car that stops out on the centre line blocks
+        // the road both ways (the learner wedged against one for the whole watchdog), so the car
+        // ahead has to be past the far end, or moving
+        const dEnd = ps[Math.min(k, n - 1)] - s;
+        let exitBlocked = false;
+        if (freeD < dEnd + A.L + 2) { const B = blockId ? this.cars.find((c) => c.id === blockId) : null; exitBlocked = !B || B.v < 2; }
+        if (exitBlocked || this.#oncomingThrough(A, obstacle, ps[j] - s, dEnd)) {
+          const d = ps[j] - front - 1.5;
+          want = Math.min(want, Math.sqrt(2 * STOP_BRAKE * Math.max(0, d)));
+          held = true;
+          if (d < freeD) freeD = d;
         }
       }
     }
@@ -340,9 +370,9 @@ export class KentTraffic {
         }
         if (oncoming && d2 < 196) {
           const lat = dx * A.fz - dz * A.fx, room = (A.W + obstacle.W) / 2 + 0.9;
-          if (lat < 0 && -lat < room) nudge = Math.max(nudge, Math.min(NUDGE, room + lat));
+          if (lat < 0 && -lat < room && !(A.park && A.park[A.idx])) nudge = Math.max(nudge, Math.min(NUDGE, room + lat)); // (not while out round parked cars: the ease left would be into them)
         }
-        const arc = passing ? -1 : this.#onPath(A, obstacle.x, obstacle.z, ofx, ofz, box ? obstacle.L / 2 : obstacle.r, box ? obstacle.W / 2 : obstacle.r, headOn ? 0.1 : 0.4, Math.sqrt(d2), s + look + 3);
+        const arc = passing ? -1 : this.#onPath(A, obstacle.x - A.fz * A.nudge, obstacle.z + A.fx * A.nudge, ofx, ofz, box ? obstacle.L / 2 : obstacle.r, box ? obstacle.W / 2 : obstacle.r, headOn ? 0.1 : 0.4, Math.sqrt(d2), s + look + 3);
         if (arc >= 0) {
           // Record that it is the PLAYER slowing this car, the way the car-vs-car branch records
           // blockId. Without it a car stopped for the learner is indistinguishable from a car
@@ -601,6 +631,22 @@ export class KentTraffic {
       if (al >= 14 && al < r + B.v * 6 && B.fx * A.fx + B.fz * A.fz < -0.3 && al / (B.v + v + 0.5) < 7) return false; // coming towards me, here within 7 s
     }
     return true;
+  }
+  /** anyone coming the other way who is in, or will reach, the stretch dFrom..dTo ahead of A before A is through it */
+  #oncomingThrough(A, obstacle, dFrom, dTo) {
+    // in the run already, or will reach it before I am through (my time to clear it, at a few
+    // metres a second at the least, against its time to reach the far end)
+    const mine = (dTo + 8) / Math.max(A.v, 4) + 1.5;
+    const test = (x, z, fx, fz, v) => {
+      if (fx * A.fx + fz * A.fz > -0.5) return false; // not oncoming
+      const dx = x - A.x, dz = z - A.z, al = dx * A.fx + dz * A.fz, lat = Math.abs(dx * A.fz - dz * A.fx);
+      if (lat > 4.5 || al < dFrom - 6) return false;
+      return al < dTo + 8 || (v > 0.5 && (al - dTo) / v < mine);
+    };
+    for (const B of this.cars) if (B !== A && test(B.x, B.z, B.fx, B.fz, B.v)) return true;
+    const me = this.me;
+    if (obstacle && me.x != null && me.hx != null && test(me.x, me.z, me.hx, me.hz, me.v)) return true;
+    return false;
   }
   #busyAt(A, e, nx, nz, nodeId, r, yaw) {
     const ox = yaw == null ? 0 : Math.sin(yaw), oz = yaw == null ? 0 : Math.cos(yaw);
@@ -867,13 +913,13 @@ export class KentTraffic {
   /** load a lane path into a car: typed arrays, the speed it may do at each point, its lines */
   #setPath(A, lp, route, dest) {
     const net = this.net, pts = lp.pts, n = pts.length;
-    if (!A.px || A.px.length < n) { const cap = Math.ceil(n * 1.25); A.px = new Float32Array(cap); A.pz = new Float32Array(cap); A.ps = new Float32Array(cap); A.vcap = new Float32Array(cap); }
+    if (!A.px || A.px.length < n) { const cap = Math.ceil(n * 1.25); A.px = new Float32Array(cap); A.pz = new Float32Array(cap); A.ps = new Float32Array(cap); A.vcap = new Float32Array(cap); A.park = new Uint8Array(cap); }
     A.n = n; A.route = route; A.dest = dest;
     const px = A.px, pz = A.pz, ps = A.ps, vcap = A.vcap;
     let lastWay = null, cls = null;
     for (let i = 0; i < n; i++) {
       const p = pts[i];
-      px[i] = p.x; pz[i] = p.z; ps[i] = p.s;
+      px[i] = p.x; pz[i] = p.z; ps[i] = p.s; A.park[i] = p.park ? 1 : 0;
       if (p.way !== lastWay) { lastWay = p.way; cls = net.ways.get(p.way)?.cls; }
       const lim = Math.min(p.road?.limit ?? 30, CRUISE[cls] ?? 30);
       vcap[i] = Math.max(4, (lim - A.under) * MPH);

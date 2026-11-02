@@ -17,6 +17,7 @@ import { RoadNet } from '../kent/net.js';
 import { TileManager } from '../kent/tiles.js';
 import { makeRoadBuilder, makeRoadMaterials } from '../kent/roads.js';
 import { makeSceneryBuilder } from '../kent/scenery.js';
+import { makeParkedBuilder } from '../kent/parked-build.js';
 import { makeSignBuilder } from '../kent/signs-place.js';
 import { buildKentHouse } from '../kent/house.js';
 import { buildAirfield } from '../kent/airfield.js';
@@ -68,7 +69,9 @@ export function buildKent(renderer) {
   // fog is 90 % thick at 1.4 km, so full detail to 1 km and bare roads to 2.5 km is plenty
   const signs = makeSignBuilder({ net, colliders, groundY: terrain.has ? terrain.heightAt : null });
   tickers.push((t) => signs.tick(t)); // Belisha beacons blink
-  const tiles = new TileManager({ net, scene, builders: [roads, scenery, signs], near: 1000, far: 2500, dropAt: 3200, budgetMs: 4 });
+  // the cars parked along the streets: bodies and colliders per tile, from the catalogue every lane path already bends round
+  const parked = makeParkedBuilder({ net, buildCar, bodies: TRAFFIC, colliders, groundY: terrain.has ? terrain.heightAt : null });
+  const tiles = new TileManager({ net, scene, builders: [roads, scenery, signs, parked], near: 1000, far: 2500, dropAt: 3200, budgetMs: 4 });
   // every set of lights in the region keeps time; the heads the sign tiles build show it
   const signals = new SignalSystem({ net, signsBuilder: signs });
   // live traffic: main.js picks this up as world.traffic (update / collide like the other worlds')
