@@ -409,7 +409,7 @@ export class KentTraffic {
       // points, facing along the path, and stop short of the first that overlaps the player's.
       // Not when following it: the queue gap is the far test's business.
       const ofx0 = Math.sin(obstacle.heading ?? 0), ofz0 = Math.cos(obstacle.heading ?? 0);
-      if (obstacle.heading != null && obstacle.L && d2 < 64 && A.fx * ofx0 + A.fz * ofz0 < 0.7 && !(nudge < -0.01)) {
+      if (obstacle.heading != null && obstacle.L && d2 < 64 && A.fx * ofx0 + A.fz * ofz0 < 0.7) {
         // head-on, the same thin margin as the far test: a van passing the learner in a narrow street
         // with 0.1 m to spare is meant to, and padding it stopped the pair nose to nose for good
         // (boxDepth allows 0.1 m a side, so a pad of 0.3 is 0.05 m of real clearance: a graze is still a hit)
@@ -422,7 +422,11 @@ export class KentTraffic {
           let tx = px[k] - px[m], tz = pz[k] - pz[m]; const tl = len(tx, tz) || 1; tx /= tl; tz /= tl;
           // facing along the path, and facing as I do now: on a turn the body lags the path, and it
           // is the body that hits
-          if (boxDepth(px[j], pz[j], tx, tz, A.L, A.W + pad, pb) <= 0 && boxDepth(px[j], pz[j], A.fx, A.fz, A.L, A.W + pad, pb) <= 0) continue;
+          // (the box where the nudge has actually put it: moving out to pass a learner parked on the
+          // right, it is checked as it is, so it stops if the move has not yet made room -- switched
+          // off for a pass, the car drove into the learner it was passing, London)
+          const nx = px[j] + tz * A.nudge, nz = pz[j] - tx * A.nudge;
+          if (boxDepth(nx, nz, tx, tz, A.L, A.W + pad, pb) <= 0 && boxDepth(nx, nz, A.fx, A.fz, A.L, A.W + pad, pb) <= 0) continue;
           const g = ps[j] - s - 0.5, was = want;
           want = follow(want, Math.max(0, g), 0, v); if (want < was) byMe = true; if (g < freeD) freeD = g; if (g < gMe) gMe = g;
           break;
