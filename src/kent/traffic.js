@@ -369,9 +369,7 @@ export class KentTraffic {
         // off from it and crept up again and never moved off (Driveuk seed 2).
         let passing = false, passOn = false;
         {
-          // measured from where my PATH is, not from where the nudge has already put me: measured
-          // from the car it shrinks as the car moves out, and the move settled at half what was needed
-          const al = dx * A.fx + dz * A.fz, lat = dx * A.fz - dz * A.fx + A.nudge, room = (A.W + obstacle.W) / 2 + 0.9;
+          const al = dx * A.fx + dz * A.fz, room = (A.W + obstacle.W) / 2 + 0.9;
           // Once out, stay out until the learner is behind me, whatever it does: it moving off (or
           // pulling in to the kerb at walking pace) ended the pass, and the car eased back into its side.
           const committed = A.passT > 0 && A.passOff < 0 && al > -(A.L + obstacle.L) / 2 - 6; // (a car length past it before easing back in: the tail swung into the learner's rear corner on the way back)
@@ -384,8 +382,14 @@ export class KentTraffic {
           // (over on my side means 0.3 m kerbwards of my lane's centre: a learner tight against the kerb
           // of a 6.5 m street is only about half a metre over, and asking 0.8 never passed it -- the
           // oncoming queue stopped in front of it for good, London seed 5)
+          // Measured across my PATH where the learner is: not from where the nudge has already put me
+          // (measured from the car it shrinks as the car moves out, and the move settled at half what
+          // was needed), and not across my heading -- turning out of a side road, a learner waiting in
+          // its own lane to turn into it lay on my left by my heading, and I pulled out to pass it,
+          // across the road into it (Kent mock, Mickleburgh Hill: seeds 1, 8 and 11, a thousand frames each).
           const nextEv = A.ev[A.evI], clearAhead = !nextEv || nextEv.s - s > 40;
-          const start = headOn && this.me.v < 0.3 && (this.me.stillT || 0) > 3 && clearAhead && d2 < 400 && lat > 0.3 && lat < room && !this.#queueAhead(A, 15) && this.#oppositeClear(A, 55);
+          const lat = headOn && this.me.v < 0.3 && (this.me.stillT || 0) > 3 && clearAhead && d2 < 400 ? this.#pathLat(A, obstacle.x, obstacle.z, s, 25) : 0;
+          const start = lat > 0.3 && lat < room && !this.#queueAhead(A, 15) && this.#oppositeClear(A, 55);
           // The move out is decided once, at the start, and held: recomputed from the live offset as
           // the cars moved, it ran away to three metres and more.
           if (start && !(A.passT > 0)) A.passOff = Math.max(-2.8, -(room - lat));
@@ -652,6 +656,18 @@ export class KentTraffic {
       id = C.blockId;
     }
     return false;
+  }
+  /** where (x, z) lies across my path (+ = left of it), at the path's nearest point within d m ahead of s */
+  #pathLat(A, x, z, s, d) {
+    const px = A.px, pz = A.pz, ps = A.ps, n = A.n;
+    let best = Infinity, lat = 0;
+    for (let i = A.idx; i < n - 1 && ps[i] <= s + d; i++) {
+      const ax = px[i], az = pz[i], tx = px[i + 1] - ax, tz = pz[i + 1] - az, L2 = tx * tx + tz * tz;
+      if (L2 < 1e-6) continue;
+      const k = Math.max(0, Math.min(1, ((x - ax) * tx + (z - az) * tz) / L2)), qx = ax + tx * k - x, qz = az + tz * k - z, d2 = qx * qx + qz * qz;
+      if (d2 < best) { best = d2; lat = ((x - ax) * tz - (z - az) * tx) / Math.sqrt(L2); }
+    }
+    return lat;
   }
   /** nobody coming the other way within r m ahead on my right (the lane I would pass a parked car in), nor alongside there */
   /** a car standing in my own lane within d m ahead */
