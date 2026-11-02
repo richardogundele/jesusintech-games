@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { drapeGeometry } from '../worlds/terrain.js';
-import { macroVary } from '../materials.js';
+import { macroVary } from './surface.js';
 import {
   LW, LW_RING_SMALL, PAVE_W, KERB_W, KERB_H, Y_ROAD, Y_MARK, Y_DECAL, Y_PAVE,
   PATTERNS, centrePattern, hazardPattern, lanePattern, edgeWidth, hazardReach, arrowLength, wordHeight,
@@ -649,7 +649,9 @@ export function makeRoadMaterials({ pbr, decal = null, planting = null } = {}) {
   // for a mile, it is patched, damp in the shade, worn pale where the wheels run; and the tile's
   // repeat, obvious down a long straight, stops being findable.
   const tex = (name, color, extra = {}) => {
-    const m = pbr(name, { repeat: [1, 1], color, roughness: 1, ...extra });
+    // (not quite matt: under the low sun a road has a faint sheen, and at roughness 1 the whole
+    // carriageway went to one flat black with the sun behind the car)
+    const m = pbr(name, { repeat: [1, 1], color, roughness: 0.93, ...extra });
     for (const k of ['map', 'normalMap', 'aoMap', 'roughnessMap', 'metalnessMap']) if (m[k]) m[k].repeat.set(1 / 4, 1 / 4);
     return macroVary(m, { scale: 17, amount: 0.09, warm: 0.02 });
   };
@@ -666,7 +668,7 @@ export function makeRoadMaterials({ pbr, decal = null, planting = null } = {}) {
     // The patched set carries metre-wide tar-filled cracks at this UV scale. On a country lane that
     // is the character; on a street in town it just read as filth, so side streets take the clean
     // set a few shades down. The tiers still differ by tone, which is what tells them apart.
-    streetTop: tex('clean_asphalt', 0x76756f),     // side streets and closes: older, greyer tarmac
+    streetTop: tex('clean_asphalt', 0x82807a),     // side streets and closes: older, greyer tarmac
     laneTop: tex('asphalt_02', 0x6b6760),          // country lane: the worn, patched set
     settsTop: tex('rectangular_paving', 0x8d8075), // setts and cobbles
     gravelTop: tex('leafy_grass', 0xb0a083),       // gravel and unsurfaced tracks

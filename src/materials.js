@@ -23,43 +23,6 @@ function injectWorldVaryings(shader) {
 }
 
 /**
- * Large-scale variation over a tiled surface, in world space: a slow value noise (two octaves, tens
- * of metres) that darkens and lightens the diffuse colour and drifts its warmth a little. A tiled
- * grass or asphalt set repeats every few metres and the eye finds the repeat at once across a field
- * or down a road; this breaks it the way real ground varies -- damp patches, worn strips, a change
- * of soil -- without another texture. Composes with a material's own onBeforeCompile.
- *   scale: metres per noise cell (the first octave); amount: +-brightness at full swing;
- *   warm: how far the warm/cool drift goes (0 for none).
- */
-export function macroVary(mat, { scale = 23, amount = 0.14, warm = 0.03 } = {}) {
-  const prev = mat.onBeforeCompile;
-  const uniforms = { uMacroScale: { value: scale }, uMacroAmt: { value: amount }, uMacroWarm: { value: warm } };
-  mat.onBeforeCompile = (shader, renderer) => {
-    if (prev) prev(shader, renderer);
-    Object.assign(shader.uniforms, uniforms);
-    if (!shader.vertexShader.includes('varying vec3 vWPos;')) injectWorldVaryings(shader);
-    shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', `#include <common>
-      uniform float uMacroScale, uMacroAmt, uMacroWarm;
-      float macroHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
-      float macroNoise(vec2 p) {
-        vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
-        return mix(mix(macroHash(i), macroHash(i + vec2(1, 0)), f.x), mix(macroHash(i + vec2(0, 1)), macroHash(i + vec2(1, 1)), f.x), f.y);
-      }`)
-      .replace('#include <color_fragment>', `#include <color_fragment>
-      {
-        vec2 mp = vWPos.xz / uMacroScale;
-        float mn = macroNoise(mp) * 0.65 + macroNoise(mp * 3.1 + 7.3) * 0.35 - 0.5;
-        diffuseColor.rgb *= 1.0 + mn * 2.0 * uMacroAmt;
-        diffuseColor.rgb *= vec3(1.0 + mn * uMacroWarm, 1.0, 1.0 - mn * uMacroWarm);
-      }`);
-  };
-  const prevKey = mat.customProgramCacheKey?.bind(mat);
-  mat.customProgramCacheKey = () => `${prevKey ? prevKey() : ''}-macro-${scale}-${amount}-${warm}`;
-  return mat;
-}
-
-/**
  * A PBR texture set mapped in WORLD space (triplanar by dominant normal), so it works on geometry
  * that has no UVs at all: merged hip roofs, instanced gable prisms and hedge boxes. `color` tints
  * it; with `vertexColors` the per-building tint still multiplies through.
@@ -120,8 +83,11 @@ export function facadeMaterial({ winSize = [2.6, 3.2], winColor = 0x1d2733, amou
     Object.assign(shader.uniforms, uniforms);
     injectWorldVaryings(shader);
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\nuniform float uTexScale;')
+      .replace('#include <common>', '#include <common>\nuniform float uTexScale;\nvarying float vLocY;')
       .replace('vWN = normalize(mat3(modelMatrix) * fwn);', `vWN = normalize(mat3(modelMatrix) * fwn);
+      // the unit box's own height (0 at the ground, 1 at the eaves): the instanced buildings are
+      // that box scaled, so the top of every wall is at 1 whatever the building's height
+      vLocY = position.y;
       vec2 wuv = (abs(vWN.y) > 0.5 ? vWPos.xz : (abs(vWN.x) > 0.5 ? vWPos.zy : vWPos.xy)) * uTexScale;
       #ifdef USE_MAP
         vMapUv = wuv;
@@ -136,13 +102,20 @@ export function facadeMaterial({ winSize = [2.6, 3.2], winColor = 0x1d2733, amou
         vAoMapUv = wuv;
       #endif`);
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', '#include <common>\nuniform vec2 uWinSize;\nuniform vec3 uWinColor;\nuniform float uWinAmount;\nuniform vec3 uShutter;\nuniform float uShutterAmt;\nuniform vec3 uFrame;')
+      .replace('#include <common>', '#include <common>\nuniform vec2 uWinSize;\nuniform vec3 uWinColor;\nuniform float uWinAmount;\nuniform vec3 uShutter;\nuniform float uShutterAmt;\nuniform vec3 uFrame;\nvarying float vLocY;')
       .replace(
         '#include <color_fragment>',
         `#include <color_fragment>
         float fw = 0.0;
         // flat roofs: plant-room grey rather than the wall colour (and no bloom glare from above)
         if (vWN.y > 0.5) diffuseColor.rgb *= 0.55;
+        // Under the eaves the wall is in the roof's shadow, and a line of shadow along the top of
+        // every wall is what makes a box read as a building with a roof on it rather than a box.
+        // Instanced buildings only: on them the box's own y runs 0..1 up the wall. (The merged
+        // polygon buildings carry theirs in their vertex colours.)
+        #ifdef USE_INSTANCING
+          if (abs(vWN.y) < 0.5) diffuseColor.rgb *= 1.0 - 0.32 * smoothstep(0.86, 1.0, vLocY);
+        #endif
         if (abs(vWN.y) < 0.5) {
           float u = abs(vWN.x) > 0.5 ? vWPos.z : vWPos.x;
           float fu = fract(u / uWinSize.x);

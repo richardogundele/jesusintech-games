@@ -181,10 +181,11 @@ function insetPoly(poly, d) {
 const toV2 = (poly) => poly.map((p) => new THREE.Vector2(p[0], p[1]));
 
 // ---------- a merged-geometry builder (flat normals, optional uv / colour) ----------
+const _eaves = new THREE.Color(); // scratch for GB.walls' shade band
 class GB {
   constructor({ uv = true, color = true } = {}) { this.p = []; this.n = []; this.uv = []; this.c = []; this.hasUV = uv; this.hasColor = color; }
   get tris() { return this.p.length / 9; }
-  tri(a, b, c, col, ua, ub, uc) {
+  tri(a, b, c, col, ua, ub, uc, colB = col, colC = col) {
     const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2], vx = c[0] - a[0], vy = c[1] - a[1], vz = c[2] - a[2];
     let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
     const L = Math.hypot(nx, ny, nz) || 1;
@@ -192,9 +193,10 @@ class GB {
     this.p.push(a[0], a[1], a[2], b[0], b[1], b[2], c[0], c[1], c[2]);
     this.n.push(nx, ny, nz, nx, ny, nz, nx, ny, nz);
     if (this.hasUV) { const p = ua || [0, 0], q = ub || [0, 0], r = uc || [0, 0]; this.uv.push(p[0], p[1], q[0], q[1], r[0], r[1]); }
-    if (this.hasColor) { const r = col.r, g = col.g, bb = col.b; this.c.push(r, g, bb, r, g, bb, r, g, bb); }
+    if (this.hasColor) this.c.push(col.r, col.g, col.b, colB.r, colB.g, colB.b, colC.r, colC.g, colC.b);
   }
-  quad(a, b, c, d, col, uvs) { this.tri(a, b, c, col, uvs?.[0], uvs?.[1], uvs?.[2]); this.tri(a, c, d, col, uvs?.[0], uvs?.[2], uvs?.[3]); }
+  /** a, b along the bottom, c, d along the top; colTop, if given, colours the top edge (a shade band) */
+  quad(a, b, c, d, col, uvs, colTop = col) { this.tri(a, b, c, col, uvs?.[0], uvs?.[1], uvs?.[2], col, colTop); this.tri(a, c, d, col, uvs?.[0], uvs?.[2], uvs?.[3], colTop, colTop); }
   /** box with its base at y0; yaw = rotation.y; local x spans w, local z spans d */
   box(cx, y0, cz, w, h, d, yaw, col, { top = true } = {}) {
     const c = Math.cos(yaw), s = Math.sin(yaw);
@@ -208,9 +210,14 @@ class GB {
   }
   /** walls of a clockwise footprint from y0 to y0 + h */
   walls(poly, y0, h, col) {
+    // Under the eaves the wall sits in the roof's shadow: the top 0.9 m of every wall shades off
+    // to 70 %, which is what makes a box read as a building with a roof on it rather than a box.
+    // Two quads an edge so the band is a band and not a ramp up the whole wall.
+    const band = Math.min(0.9, h * 0.3), yb = y0 + h - band, dark = _eaves.copy(col).multiplyScalar(0.7);
     for (let i = 0, n = poly.length; i < n; i++) {
       const a = poly[i], b = poly[(i + 1) % n];
-      this.quad([a[0], y0, a[1]], [b[0], y0, b[1]], [b[0], y0 + h, b[1]], [a[0], y0 + h, a[1]], col);
+      this.quad([a[0], y0, a[1]], [b[0], y0, b[1]], [b[0], yb, b[1]], [a[0], yb, a[1]], col);
+      this.quad([a[0], yb, a[1]], [b[0], yb, b[1]], [b[0], y0 + h, b[1]], [a[0], y0 + h, a[1]], col, undefined, dark);
     }
   }
   /** flat cap over a footprint at height y, facing up */

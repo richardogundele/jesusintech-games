@@ -3,7 +3,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { loadAll, hdri, pbr, instanced, updateCulling } from './assets.js';
-import { setupSky, Colliders } from './worlds/common.js';
+import { setupSky, UK_GOLDEN, Colliders } from './worlds/common.js';
 import { makeRoadMaterials, makeRoadBuilder, netView } from './kent/roads.js';
 import { TileManager } from './kent/tiles.js';
 import { FIXTURE } from './kent/fixture.js';
@@ -19,7 +19,8 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, 0.3, 8000);
 await loadAll(renderer, (p) => (info.textContent = `loading ${Math.round(p * 100)}%`));
-const env = setupSky(scene, renderer, { hdri: hdri('monaco'), sunAzimuth: 200, exposure: 0.95, envIntensity: 0.9, sunColor: 0xfff4e6, sunIntensity: 2.6, fogDensity: 0.0011, fogTint: 0.95 });
+// the game's own sky and sun (worlds/kent.js), so a street is judged in the light it is driven in
+const env = setupSky(scene, renderer, { ...UK_GOLDEN, hdri: hdri('monaco'), sunAzimuth: Number(q.get('sun')) || 182 });
 
 // ---- data: region.json if present, else the fixture ----
 let data = FIXTURE, source = 'fixture';
@@ -65,14 +66,30 @@ const start = { x: Number(q.get('x')) || (source.startsWith('fixture') ? 300 : (
 const lodForce = q.get('lod');
 const builder = makeRoadBuilder({ net, colliders, mats });
 if (lodForce) { const inner = builder.build; builder.build = (tile, lod) => inner(tile, lodForce); }
-const tiles = new TileManager({ net, scene, builders: [builder], near: Number(q.get('near')) || 900, far: Number(q.get('far')) || 1800, dropAt: 2600, budgetMs: 6 });
+// ?scenery=1 builds the buildings, trees and street furniture too (the game's own builder), so a
+// street can be judged as it is driven, not as a bare road on a lawn
+const builders = [builder];
+if (q.get('scenery')) {
+  try {
+    const { makeSceneryBuilder } = await import('./kent/scenery.js');
+    builders.push(makeSceneryBuilder({ net, tickers: [], colliders, scene }));
+  } catch (e) { console.warn('kentlab: no scenery', e); }
+}
+const tiles = new TileManager({ net, scene, builders, near: Number(q.get('near')) || 900, far: Number(q.get('far')) || 1800, dropAt: 2600, budgetMs: 6 });
 
 // ---- camera ----
+// ?eye=heading puts the camera at a driver's eye height on the view point, looking along that
+// compass heading (degrees, 0 = +z), for a street-level judgement; orbit and WASD still work after
 const target = new THREE.Vector3(start.x, 0, start.z);
 camera.position.set(start.x + 90, 70, start.z + 90);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.target.copy(target);
 controls.maxPolarAngle = Math.PI / 2 - 0.02;
+if (q.get('eye') != null) {
+  const h = THREE.MathUtils.degToRad(Number(q.get('eye')) || 0);
+  camera.position.set(start.x, 1.4, start.z);
+  controls.target.set(start.x + Math.sin(h) * 40, 1.0, start.z + Math.cos(h) * 40);
+}
 controls.update();
 const keys = {};
 addEventListener('keydown', (e) => { keys[e.key.toLowerCase()] = true; });
@@ -98,7 +115,7 @@ function frame() {
   const s = tiles.stats();
   const lb = s.lastBuild;
   info.textContent = `${source} · view ${controls.target.x.toFixed(0)}, ${controls.target.z.toFixed(0)}\ntiles near ${s.near} far ${s.far} pending ${s.pending} · ${s.tris.toLocaleString()} tris · ${colliders.boxes.length} colliders`
-    + (lb ? `\nlast build ${lb.key} ${lb.lod} ${lb.ms.toFixed(1)} ms` + (lb.stats ? ` · ${lb.stats.tris.toLocaleString()} tris ${JSON.stringify(lb.stats.byMat)}` : '') : '');
+    + (lb ? `\nlast build ${lb.key} ${lb.lod} ${lb.ms.toFixed(1)} ms` + (lb.stats?.tris != null ? ` · ${lb.stats.tris.toLocaleString()} tris ${JSON.stringify(lb.stats.byMat)}` : '') : '');
   requestAnimationFrame(frame);
 }
 frame();

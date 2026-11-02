@@ -8,7 +8,7 @@ import * as THREE from 'three';
 import { setupSky, UK_GOLDEN, Colliders } from './common.js';
 import { makeTerrain } from './terrain.js';
 import { hdri, pbr, misc, instanced } from '../assets.js';
-import { macroVary } from '../materials.js';
+import { macroVary } from '../kent/surface.js';
 import { markingTexture } from '../signs.js';
 import { buildJet, buildCar, buildPedestrian } from '../models.js';
 import { JETS, STARTER_JETS, TRAFFIC } from '../catalog.js';
