@@ -121,7 +121,9 @@ export class RoadNet {
           if (hypot(b[0] - a[0], b[1] - a[1]) < 0.05) { if (nodes && !nodes[nodes.length - 1]) nodes[nodes.length - 1] = w.nodes[i]; continue; }
           pts.push(b); if (nodes) nodes.push(w.nodes[i]);
         }
-        if (pts.length !== w.pts.length) { w = { ...w, pts }; if (nodes) w.nodes = nodes; }
+        // (never below two points: a way that is all one point -- OSM has a few -- keeps its pair,
+        // since a one-point way has no segment, and the pedestrians' wayFrame indexed past it)
+        if (pts.length >= 2 && pts.length !== w.pts.length) { w = { ...w, pts }; if (nodes) w.nodes = nodes; }
       }
       const n = w.pts.length, cum = new Float64Array(n);
       for (let i = 1; i < n; i++) cum[i] = cum[i - 1] + hypot(w.pts[i][0] - w.pts[i - 1][0], w.pts[i][1] - w.pts[i - 1][1]);
