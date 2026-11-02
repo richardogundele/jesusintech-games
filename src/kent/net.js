@@ -1191,16 +1191,26 @@ export class RoadNet {
     // straight line to the next vertex of the new way: on a two-vertex way, 400 m along a line a
     // hand's width from the centre, where it grazed the learner stopped in the opposite lane
     // (Driveuk, every crossroads). Only a pair that continues the same way is one point.
-    for (const pt of raw) {
-      const q = cleaned[cleaned.length - 1];
-      if (q) {
-        const d = hypot(pt.x - q.x, pt.z - q.z);
-        let same = d < 0.6;
-        if (!same && d < 2.5 && pt.pieceStart && !q.rb && !q.blend && q.way && pt.way && q.sWay != null && pt.sWay != null) {
-          const a = this.dirAt(q.way, q.sWay), b = this.dirAt(pt.way, pt.sWay);
-          same = (a[0] * b[0] + a[1] * b[1]) * (q.dir || 1) * (pt.dir || 1) > 0.85;
+    // -- and across a turn too, as it always was: keeping the pair put a 2.4 m dogleg into a tight
+    // corner that the car could not follow (the turn into Coventry's test centre had it on the
+    // pavement and then over the centre line, on every seed). But the dropped point was also the
+    // only thing holding the path in its lane: with it gone the path ran from the corner straight
+    // to the NEXT vertex of the new way, which on a two-vertex way is 400 m off -- 400 m up a line a
+    // hand's width from the centre, where every oncoming car grazed a learner stopped in the
+    // opposite lane (Driveuk, every crossroads). So when that next point is far, a point 10 m
+    // into the new way's lane goes in instead: the corner rounds through it and the path is in
+    // its lane a couple of car lengths past the junction.
+    for (let ri = 0; ri < raw.length; ri++) {
+      const pt = raw[ri], q = cleaned[cleaned.length - 1];
+      if (q && hypot(pt.x - q.x, pt.z - q.z) < (pt.pieceStart && !q.rb && !q.blend ? 2.5 : 0.6)) {
+        replaced.set(pt, q); if (pt.corner) q.corner = true;
+        const nxt = raw[ri + 1];
+        if (pt.pieceStart && !pt.rb && !q.rb && !q.blend && pt.way && pt.sWay != null && nxt && hypot(nxt.x - pt.x, nxt.z - pt.z) > 14) {
+          const dir = pt.dir || 1, s = Math.max(0, Math.min(pt.way.len, pt.sWay + dir * 10));
+          const c = this.laneCentre(pt.way, dir > 0 ? pt.lane : -pt.lane, s);
+          if (hypot(nxt.x - c.x, nxt.z - c.z) > 3) cleaned.push({ ...pt, x: c.x, z: c.z, sWay: s, pieceStart: false, corner: false });
         }
-        if (same) { replaced.set(pt, q); if (pt.corner) q.corner = true; continue; }
+        continue;
       }
       cleaned.push(pt);
     }
