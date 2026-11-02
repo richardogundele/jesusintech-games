@@ -1147,7 +1147,8 @@ async function startLesson(id) {
     // parking practice: the nearest marked space to the car, reached travelling the way its side's
     // traffic flows (a via 70 m back along the street in that lane), ending alongside the car in front
     const net = world.net, from = car.pos, sp = net.parked.nearestSpace(from.x, from.z, 3000);
-    if (!sp) { hud.toast('No marked parking space within 3 km of here. Drive into town and try again.', 4500); lesson = null; mode = 'car'; return; }
+    // (the screen is faded out by now: bring it back before saying so, or the player is left in the dark)
+    if (!sp) { lesson = null; mode = 'car'; if (tiled && !window.__game?.autoQuiz) { hud.show(true); await fade(0); } hud.toast('No marked parking space within 3 km of here. Drive into town and try again.', 4500); return; }
     const w = net.ways.get(sp.way), k = sp.side > 0 ? 1 : -1, at = (s) => net.laneCentre(w, k, Math.max(0, Math.min(w.len, s)));
     const via = at(sp.s - sp.side * 70), to = at(sp.s + sp.side * (sp.len / 2 + 2.4 + 1.2));
     def = { ...def, spec: { centre: 'herne', start: { x: from.x, z: from.z }, vias: [{ x: via.x, z: via.z }], to: { x: to.x, z: to.z }, end: 'parallel', space: sp, noUturn: true } };

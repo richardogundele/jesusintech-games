@@ -449,7 +449,7 @@ export class LessonRun {
     }
     // clearance past the cars parked along the street: a door's width is the standard, and a hand's
     // width is a scrape waiting to happen (the route itself passes them with 0.6 m to spare)
-    if (this.kent && this.world.net?.parked && mph > 3 && this.t - (this.clearT || -9) > 0.25) {
+    if (this.kent && this.world.net?.parked && !parkPhase && mph > 3 && this.t - (this.clearT || -9) > 0.25) { // (not during a manoeuvre: parking is done inches from them)
       this.clearT = this.t;
       const fx = Math.sin(car.heading), fz = Math.cos(car.heading), hw = car.model.width / 2, hl = car.model.length / 2;
       for (const c of this.world.net.parked.near(car.pos.x, car.pos.z, 8)) {
@@ -535,10 +535,17 @@ export class LessonRun {
 
     // ---- pulling up at the end ----
     const end = this.endEv;
-    // a parallel park ends when the car is secured in or about the space after a reverse (or after
-    // standing there a while: a learner who gives up still gets the report)
+    // A parallel park ends only with the car in the space (or right at it) and secured. Not when it
+    // stops alongside the front car, nor part way back with the handbrake on to let someone pass:
+    // either ended the lesson with a serious "not inside the space". Giving up is the "Stop and get
+    // my report" button.
+    let inSpaceArea = false;
+    if (end.kind === 'parallel') {
+      const sp = end.space, fx = Math.sin(sp.yaw), fz = Math.cos(sp.yaw), dx = car.pos.x - sp.x, dz = car.pos.z - sp.z;
+      inSpaceArea = Math.abs(dx * fx + dz * fz) < sp.len / 2 + 0.6 && Math.abs(dx * fz - dz * fx) < 1.3;
+    }
     const nearEnd = end.kind === 'baypark' ? parkPhase && s > end.s - 25
-      : end.kind === 'parallel' ? Math.hypot(car.pos.x - end.space.x, car.pos.z - end.space.z) < 14 && (this.dirChanges > 0 || this.stopT > 10)
+      : end.kind === 'parallel' ? inSpaceArea
       : s > end.s - 55 && this.dist < 10;
     if (nearEnd && (!this.estop || this.estop.state !== 'braking')) {
       this.stopT = mph < 0.5 ? this.stopT + dt : 0;
