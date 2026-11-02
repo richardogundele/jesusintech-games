@@ -198,7 +198,7 @@ export class KentTraffic {
     let want = Math.min(A.vcap[A.idx], A.vcap[Math.min(n - 1, A.idx + 1)]);
     const look = Math.min(130, 18 + (v * v) / 6 + A.L);
     const front = s + A.L / 2;
-    let freeD = Infinity, held = false, blockId = 0, nudge = 0, firstGroup = null, byMe = false;
+    let freeD = Infinity, held = false, blockId = 0, nudge = 0, firstGroup = null, byMe = false, gMe = Infinity;
     A.minorNode = 0; A.minorNode2 = 0; A.busyBy = 0;
     // the route's lines: lights, ring entries, give-ways, zebras
     for (let k = A.evI; k < A.ev.length; k++) {
@@ -318,11 +318,21 @@ export class KentTraffic {
         // to clear by the usual margin; #onPath is an estimate from the path's points, and with 0.1 m
         // a car turning past such a learner clipped its corner (Driveuk, every run).
         const headOn = oncoming && A.fx * ofx + A.fz * ofz < -0.85;
+        // A stopped car facing me on MY side of the road -- the learner pulled up on the right for
+        // the exercise, which is my kerb -- is passed on the right, as a driver passes a parked car,
+        // when the other lane is clear of oncoming traffic for a while; otherwise I wait behind it.
+        // Without this an oncoming queue sat nose to nose with the parked learner, which backed
+        // off from it and crept up again and never moved off (Driveuk seed 2).
+        let passing = false;
+        if (headOn && this.me.v < 0.3 && d2 < 400) {
+          const lat = dx * A.fz - dz * A.fx, room = (A.W + obstacle.W) / 2 + 0.9;
+          if (lat > 0.3 && lat < room && this.#oppositeClear(A, 55)) { nudge = Math.min(nudge, -(room - lat)); passing = true; }
+        }
         if (oncoming && d2 < 196) {
           const lat = dx * A.fz - dz * A.fx, room = (A.W + obstacle.W) / 2 + 0.9;
           if (lat < 0 && -lat < room) nudge = Math.max(nudge, Math.min(NUDGE, room + lat));
         }
-        const arc = this.#onPath(A, obstacle.x, obstacle.z, ofx, ofz, box ? obstacle.L / 2 : obstacle.r, box ? obstacle.W / 2 : obstacle.r, headOn ? 0.1 : 0.4, Math.sqrt(d2), s + look + 3);
+        const arc = passing ? -1 : this.#onPath(A, obstacle.x, obstacle.z, ofx, ofz, box ? obstacle.L / 2 : obstacle.r, box ? obstacle.W / 2 : obstacle.r, headOn ? 0.1 : 0.4, Math.sqrt(d2), s + look + 3);
         if (arc >= 0) {
           // Record that it is the PLAYER slowing this car, the way the car-vs-car branch records
           // blockId. Without it a car stopped for the learner is indistinguishable from a car
@@ -331,14 +341,35 @@ export class KentTraffic {
           // watchdog, which cannot fire anyway because the stuck despawn needs d > UNSEEN and the
           // player's closeness is the very cause of the stop. Diagnostic only; no behaviour reads it.
           const g = arc - s - A.L / 2 - (box ? this.ext : obstacle.r) - GAP, wasMe = want;
-          want = follow(want, g, 0, v); if (want < wasMe) byMe = true; if (g < freeD) freeD = g;
+          want = follow(want, g, 0, v); if (want < wasMe) byMe = true; if (g < freeD) freeD = g; if (g < gMe) gMe = g;
           // nose to nose with the player's stopped car (it's pulling out, or we've met in a narrow
           // place): after a few seconds back off a couple of metres to give it room, as a driver would
           const me = this.me;
           if (v < 0.3 && A.stopT > 4 && me.v < 0.3 && obstacle.heading != null && A.fx * Math.sin(obstacle.heading) + A.fz * Math.cos(obstacle.heading) < -0.5 && g < 8 && A.backUp <= 0 && !A.noRoom) A.backUp = 2.5;
-          // and if neither of us can move for 25 s (someone behind each of us), squeeze past like a gridlock
-          // (not when following it: a queue behind the player at a red light is just a queue)
-          if (v < 0.3 && A.stopT > 25 && me.v < 0.3 && !A.held && g < 8 && obstacle.heading != null && A.fx * Math.sin(obstacle.heading) + A.fz * Math.cos(obstacle.heading) < 0.5) { A.ghost = 5; this.stats.squeezed = (this.stats.squeezed || 0) + 1; this.stats.squeezedMe = (this.stats.squeezedMe || 0) + 1; }
+        }
+      }
+      // Near field, exactly. The test above measures the path's points against the player's centre,
+      // which misses the body of a TURNING car sweeping into a player beside it: the learner stopped
+      // mid-turn across a junction mouth, a car turning past it 3.3 m away -- never "on path", and
+      // hit on every run (Driveuk seed 6). Within 8 m, put my box at each of the next few path
+      // points, facing along the path, and stop short of the first that overlaps the player's.
+      // Not when following it: the queue gap is the far test's business.
+      const ofx0 = Math.sin(obstacle.heading ?? 0), ofz0 = Math.cos(obstacle.heading ?? 0);
+      if (obstacle.heading != null && obstacle.L && d2 < 64 && A.fx * ofx0 + A.fz * ofz0 < 0.7 && !(nudge < -0.01)) {
+        // head-on, the same thin margin as the far test: a van passing the learner in a narrow street
+        // with 0.1 m to spare is meant to, and padding it stopped the pair nose to nose for good
+        // (boxDepth allows 0.1 m a side, so a pad of 0.3 is 0.05 m of real clearance: a graze is still a hit)
+        const pad = A.fx * ofx0 + A.fz * ofz0 < -0.85 ? 0.3 : 0.6;
+        const pb = { x: obstacle.x, z: obstacle.z, fx: ofx0, fz: ofz0, L: obstacle.L, W: obstacle.W }, px = A.px, pz = A.pz, ps = A.ps;
+        for (let j = A.idx; j < n && ps[j] < s + 8; j++) {
+          const k = j + 1 < n ? j + 1 : j, m = j > 0 ? j - 1 : j;
+          let tx = px[k] - px[m], tz = pz[k] - pz[m]; const tl = len(tx, tz) || 1; tx /= tl; tz /= tl;
+          // facing along the path, and facing as I do now: on a turn the body lags the path, and it
+          // is the body that hits
+          if (boxDepth(px[j], pz[j], tx, tz, A.L, A.W + pad, pb) <= 0 && boxDepth(px[j], pz[j], A.fx, A.fz, A.L, A.W + pad, pb) <= 0) continue;
+          const g = ps[j] - s - 0.5, was = want;
+          want = follow(want, Math.max(0, g), 0, v); if (want < was) byMe = true; if (g < freeD) freeD = g; if (g < gMe) gMe = g;
+          break;
         }
       }
       // The player crossing my path: where it will be in a moment, not only where it is now. A car
@@ -346,15 +377,24 @@ export class KentTraffic {
       // its line) judged the player by where it was, set off, and met it side-on a second later --
       // in the city runs the learner was struck like this at junction after junction.
       const me = this.me, ofx = Math.sin(obstacle.heading ?? 0), ofz = Math.cos(obstacle.heading ?? 0);
-      if (obstacle.heading != null && obstacle.L && me.v > 1.5 && d2 < 1600 && Math.abs(A.fx * ofx + A.fz * ofz) < 0.7) {
+      // Any heading: a car going my way but turning across my lane (emerging, pulling over) is the
+      // same hazard, and a car behind or ahead going my way finds the future box further off, not nearer.
+      // Only a player going too fast to be stopping: one creeping up to a give-way line was read as
+      // about to cross the main road, the main road stopped for it, and then it waited on them.
+      if (obstacle.heading != null && obstacle.L && me.v > 3 && d2 < 1600) {
         for (const t of [0.6, 1.2, 1.8]) {
           const qx = obstacle.x + me.fx * me.v * t, qz = obstacle.z + me.fz * me.v * t;
           const arc = this.#onPath(A, qx, qz, ofx, ofz, obstacle.L / 2, obstacle.W / 2, 0.4, Math.hypot(qx - A.x, qz - A.z), s + 30);
           if (arc < 0) continue;
           const g = arc - s - A.L / 2 - this.ext - GAP;
-          if (g < v * t + ACCEL * t * t / 2 + 2) { const was = want; want = follow(want, g, 0, v); if (want < was) byMe = true; if (g < freeD) freeD = g; break; }
+          if (g < v * t + ACCEL * t * t / 2 + 2) { const was = want; want = follow(want, g, 0, v); if (want < was) byMe = true; if (g < freeD) freeD = g; if (g < gMe) gMe = g; break; }
         }
       }
+      // Neither of us can move for 25 s (someone behind each of us): squeeze past like a gridlock,
+      // whichever test it was that stopped me for the player. Not when following it: a queue behind
+      // the player at a red light is just a queue. This fallback once lived in the far test alone,
+      // and a car the near test had stopped sat for the whole watchdog (Driveuk seed 4).
+      if (byMe && gMe < 8 && v < 0.3 && A.stopT > 25 && me.v < 0.3 && !A.held && obstacle.heading != null && A.fx * Math.sin(obstacle.heading) + A.fz * Math.cos(obstacle.heading) < 0.5) { A.ghost = 5; this.stats.squeezed = (this.stats.squeezed || 0) + 1; this.stats.squeezedMe = (this.stats.squeezedMe || 0) + 1; }
     }
     for (let p = 0; p < this.peds.length; p++) {
       const q = this.peds[p]; if (!q.inRoad) continue;
@@ -525,6 +565,17 @@ export class KentTraffic {
     }
     return false;
   }
+  /** nobody coming the other way within r m ahead on my right (the lane I would pass a parked car in), nor alongside there */
+  #oppositeClear(A, r) {
+    for (const B of this.cars) {
+      if (B === A) continue;
+      const dx = B.x - A.x, dz = B.z - A.z, al = dx * A.fx + dz * A.fz, lat = dx * A.fz - dz * A.fx;
+      if (lat > 0.5 || lat < -5) continue;
+      if (al > -6 && al < 12) return false; // alongside or just ahead, whichever way it faces
+      if (al >= 12 && al < r + B.v * 4 && B.fx * A.fx + B.fz * A.fz < -0.3) return false; // coming towards me
+    }
+    return true;
+  }
   #busyAt(A, e, nx, nz, nodeId, r, yaw) {
     const ox = yaw == null ? 0 : Math.sin(yaw), oz = yaw == null ? 0 : Math.cos(yaw);
     const cars = this.cars, r2 = r * r;
@@ -604,7 +655,11 @@ export class KentTraffic {
     if (rb) { A.lane.rb = rb.id; const u = (Math.atan2(A.z - rb.z, A.x - rb.x) * rb.sense) / TAU; A.u = u - Math.floor(u); }
     else { A.lane.rb = null; A.u = A.s; }
     A.pos.set(A.x, 0, A.z);
-    if (A.v < 0.3) { if (!A.held) A.stopT += dt; } else if (A.v > 1) A.stopT = 0; // waiting at a line is not being stuck
+    // waiting at a line is not being stuck; nor is creeping a metre or two and stopping again, which
+    // is what a car does nose to nose with the learner -- reset only once it has got somewhere, or
+    // the gridlock rules that count on stopT never fire and the pair sit for the whole watchdog
+    if (A.v < 0.3) { if (!A.held) A.stopT += dt; if (A.stopS == null) A.stopS = A.s; }
+    else if (A.v > 1 && (A.stopS == null || A.s - A.stopS > 3)) { A.stopT = 0; A.stopS = null; }
   }
 
   #meshes(dt, cam) {

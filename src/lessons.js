@@ -809,12 +809,20 @@ export class LessonRun {
     const node = this.world.net.nodes.get(id); if (!node) return false;
     const fx = Math.sin(car.heading), fz = Math.cos(car.heading);
     for (const c of this.world.traffic?.cars || []) {
-      if (c.v < 1) continue;
       const dx = node.x - c.x, dz = node.z - c.z, d = Math.hypot(dx, dz);
-      if (d > Math.max(r, c.v * secs) || d < 1) continue;
+      let v = c.v;
+      if (v < 1) {
+        // Standing at a signal that is not red -- a pedestrian crossing beside the junction, just
+        // turned green for it -- it will be here in a moment. Counted as not coming, the learner
+        // emerged into it as it moved off (Leeds seed 2). Still red: it stays, and does not count.
+        const e = c.ev?.[c.evI];
+        if (!(c.held && e && e.kind === 'lights' && e.s - c.s < 15 && d < 25 && this.world.signals?.stateFor(e.group, c.heading) !== 'red')) continue;
+        v = 3;
+      }
+      if (d > Math.max(r, v * secs) || d < 1) continue;
       if ((dx * c.fx + dz * c.fz) / d < 0.3) continue; // not heading for the junction
       if (c.fx * fx + c.fz * fz > 0.8 && (c.x - car.pos.x) * fx + (c.z - car.pos.z) * fz < 0) continue; // behind me, same way
-      if (d / c.v < secs) return true;
+      if (d / v < secs) return true;
     }
     return false;
   }
@@ -1259,9 +1267,15 @@ function carefulKent(run, car, st, bad) {
           if (toLine < 1.6 && room && !run.majorBusy(e, car, 6, 50)) e.botGo = true;
           if (bad.noStops) e.botGo = toLine < 0.8;
         }
-        // gone, but held up at the mouth (a car crossing in front) before the car is clear of the line:
-        // the gap it went for is old by now, so look again before carrying on into the main road
-        if (e.botGo && !bad.noStops && toLine > -4 && toLine < 1.6 && Math.abs(v) < 1.5 && run.majorBusy(e, car, 4, 40)) want = 0;
+        // gone, but then held up at the mouth (a car crossing in front) before the car is clear of
+        // the line: the gap it went for is old by now, so look again before carrying on into the main
+        // road. Only once it has actually been standing a while: moving off is slow too, and a look
+        // on every slow frame held the learner at a busy crossroads for the whole watchdog, waiting
+        // for a gap no busy road ever offers (Driveuk seed 1).
+        if (e.botGo && !bad.noStops && toLine > -4 && toLine < 1.6) {
+          if (Math.abs(v) > 0.3) e.botStillT = null; else if (e.botStillT == null) e.botStillT = st.t;
+          if (e.botStillT != null && st.t - e.botStillT > 1.5 && run.majorBusy(e, car, 3.5, 35)) want = 0;
+        }
         if (bad.noStops && toLine < 30 && toLine > -2) want = Math.max(want, 16 / MPH);
         break;
       }
@@ -1281,6 +1295,9 @@ function carefulKent(run, car, st, bad) {
       }
       case 'rb': {
         const toLine = e.entryS - s - half;
+        // moving over to the right-hand lane for the ring (the approach flares to two): not into a car
+        // alongside in it -- on the Kent mock test the learner moved across into one (seed 1)
+        if (e.approachLane > 1 && s > e.laneChangeS - 5 && s < e.entryS && run.carLane(run.route.pts[run.idx]) < e.approachLane) want = Math.min(want, laneGap(run, car, { dir: 'right' }, want));
         if (toLine < 40 && s < e.entryS + 5) want = Math.min(want, 13 / MPH);
         if (!e.botGo && toLine < 25) {
           // keep looking right until the front is over the line
@@ -1323,7 +1340,9 @@ function carefulKent(run, car, st, bad) {
       }
       case 'pullright': {
         if (!e.phase && ahead < 90) {
-          if (ahead > 0 && ahead < 30 && oncoming(run, car, e, 7, 90)) want = Math.min(want, stopIn(ahead - 2));
+          // and nobody coming up on the right either: the move across is into their lane. On the
+          // Canterbury mock test (seeds 5 and 6) the learner moved over into a car passing at 25 mph.
+          if (ahead > 0 && ahead < 30 && (oncoming(run, car, e, 7, 90) || behindRight(run, car, 6))) want = Math.min(want, stopIn(ahead - 2));
           want = Math.min(want, stopIn(e.stopS - s));
         }
         if (e.phase === 'stopped' || e.phase === 'reversing') {
@@ -1512,7 +1531,7 @@ function pathClear(run, car, want) {
   const p0 = pts[i0], p1 = pts[Math.min(i0 + 1, n - 1)];
   const n0x = p1.x - p0.x, n0z = p1.z - p0.z, n0l = Math.hypot(n0x, n0z) || 1;
   const latOff = THREE.MathUtils.clamp(((car.pos.x - p0.x) * n0z - (car.pos.z - p0.z) * n0x) / n0l, -1.5, 1.5);
-  const test = (x, z, hx, hz, L, W, lv, kind) => {
+  const test = (x, z, hx, hz, L, W, lv, kind, held) => {
     for (let i = i0 + 1; i <= i1 && i < n - 1; i++) {
       const p = pts[i];
       const tx = pts[i + 1].x - p.x, tz = pts[i + 1].z - p.z, tl = Math.hypot(tx, tz) || 1;
@@ -1521,13 +1540,25 @@ function pathClear(run, car, want) {
       // the corridor across a mini roundabout and stalled Mill Hill 15.
       const k = latOff * Math.max(0, 1 - (p.s - s) / 8);
       const dx = p.x + (tz / tl) * k - x, dz = p.z - (tx / tl) * k - z;
-      if (dx * dx + dz * dz > (L / 2 + W / 2 + myW + 0.5) ** 2) continue;
-      // distance from the path point to the box (people are a 0.6 m box with no heading)
-      const al = Math.max(0, Math.abs(dx * hx + dz * hz) - L / 2), la = Math.max(0, Math.abs(dx * hz - dz * hx) - W / 2);
+      if (dx * dx + dz * dz > (L / 2 + W / 2 + myW + half + 0.5) ** 2) continue;
       const dot = (tx * hx + tz * hz) / tl;
-      // oncoming cars are passed with less to spare (a squeeze on a narrow road or a bend), ones ahead with more
-      if (Math.hypot(al, la) > myW + (kind === 'ped' ? 0.6 : kind === 'car' && dot < -0.5 ? -0.15 : 0)) continue;
       const same = kind === 'car' && dot > 0.6;
+      if (kind === 'car' && !same && !(held && lv < 0.5)) {
+        // (not one standing at its own line: it waits where cars wait, and the right turn past the nose
+        // of a van at the opposite stop line is tuned to clear it by inches -- the box said no, and
+        // the learner sat inside the junction through the whole Kent mock test's watchdog)
+        // A car across my path, or stopped at an angle to it: my whole body at this point of the
+        // path, facing along it, against its box. The point test below is a disc of half my width
+        // about the centre line, which is my body on a straight and nothing like it on a turn:
+        // turning right past a car stopped at the mouth, the tail swung through it (Driveuk seed 5).
+        // A standing car is passed close (0.1 m: it is not going anywhere, and waiting 0.35 m off a car
+        // at the opposite stop line, inside the junction mid-turn, held the lights' queue and me for ever)
+        if (!boxesMeet(p.x + (tz / tl) * k, p.z - (tx / tl) * k, tx / tl, tz / tl, car.model.length, 2 * (myW + (dot < -0.5 ? -0.15 : lv < 0.5 ? -0.25 : 0)), x, z, hx, hz, L, W)) continue;
+      } else {
+        // distance from the path point to the box (people are a 0.6 m box with no heading)
+        const al = Math.max(0, Math.abs(dx * hx + dz * hz) - L / 2), la = Math.max(0, Math.abs(dx * hz - dz * hx) - W / 2);
+        if (Math.hypot(al, la) > myW + (kind === 'ped' ? 0.6 : 0)) continue;
+      }
       const g = p.s - s - half - 0.5;
       w = Math.min(w, same ? followAt(g, lv) : stopIn(g - 1.5));
       return;
@@ -1541,7 +1572,7 @@ function pathClear(run, car, want) {
     const L = c.L || 4.6, W = c.W || 1.9;
     const al = (c.x - car.pos.x) * fx + (c.z - car.pos.z) * fz;
     if (al + (L / 2) * Math.abs(c.fx * fx + c.fz * fz) + (W / 2) * Math.abs(c.fz * fx - c.fx * fz) <= half) continue;
-    test(c.x, c.z, c.fx, c.fz, L, W, c.v, 'car');
+    test(c.x, c.z, c.fx, c.fz, L, W, c.v, 'car', c.held);
   }
   for (const p of run.world.traffic?.peds || []) {
     // anyone crossing, and people walking across the mouth of a side road (they have priority there);
@@ -1554,6 +1585,26 @@ function pathClear(run, car, want) {
     if (car.drive && p.speed > 0.3 && p.heading != null) for (const t of [0.7, 1.4]) test(p.x + Math.sin(p.heading) * p.speed * t, p.z + Math.cos(p.heading) * p.speed * t, 1, 0, 0.6, 0.6, 0, 'ped');
   }
   return w;
+}
+/** do two boxes (centre, facing, length, width) overlap? Separating axes, the four of them. */
+function boxesMeet(ax, az, afx, afz, aL, aW, bx, bz, bfx, bfz, bL, bW) {
+  const dx = bx - ax, dz = bz - az;
+  for (let a = 0; a < 4; a++) {
+    const ux = a === 0 ? afx : a === 1 ? afz : a === 2 ? bfx : bfz, uz = a === 0 ? afz : a === 1 ? -afx : a === 2 ? bfz : -bfx;
+    const ra = (aL / 2) * Math.abs(afx * ux + afz * uz) + (aW / 2) * Math.abs(afz * ux - afx * uz);
+    const rb = (bL / 2) * Math.abs(bfx * ux + bfz * uz) + (bW / 2) * Math.abs(bfz * ux - bfx * uz);
+    if (ra + rb <= Math.abs(dx * ux + dz * uz)) return false;
+  }
+  return true;
+}
+/** a car coming up behind on my right, going my way: not the moment to move over to the right (pulling up there) */
+function behindRight(run, car, secs) {
+  const fx = Math.sin(car.heading), fz = Math.cos(car.heading), v = Math.max(0, car.vF);
+  return (run.world.traffic?.cars || []).some((c) => {
+    if (c.fx * fx + c.fz * fz < 0.6 || c.v < 1.5) return false;
+    const dx = c.x - car.pos.x, dz = c.z - car.pos.z, al = dx * fx + dz * fz, lat = dx * fz - dz * fx; // lat < 0: on my right
+    return al < 1 && al > -80 && lat < 2.5 && lat > -6.5 && -al / Math.max(0.5, c.v - v * 0.5) < secs;
+  });
 }
 function posAtS(run, s) {
   const p = run.route.pts.find((q) => q.s >= s) || run.route.pts[run.route.pts.length - 1];
