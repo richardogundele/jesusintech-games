@@ -133,6 +133,7 @@ export class KentTraffic {
       const vx = (obstacle.x - me.x) / dt, vz = (obstacle.z - me.z) / dt, v = len(vx, vz);
       me.v += (v - me.v) * Math.min(1, dt * 10);
       if (v > 0.3) { me.fx = vx / v; me.fz = vz / v; }
+      me.stillT = me.v < 0.3 ? (me.stillT || 0) + dt : 0; // how long the player has stood: parked, not waiting at a junction
     } else if (!obstacle) me.v = 0;
     me.x = obstacle ? obstacle.x : null; me.z = obstacle ? obstacle.z : null;
     if (obstacle?.L) { me.L = obstacle.L; me.W = obstacle.W; me.hx = Math.sin(obstacle.heading); me.hz = Math.cos(obstacle.heading); }
@@ -365,13 +366,21 @@ export class KentTraffic {
           const al = dx * A.fx + dz * A.fz, lat = dx * A.fz - dz * A.fx + A.nudge, room = (A.W + obstacle.W) / 2 + 0.9;
           // Once out, stay out until the learner is behind me, whatever it does: it moving off (or
           // pulling in to the kerb at walking pace) ended the pass, and the car eased back into its side.
-          const committed = A.passT > 0 && al > -(A.L + obstacle.L) / 2 - 6; // (a car length past it before easing back in: the tail swung into the learner's rear corner on the way back)
+          const committed = A.passT > 0 && A.passOff < 0 && al > -(A.L + obstacle.L) / 2 - 6; // (a car length past it before easing back in: the tail swung into the learner's rear corner on the way back)
+          // Only a learner PARKED in my lane: stood a few seconds, well over on my side, on a stretch
+          // with no junction or line close ahead. A learner simply waiting at a mini roundabout or a
+          // slip road, facing me at an angle, read as "parked on my side", and the car swung out to
+          // pass it straight into it (London, Manchester: hundreds of frames in contact).
           // Not with a car standing ahead of me in my own lane: it is waiting to pass too, and a car
           // that moved out behind one sat in the other lane, holding the queue the first was waiting on.
-          const start = headOn && this.me.v < 0.3 && d2 < 400 && lat > 0.3 && lat < room && !this.#queueAhead(A, 15) && this.#oppositeClear(A, 55);
+          const nextEv = A.ev[A.evI], clearAhead = !nextEv || nextEv.s - s > 40;
+          const start = headOn && this.me.v < 0.3 && (this.me.stillT || 0) > 3 && clearAhead && d2 < 400 && lat > 0.8 && lat < room && !this.#queueAhead(A, 15) && this.#oppositeClear(A, 55);
+          // The move out is decided once, at the start, and held: recomputed from the live offset as
+          // the cars moved, it ran away to three metres and more.
+          if (start && !(A.passT > 0)) A.passOff = Math.max(-2.8, -(room - lat));
           // (passing only counts once the car has actually moved out: the nudge takes a second or two,
           // and dropping the far test the moment it was decided drove the car into the learner's corner)
-          if (committed || start) { nudge = Math.min(nudge, -(room - lat)); A.passT = 3; passing = A.nudge <= -(room - lat) + 0.4; }
+          if (committed || start) { nudge = Math.min(nudge, A.passOff); A.passT = 3; passing = A.nudge <= A.passOff + 0.4; }
         }
         if (oncoming && d2 < 196) {
           const lat = dx * A.fz - dz * A.fx, room = (A.W + obstacle.W) / 2 + 0.9;
@@ -899,7 +908,7 @@ export class KentTraffic {
       // start at a speed that can still stop for the first line on the route (lights, a give-way)
       const first = A.ev.length ? A.ev[0].s - A.L / 2 : Infinity;
       A.v = Math.min(A.vcap[0] * 0.9, Math.sqrt(2 * STOP_BRAKE * Math.max(0, first - 3))); A.stun = 0; A.stopT = 0; A.extTried = false; A.lastGroup = null; A.lastGroupS = -1e9;
-      A.held = false; A.freeD = Infinity; A.minorNode = 0; A.minorNode2 = 0; A.nudge = 0; A.nudgeT = 0; A.blockId = 0; A.blockedByMe = false; A.backUp = 0; A.noRoom = false; A.ghost = 0; A.passT = 0;
+      A.held = false; A.freeD = Infinity; A.minorNode = 0; A.minorNode2 = 0; A.nudge = 0; A.nudgeT = 0; A.blockId = 0; A.blockedByMe = false; A.backUp = 0; A.noRoom = false; A.ghost = 0; A.passT = 0; A.passOff = 0;
       this.#move(A, 0);
       this.cars.push(A);
       this.stats.spawned++;
