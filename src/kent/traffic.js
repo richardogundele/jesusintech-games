@@ -373,8 +373,11 @@ export class KentTraffic {
           // pass it straight into it (London, Manchester: hundreds of frames in contact).
           // Not with a car standing ahead of me in my own lane: it is waiting to pass too, and a car
           // that moved out behind one sat in the other lane, holding the queue the first was waiting on.
+          // (over on my side means 0.3 m kerbwards of my lane's centre: a learner tight against the kerb
+          // of a 6.5 m street is only about half a metre over, and asking 0.8 never passed it -- the
+          // oncoming queue stopped in front of it for good, London seed 5)
           const nextEv = A.ev[A.evI], clearAhead = !nextEv || nextEv.s - s > 40;
-          const start = headOn && this.me.v < 0.3 && (this.me.stillT || 0) > 3 && clearAhead && d2 < 400 && lat > 0.8 && lat < room && !this.#queueAhead(A, 15) && this.#oppositeClear(A, 55);
+          const start = headOn && this.me.v < 0.3 && (this.me.stillT || 0) > 3 && clearAhead && d2 < 400 && lat > 0.3 && lat < room && !this.#queueAhead(A, 15) && this.#oppositeClear(A, 55);
           // The move out is decided once, at the start, and held: recomputed from the live offset as
           // the cars moved, it ran away to three metres and more.
           if (start && !(A.passT > 0)) A.passOff = Math.max(-2.8, -(room - lat));
@@ -410,24 +413,36 @@ export class KentTraffic {
       // Not when following it: the queue gap is the far test's business.
       const ofx0 = Math.sin(obstacle.heading ?? 0), ofz0 = Math.cos(obstacle.heading ?? 0);
       if (obstacle.heading != null && obstacle.L && d2 < 64 && A.fx * ofx0 + A.fz * ofz0 < 0.7) {
-        // head-on, the same thin margin as the far test: a van passing the learner in a narrow street
-        // with 0.1 m to spare is meant to, and padding it stopped the pair nose to nose for good
-        // (boxDepth allows 0.1 m a side, so a pad of 0.3 is 0.05 m of real clearance: a graze is still a hit)
-        // (0.9 for a car at an angle: the body is checked at the path's points, and the tail of a car
-        // turning across the learner's nose swept the 0.2 m that 0.6 left between the points)
-        const pad = A.fx * ofx0 + A.fz * ofz0 < -0.85 ? 0.3 : 0.9;
+        // Real bodies, as collide() measures them (boxDepth forgives 0.1 m a side on each box, so
+        // +0.4 on a dimension cancels that and the rest is real clearance). The old pads were thinner
+        // than contact: 0.05 m of overlap allowed alongside and 0.2 m nose to nose, and a car that
+        // stopped that close was hit, stunned by the hit every frame, and sat against the learner
+        // until the gridlock squeeze (London seed 5: car after car, 11,000 frames).
+        // Head-on, 0.05 m: a van passing the learner in a narrow street with a hand's width to spare
+        // is meant to, and a fat margin stopped the pair nose to nose for good. At an angle, 0.25 m
+        // alongside: the tail of a car turning across the learner's nose swings wider than its path.
+        const clr = A.fx * ofx0 + A.fz * ofz0 < -0.85 ? 0.05 : 0.25;
+        const padL = 0.4 + 0.1, padW = 0.4 + 2 * clr;
         const pb = { x: obstacle.x, z: obstacle.z, fx: ofx0, fz: ofz0, L: obstacle.L, W: obstacle.W }, px = A.px, pz = A.pz, ps = A.ps;
-        for (let j = A.idx; j < n && ps[j] < s + 8; j++) {
-          const k = j + 1 < n ? j + 1 : j, m = j > 0 ? j - 1 : j;
-          let tx = px[k] - px[m], tz = pz[k] - pz[m]; const tl = len(tx, tz) || 1; tx /= tl; tz /= tl;
+        // every 0.25 m along the next 8 m of path, not only at the path's points (up to 2 m apart):
+        // stopping half a metre short of the first POINT that touched let the body run on into the
+        // learner when the touch began between points
+        let j = A.idx, clear = -1;
+        for (let d = 0; d <= 8; d += 0.25) {
+          const at = s + d;
+          while (j < n - 2 && ps[j + 1] <= at) j++;
+          const j1 = j + 1 < n ? j + 1 : j, j0 = j1 > j ? j : Math.max(0, j - 1);
+          const sl = ps[j1] - ps[j], t = sl > 0 ? Math.min(1, Math.max(0, (at - ps[j]) / sl)) : 0;
+          let tx = px[j1] - px[j0], tz = pz[j1] - pz[j0]; const tl = len(tx, tz);
+          if (tl > 1e-6) { tx /= tl; tz /= tl; } else { tx = A.fx; tz = A.fz; }
           // facing along the path, and facing as I do now: on a turn the body lags the path, and it
           // is the body that hits
           // (the box where the nudge has actually put it: moving out to pass a learner parked on the
           // right, it is checked as it is, so it stops if the move has not yet made room -- switched
           // off for a pass, the car drove into the learner it was passing, London)
-          const nx = px[j] + tz * A.nudge, nz = pz[j] - tx * A.nudge;
-          if (boxDepth(nx, nz, tx, tz, A.L, A.W + pad, pb) <= 0 && boxDepth(nx, nz, A.fx, A.fz, A.L, A.W + pad, pb) <= 0) continue;
-          const g = ps[j] - s - 0.5, was = want;
+          const nx = px[j] + (px[j1] - px[j]) * t + tz * A.nudge, nz = pz[j] + (pz[j1] - pz[j]) * t - tx * A.nudge;
+          if (boxDepth(nx, nz, tx, tz, A.L + padL, A.W + padW, pb) <= 0 && boxDepth(nx, nz, A.fx, A.fz, A.L + padL, A.W + padW, pb) <= 0) { clear = d; continue; }
+          const g = clear - 0.1, was = want; // stop at the last clear place, not at the first touching one
           want = follow(want, Math.max(0, g), 0, v); if (want < was) byMe = true; if (g < freeD) freeD = g; if (g < gMe) gMe = g;
           break;
         }
@@ -455,10 +470,6 @@ export class KentTraffic {
       // the player at a red light is just a queue. This fallback once lived in the far test alone,
       // and a car the near test had stopped sat for the whole watchdog (Driveuk seed 4).
       if (byMe && gMe < 8 && v < 0.3 && A.stopT > 25 && me.v < 0.3 && !A.held && obstacle.heading != null && A.fx * Math.sin(obstacle.heading) + A.fz * Math.cos(obstacle.heading) < 0.5) { A.ghost = 5; this.stats.squeezed = (this.stats.squeezed || 0) + 1; this.stats.squeezedMe = (this.stats.squeezedMe || 0) + 1; }
-      // Already touching the player and stopped (a bump, or a squeeze that did not quite clear): every
-      // test ahead now says "stop", so it would sit against the learner until the 25 s rule above --
-      // thousands of frames of contact over a pull-up on the right (London seed 5). Ease clear at once.
-      else if (v < 0.3 && !(A.stun > 0) && me.v < 0.3 && this.#touchingPlayer(A)) { A.ghost = 5; this.stats.squeezed = (this.stats.squeezed || 0) + 1; this.stats.squeezedMe = (this.stats.squeezedMe || 0) + 1; }
     }
     for (let p = 0; p < this.peds.length; p++) {
       const q = this.peds[p]; if (!q.inRoad) continue;
@@ -503,13 +514,6 @@ export class KentTraffic {
     return 0;
   }
   /** is A's box touching the player's car? */
-  /** my box against the player's, as collide() measures them (#overPlayer allows 0.1 m a side, and
-   *  a car resting that close against the learner counted as contact in collide but not there) */
-  #touchingPlayer(A) {
-    const me = this.me;
-    if (me.x == null || !me.L || Math.abs(me.x - A.x) > 7 || Math.abs(me.z - A.z) > 7) return false;
-    return boxDepth(A.x, A.z, A.fx, A.fz, A.L + 0.3, A.W + 0.3, { x: me.x, z: me.z, fx: me.hx, fz: me.hz, L: me.L + 0.3, W: me.W + 0.3 }) > 0;
-  }
   #overPlayer(A) {
     const me = this.me;
     if (me.x == null || !me.L || Math.abs(me.x - A.x) > 7 || Math.abs(me.z - A.z) > 7) return false;
