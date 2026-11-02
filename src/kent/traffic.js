@@ -455,6 +455,10 @@ export class KentTraffic {
       // the player at a red light is just a queue. This fallback once lived in the far test alone,
       // and a car the near test had stopped sat for the whole watchdog (Driveuk seed 4).
       if (byMe && gMe < 8 && v < 0.3 && A.stopT > 25 && me.v < 0.3 && !A.held && obstacle.heading != null && A.fx * Math.sin(obstacle.heading) + A.fz * Math.cos(obstacle.heading) < 0.5) { A.ghost = 5; this.stats.squeezed = (this.stats.squeezed || 0) + 1; this.stats.squeezedMe = (this.stats.squeezedMe || 0) + 1; }
+      // Already touching the player and stopped (a bump, or a squeeze that did not quite clear): every
+      // test ahead now says "stop", so it would sit against the learner until the 25 s rule above --
+      // thousands of frames of contact over a pull-up on the right (London seed 5). Ease clear at once.
+      else if (v < 0.3 && !(A.stun > 0) && me.v < 0.3 && this.#touchingPlayer(A)) { A.ghost = 5; this.stats.squeezed = (this.stats.squeezed || 0) + 1; this.stats.squeezedMe = (this.stats.squeezedMe || 0) + 1; }
     }
     for (let p = 0; p < this.peds.length; p++) {
       const q = this.peds[p]; if (!q.inRoad) continue;
@@ -499,6 +503,13 @@ export class KentTraffic {
     return 0;
   }
   /** is A's box touching the player's car? */
+  /** my box against the player's, as collide() measures them (#overPlayer allows 0.1 m a side, and
+   *  a car resting that close against the learner counted as contact in collide but not there) */
+  #touchingPlayer(A) {
+    const me = this.me;
+    if (me.x == null || !me.L || Math.abs(me.x - A.x) > 7 || Math.abs(me.z - A.z) > 7) return false;
+    return boxDepth(A.x, A.z, A.fx, A.fz, A.L + 0.3, A.W + 0.3, { x: me.x, z: me.z, fx: me.hx, fz: me.hz, L: me.L + 0.3, W: me.W + 0.3 }) > 0;
+  }
   #overPlayer(A) {
     const me = this.me;
     if (me.x == null || !me.L || Math.abs(me.x - A.x) > 7 || Math.abs(me.z - A.z) > 7) return false;
