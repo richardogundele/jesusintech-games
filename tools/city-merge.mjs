@@ -184,7 +184,7 @@ function cross(a, b) {
  * half going the same way, keeping left, so the two never cross. Otherwise it joins the best two-way
  * roads with a 60 mph single carriageway. Side: the edge of `a` the road leaves by; `bSide`, of `b`.
  */
-function link(L, areas) {
+function link(L, areas, ctx) {
   const A = areas.get(L.a), Bz = areas.get(L.b);
   const opp = L.bSide || { N: 'S', S: 'N', E: 'W', W: 'E' }[L.side];
   const normal = { N: [0, -1], S: [0, 1], E: [1, 0], W: [-1, 0] };
@@ -223,24 +223,31 @@ function link(L, areas) {
     x.n.edge = false; y.n.edge = false; x.n.ways.push(way.id); y.n.ways.push(way.id);
     return way;
   };
+  // A link may not cut through a third area, the home estate, or another link (two roads crossing with
+  // no junction): the best-scoring pair whose road keeps clear of all three is taken.
+  const inner = [...areas.values()].map((X) => ({ minX: X.box.minX + 2, maxX: X.box.maxX - 2, minZ: X.box.minZ + 2, maxZ: X.box.maxZ - 2 }));
+  const clear = (pts) => pts.every(([x, z], k) => k < 3 || k > pts.length - 4 || (!inner.some((b) => inBox(x, z, b)) && !ctx.zones.some((f) => f.dist(x, z) <= 30)))
+    && !ctx.built.some((b) => cross(b, pts));
+  const byScore = (list) => list.sort((p, q) => p.sc - q.sc);
   const da = L.single ? [] : duals(ea), db = L.single ? [] : duals(eb);
-  let bestD = null;
-  for (const a of da) for (const b of db) { const sc = score(a, b); if (!bestD || sc < bestD.sc) bestD = { a, b, sc }; }
-  if (bestD) {
-    const { a, b } = bestD;
+  for (const { a, b } of byScore(da.flatMap((a) => db.map((b) => ({ a, b, sc: score(a, b) }))))) {
     const there = curve(a.o, nA, b.i, nB), back = curve(b.o, nB, a.i, nA);
-    if (!cross(there, back)) {
-      const cls = (RANK[a.o.w.cls] >= RANK[b.o.w.cls] ? b.o.w : a.o.w).cls, lanes = Math.max(1, Math.min(a.o.w.lanesF, b.i.w.lanesF, b.o.w.lanesF, a.i.w.lanesF));
-      const props = (w1, w2) => ({ cls, limit: 70, oneway: true, dual: true, lanesF: lanes, lanesB: 0, width: Math.max(w1.width, w2.width) });
-      const ways = [join(a.o, b.i, there, props(a.o.w, b.i.w)), join(b.o, a.i, back, props(b.o.w, a.i.w))];
-      return { ways, kind: `dual ${cls}`, from: `${a.o.w.ref || a.o.w.name} (${L.a})`, to: `${b.o.w.ref || b.o.w.name} (${L.b})`, km: lengthOf(there) / 1000 };
-    }
+    if (cross(there, back) || !clear(there) || !clear(back)) continue;
+    const cls = (RANK[a.o.w.cls] >= RANK[b.o.w.cls] ? b.o.w : a.o.w).cls, lanes = Math.max(1, Math.min(a.o.w.lanesF, b.i.w.lanesF, b.o.w.lanesF, a.i.w.lanesF));
+    const props = (w1, w2) => ({ cls, limit: 70, oneway: true, dual: true, lanesF: lanes, lanesB: 0, width: Math.max(w1.width, w2.width) });
+    const ways = [join(a.o, b.i, there, props(a.o.w, b.i.w)), join(b.o, a.i, back, props(b.o.w, a.i.w))];
+    ctx.built.push(there, back);
+    return { ways, kind: `dual ${cls}`, from: `${a.o.w.ref || a.o.w.name} (${L.a})`, to: `${b.o.w.ref || b.o.w.name} (${L.b})`, km: lengthOf(there) / 1000 };
   }
   const sa = ea.filter((e) => e.leaving === null), sb = eb.filter((e) => e.leaving === null);
-  if (!sa.length || !sb.length) throw new Error(`link ${L.a} ${L.side} -> ${L.b} ${opp}: no two-way road and no dual leaves ${!sa.length ? L.a : L.b} on that side`);
-  let best = null;
-  for (const x of sa) for (const y of sb) { const sc = score({ ...x.n, rank: x.rank }, { ...y.n, rank: y.rank }); if (!best || sc < best.sc) best = { x, y, sc }; }
-  const { x, y } = best, pts = curve(x, nA, y, nB);
+  let pick = null;
+  for (const c of byScore(sa.flatMap((x) => sb.map((y) => ({ x, y, sc: score({ ...x.n, rank: x.rank }, { ...y.n, rank: y.rank }) }))))) {
+    const pts = curve(c.x, nA, c.y, nB);
+    if (clear(pts)) { pick = { ...c, pts }; break; }
+  }
+  if (!pick) throw new Error(`link ${L.a} ${L.side} -> ${L.b} ${opp}: no road leaving ${L.a} that side reaches one leaving ${L.b} without crossing an area, the estate or another link`);
+  const { x, y, pts } = pick;
+  ctx.built.push(pts);
   const way = join(x, y, pts, { cls: 'primary', limit: 60, oneway: false, dual: false, lanesF: 1, lanesB: 1, width: Math.max(7.3, x.w.width, y.w.width) });
   return { ways: [way], kind: 'single', from: `${x.w.name || x.w.cls} (${L.a})`, to: `${y.w.name || y.w.cls} (${L.b})`, km: lengthOf(pts) / 1000 };
 }
@@ -379,14 +386,15 @@ CITY.areas.forEach((area, k) => {
 });
 const nodes = new Map();
 for (const A of areas.values()) for (const [id, n] of A.nodes) { if (nodes.has(id)) throw new Error(`node id ${id} in two areas`); nodes.set(id, n); }
-const links = CITY.links.map((L) => link(L, areas));
+const E = CITY.home.house ? estate(CITY.home, areas) : null;
+const linkCtx = { zones: E ? E.zones : [], built: [] };
+const links = CITY.links.map((L) => link(L, areas, linkCtx));
 const all = (k) => [...areas.values()].flatMap((A) => A[k]);
 const box = { minX: Infinity, maxX: -Infinity, minZ: Infinity, maxZ: -Infinity };
 for (const A of areas.values()) { box.minX = Math.min(box.minX, A.box.minX); box.maxX = Math.max(box.maxX, A.box.maxX); box.minZ = Math.min(box.minZ, A.box.minZ); box.maxZ = Math.max(box.maxZ, A.box.maxZ); }
 const bounds = { minX: box.minX - 1500, maxX: box.maxX + 1500, minZ: box.minZ - 1500, maxZ: box.maxZ + 1500 };
 const home = areas.get(CITY.home.area);
 const ways = [...all('ways'), ...links.flatMap((l) => l.ways)];
-const E = CITY.home.house ? estate(CITY.home, areas) : null;
 const inEstate = (x, z) => !!E && E.zones.some((f) => f.dist(x, z) <= 0);
 const drives = E ? E.gates.map(([name, gate]) => addDrive(name, gate, ways, nodes)) : [];
 for (const d of drives) ways.push(d.drive);
