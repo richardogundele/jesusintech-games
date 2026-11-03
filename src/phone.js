@@ -2,7 +2,7 @@
 // (the gearbox you learn in, the lesson car, its paint and plate), the dealer, the hangar, the wardrobe,
 // your profile, and today's goals.
 import { state, formatMoney } from './state.js';
-import { CARS, JETS, PAINTS, flightTime, fuelStop } from './catalog.js';
+import { CARS, JETS, flightTime, fuelStop } from './catalog.js';
 import * as P from './progress.js';
 import { DL25_ROWS } from './dl25.js';
 import { LESSONS } from './lessons.js';
@@ -40,8 +40,6 @@ export class Phone {
       // these leave the phone: close it first so the game mode is restored before travelling
       // the driving test: the gearbox you learn in, a mock or the real thing, retrying a route
       if (act === 'trans') { this.hooks.setTrans(id); this.render(); return; }
-      if (act === 'lessoncar') { this.hooks.setLessonCar(id); this.render(); return; }
-      if (act === 'paint') { this.hooks.setPaint(id === 'own' ? null : parseInt(id, 16)); this.render(); return; }
       if (act === 'lesson') { this.hooks.close(); this.hooks.startLesson(id); return; }
       if (act === 'plate') { this.hooks.setPlate($('plate-in')?.value); this.render(); return; }
       if (act === 'mock') { this.hooks.close(); this.hooks.startTest(id, null, 'mock'); return; }
@@ -87,7 +85,7 @@ export class Phone {
       <h3>Start here</h3>
       <p class="note">Pick one. Lessons are ten to twenty minutes with an instructor talking you through; a mock is the real test format with nothing riding on it; the test is the one that counts.</p>
       <div class="seg" style="flex-wrap:wrap"><button data-act="jump" data-id="ph-lessons">Lessons</button>${PARKED_ON ? '<button data-act="lesson" data-id="park">Parking practice</button>' : ''}<button data-act="jump" data-id="ph-mock">Mock test</button><button data-act="jump" data-id="ph-test">Driving test</button></div>
-      <p class="note">Free driving needs no button: close the phone (Tab), get in the car (E) and go: A to accelerate, B to brake, the arrows to steer. The gearbox, the lesson car and its paint are under <b>Settings</b>.</p>
+      <p class="note">Free driving needs no button: close the phone (Tab), get in the car (E) and go: A to accelerate, B to brake, the arrows to steer. Manual or automatic is under <b>Settings</b>.</p>
       <div id="ph-lessons"></div>
       ${this.practice(trans)}
       <div id="ph-mock"></div>
@@ -103,23 +101,17 @@ export class Phone {
       <h3>Study</h3><div class="row"><div class="grow"><div class="t">Road signs</div><div class="s">Name ten Highway Code signs. Not marked: just practice.</div></div><button class="buy" data-act="signs">Start</button></div>`;
   }
 
-  /** the gearbox you learn in, the car you take lessons and tests in, its paint and plate */
+  /** the gearbox you learn in and your number plate (the lesson car and paint pickers were taken out, at Richard's word) */
   settings() {
     const uk = state.uk, trans = uk.trans;
     return `<h3 style="margin-top:4px">Settings</h3>
-      <p class="note">How you learn and what you drive. Starting a lesson or a test is under <b>Drive</b>.</p>
+      <p class="note">How you learn. Starting a lesson or a test is under <b>Drive</b>.</p>
       <h3>Learning in</h3>
       <div class="seg"><button class="${trans === 'manual' ? 'on' : ''}" data-act="trans" data-id="manual">Manual</button><button class="${trans === 'auto' ? 'on' : ''}" data-act="trans" data-id="auto">Automatic</button></div>
       <p class="note">${trans === 'manual'
         ? 'Manual: the pedals are <b>C</b> clutch (hold it), <b>B</b> brake and <b>A</b> accelerator, left to right as in the car; <b>←</b> <b>→</b> steer, <b>1</b>-<b>5</b> the gears, <b>N</b> neutral, <b>R</b> reverse, <b>I</b> the engine, <b>Space</b> the handbrake, <b>V</b> the camera. Pass in a manual and you can drive both.'
         : 'Automatic: <b>B</b> brake and <b>A</b> accelerator; <b>←</b> <b>→</b> steer, <b>D</b> drive, <b>R</b> reverse, <b>N</b> neutral, <b>P</b> park, <b>I</b> the engine, <b>Space</b> the handbrake, <b>V</b> the camera. It creeps in D: cover the brake. Pass in an automatic and your licence is for automatics only.'}</p>
-      <h3>Lesson car</h3>
-      <div class="seg" style="flex-wrap:wrap">${this.hooks.lessonCars().map((c) => `<button class="${c.sel ? 'on' : ''}" data-act="lessoncar" data-id="${c.id}">${c.name}</button>`).join('')}</div>
-      <p class="note">Take your test in any car you own — it wears L plates and drives like a learner car. No more taxi.</p>
-      <h3>Your car</h3>
-      <div class="swatches"><button class="sw own ${uk.paint == null ? 'on' : ''}" data-act="paint" data-id="own" title="The car's own colour"></button>${PAINTS.map(([name, hex]) =>
-        `<button class="sw ${uk.paint === hex ? 'on' : ''}" data-act="paint" data-id="${hex.toString(16)}" title="${name}" style="background:#${hex.toString(16).padStart(6, '0')}"></button>`).join('')}</div>
-      <p class="note">${uk.paint == null ? 'Its own colour' : PAINTS.find(([, h]) => h === uk.paint)?.[0] || 'Custom'}. The paint goes on whichever car you take your test in.</p>
+      <h3>Number plate</h3>
       <div class="plate-row"><input id="plate-in" maxlength="8" value="${esc(this.hooks.myPlate())}" spellcheck="false" autocomplete="off" aria-label="Your number plate" /><button class="buy" data-act="plate">Set plate</button></div>
       <p class="note">Your registration, front and back. Letters, numbers and a space, up to eight characters.</p>
       `;
