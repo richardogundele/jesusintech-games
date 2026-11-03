@@ -398,13 +398,26 @@ export class LessonRun {
       // automatic: told to stop (traffic on the main road as you reach the line), creeping over it is a control fault
       if (giveWay && car.drive?.kind === 'auto' && e.mustStop == null && s > e.lineS - 8 && this.kent) e.mustStop = this.majorBusy(e, car, 2.5, 35);
       if (giveWay && !e.lineDone && s > e.lineS - 8 && s <= e.lineS && mph < 0.5) e.stoppedAt = true;
+      // Pulled out in front of traffic: judged by what was coming as the nose crossed the line, where the
+      // learner commits. A car that only set off towards the junction after that -- from a red light 7.5 m
+      // away (London seed 8) -- is not one they pulled out in front of. Stopping with the nose over the line
+      // and going again is a new decision, judged afresh. (Judged at the nose alone, a nose a hand's width
+      // over the line while a car went by was "pulled out", though the learner waited for it.)
+      if (this.kent && giveWay && !e.lineDone) {
+        if (e.noseBusy === undefined && crossed(e.lineS - FRONT)) this.majorBusy(e, car, 2.5, 35, (e.noseBusy = new Set()));
+        else if (e.noseBusy && mph < 0.5) e.noseBusy = null;
+      }
       if (giveWay && !e.lineDone && crossed(e.lineS)) {
         e.lineDone = true;
         e.lineMph = mph;
         if (e.mustStop && !e.stoppedAt && mph > 2) this.fault('minor', 'Control: creep not controlled (crossed the give-way line)');
         if (e.stopSign && (e.minMph ?? mph) > 0.6) this.fault('serious', 'Response to signs and signals: traffic signs (did not stop at the STOP line)');
         if ((e.minMph ?? mph) > 7) this.fault('serious', 'Junctions: observation (emerged without slowing to look)');
-        if (this.kent && this.majorBusy(e, car, 2.5, 35) && e.seenMajor) this.fault('serious', 'Junctions: observation (pulled out in front of traffic)');
+        if (this.kent && e.seenMajor) {
+          const now = new Set();
+          this.majorBusy(e, car, 2.5, 35, now);
+          if ([...now].some((c) => !e.noseBusy || e.noseBusy.has(c))) this.fault('serious', 'Junctions: observation (pulled out in front of traffic)');
+        }
       }
       // Kent: what was on the ring as the front reached the line (a car that pulls on in front of you after that isn't your fault)
       if (this.kent && e.kind === 'rb' && e.seenRing == null && s > e.entryS - 3) e.seenRing = this.rbConflict({ pos: posAtS(this, e.entryS + 1.7) }, 18, e.rb);
@@ -712,10 +725,13 @@ export class LessonRun {
       // approach lane, over the last 25 m before the give-way line (where there is more than one)
       if (!e.apDone && s > e.entryS - 15 && s < e.entryS - 4 && here.road?.lanes >= 2 && !here.rb && this.dist < 6
         && this.held(`ap${e.entryS}`, this.carLane(here) !== e.approachLane, dt, 1)) { e.apDone = true; this.fault('minor', 'Junctions: positioning (wrong lane for the roundabout)'); }
-      // on the ring: the lane the exit wants (Highway Code 186)
+      // on the ring: the lane the exit wants (Highway Code 186), judged where the guide line itself is in
+      // that lane -- it takes ~12 m to sweep across into an inner lane, and judged from 4 m in, a learner
+      // on the line was "lane discipline" on every pass (Canterbury rb-222616094, London rb228683187)
       if (rb && rb.lanes >= 2 && !e.ringDone && s > e.entryS + 4 && s < e.exitS - 3) {
-        const R = Math.hypot(car.pos.x - rb.x, car.pos.z - rb.z), k = Math.max(1, Math.min(rb.lanes, Math.round((rb.r - R) / rb.laneW + 0.5)));
-        if (this.held(`ring${e.entryS}`, k !== e.ringLane, dt, 1.2)) { e.ringDone = true; this.fault('minor', 'Positioning: lane discipline (on the roundabout)'); }
+        const laneAt = (x, z) => Math.max(1, Math.min(rb.lanes, Math.round((rb.r - Math.hypot(x - rb.x, z - rb.z)) / rb.laneW + 0.5)));
+        const p = this.route.pts[this.idx], k = laneAt(car.pos.x, car.pos.z);
+        if (this.held(`ring${e.entryS}`, k !== e.ringLane && laneAt(p.x, p.z) === e.ringLane, dt, 1.2)) { e.ringDone = true; this.fault('minor', 'Positioning: lane discipline (on the roundabout)'); }
       }
       // leaving: the exit lane
       if (!e.exDone && s > e.exitS + 8 && s < e.exitS + 35 && here.road?.lanes >= 2 && !here.rb && this.dist < 6
@@ -838,12 +854,14 @@ export class LessonRun {
    * Traffic on the main road coming to this junction: moving, within r m (or `secs` s) of the node,
    * heading for it and not coming from behind me down my own road.
    */
-  majorBusy(e, car, secs = 5.5, r = 45) {
+  majorBusy(e, car, secs = 5.5, r = 45, out = null) {
     // e.node2: a second junction this one give-way line answers for, where there is no room to wait
     // between the two (net.js lanePath) - both main roads have to be clear
+    // out: a Set to collect every car that makes it busy (which ones, not just whether)
+    if (out) { this.#majorBusyAt(e.node, car, secs, r, out); if (e.node2) this.#majorBusyAt(e.node2, car, secs, r, out); return out.size > 0; }
     return this.#majorBusyAt(e.node, car, secs, r) || (!!e.node2 && this.#majorBusyAt(e.node2, car, secs, r));
   }
-  #majorBusyAt(id, car, secs, r) {
+  #majorBusyAt(id, car, secs, r, out = null) {
     const node = this.world.net.nodes.get(id); if (!node) return false;
     const fx = Math.sin(car.heading), fz = Math.cos(car.heading);
     for (const c of this.world.traffic?.cars || []) {
@@ -860,7 +878,7 @@ export class LessonRun {
       if (d > Math.max(r, v * secs) || d < 1) continue;
       if ((dx * c.fx + dz * c.fz) / d < 0.3) continue; // not heading for the junction
       if (c.fx * fx + c.fz * fz > 0.8 && (c.x - car.pos.x) * fx + (c.z - car.pos.z) * fz < 0) continue; // behind me, same way
-      if (d / v < secs) return true;
+      if (d / v < secs) { if (!out) return true; out.add(c); }
     }
     return false;
   }
