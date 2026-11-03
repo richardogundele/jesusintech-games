@@ -239,7 +239,10 @@ export class KentTraffic {
           want = Math.min(want, Math.sqrt(36 + 5 * Math.max(0, d))); // about 13 mph at the line
           if (d < 30) {
             A.minorNode = e.node; A.minorNode2 = e.node2 || 0;
-            if (!e.go) { if (this.#ringBusy(A, e)) stop = true; else if (d < 1.5 && v > 1) e.go = true; }
+            // and not onto a small ring with no room to come off it (Highway Code 185): Guildford's Slyfield
+            // ring, 100 m above the A320 lights, filled with cars queued for the exit to them, each one sitting
+            // across the next entry, and the ring locked solid on test after test from the centre
+            if (!e.go) { if (this.#ringBusy(A, e) || (e.rb.r < 20 && this.#exitBlocked(A, d, Math.PI * e.rb.r))) stop = true; else if (d < 1.5 && v > 1) e.go = true; }
           }
           break;
         }
@@ -715,10 +718,10 @@ export class KentTraffic {
     if (obstacle && me.x != null && me.hx != null && test(me.x, me.z, me.hx, me.hz, me.v)) return true;
     return false;
   }
-  /** the car ahead (last frame's) is inside the junction d m ahead, or not far enough past it for me to clear the box */
-  #exitBlocked(A, d) {
+  /** the car ahead (last frame's) is inside the junction d m ahead, or not far enough past it for me to clear the box (`across`: the junction's own length, round a ring) */
+  #exitBlocked(A, d, across = 0) {
     if (!EXIT_CLEAR) return false;
-    return A.freeD < d + 14 + A.L && A.blockId > 0 && (this.cars.find((c) => c.id === A.blockId)?.v ?? 9) < 2;
+    return A.freeD < d + 14 + across + A.L && A.blockId > 0 && (this.cars.find((c) => c.id === A.blockId)?.v ?? 9) < 2;
   }
   #busyAt(A, e, nx, nz, nodeId, r, yaw) {
     const ox = yaw == null ? 0 : Math.sin(yaw), oz = yaw == null ? 0 : Math.cos(yaw);

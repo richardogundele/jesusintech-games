@@ -21,7 +21,10 @@ export const CITY = {
   // ground and joins each gate to the nearest street)
   home: { area: 'guildford', house: [3150, -2650], jets: [3600, -2250] },
   areas: [
-    { id: 'guildford', name: 'Guildford', at: [0, 0], crop: SQUARE(2980) },
+    // The old Woking Road meets the A320 in a V just north of the Slyfield roundabout, drawn 3-6 m from it for
+    // 40 m: the two carriageways overlapped and cars met head on there, locking the roundabout below. It now
+    // joins the A320 with a T where they are still 11 m apart.
+    { id: 'guildford', name: 'Guildford', at: [0, 0], crop: SQUARE(2980), rejoin: [{ way: 243351216, at: [-541, -153], onto: 905183472 }] },
     // Herne Bay and its coast, Swalecliffe to Reculver; Canterbury, Maypole and the cliff-top house left out.
     // Its 40 generated test routes keep inside x 594..3469, z -5901..-3363, so this has 760 m to spare.
     { id: 'kent', name: 'Herne Bay', at: [-2400, -1880], crop: { minX: -3200, maxX: 8000, minZ: -7300, maxZ: -2600 } },

@@ -53,8 +53,39 @@ function clipLine(pts, C) {
 }
 const centroid = (pts) => { let x = 0, z = 0; for (const p of pts) { x += p[0]; z += p[1]; } return [x / pts.length, z / pts.length]; };
 
+/**
+ * area.rejoin: [{ way, at: [x, z], onto }] -- end `way` at its point nearest `at` with a T onto `onto` (at
+ * the foot of the perpendicular, a new node there), dropping the rest of it towards the junction the two
+ * share. For a junction OpenStreetMap draws as two roads converging for tens of metres: their
+ * carriageways overlap, and traffic going opposite ways on them meets head on and can never pass.
+ */
+function rejoin(d, fixes = []) {
+  let maxNode = 0; for (const id of Object.keys(d.nodes)) maxNode = Math.max(maxNode, +id);
+  for (const f of fixes) {
+    const w = d.ways.find((x) => x.id === f.way), J = d.ways.find((x) => x.id === f.onto);
+    if (!w || !J) throw new Error(`rejoin: no way ${!w ? f.way : f.onto}`);
+    let k = 0; w.pts.forEach((p, i) => { if (hypot(p[0] - f.at[0], p[1] - f.at[1]) < hypot(w.pts[k][0] - f.at[0], w.pts[k][1] - f.at[1])) k = i; });
+    const tailEnd = J.nodes.includes(w.nodes[w.nodes.length - 1]); // the end the two already share
+    if (!tailEnd && !J.nodes.includes(w.nodes[0])) throw new Error(`rejoin: ways ${f.way} and ${f.onto} share no end`);
+    let best = null;
+    for (let i = 0; i < J.pts.length - 1; i++) {
+      const a = J.pts[i], b = J.pts[i + 1], dx = b[0] - a[0], dz = b[1] - a[1], L2 = dx * dx + dz * dz || 1;
+      const t = Math.max(0.05, Math.min(0.95, ((w.pts[k][0] - a[0]) * dx + (w.pts[k][1] - a[1]) * dz) / L2)), q = [+(a[0] + dx * t).toFixed(1), +(a[1] + dz * t).toFixed(1)];
+      const dd = hypot(q[0] - w.pts[k][0], q[1] - w.pts[k][1]);
+      if (!best || dd < best.dd) best = { i, q, dd };
+    }
+    const id = ++maxNode;
+    d.nodes[id] = { x: best.q[0], z: best.q[1], ways: [J.id, w.id], signals: false, crossing: null, giveWay: true, stop: false, mini: false, levelCrossing: false };
+    J.pts.splice(best.i + 1, 0, best.q); J.nodes.splice(best.i + 1, 0, id);
+    if (tailEnd) { w.pts = [...w.pts.slice(0, k + 1), best.q]; w.nodes = [...w.nodes.slice(0, k + 1), id]; }
+    else { w.pts = [best.q, ...w.pts.slice(k)]; w.nodes = [id, ...w.nodes.slice(k)]; }
+    console.log(`  rejoined ${w.name || w.id} onto ${J.name || J.id} at (${best.q}), ${best.dd.toFixed(0)} m from its point at (${w.pts[tailEnd ? w.pts.length - 2 : 1]})`);
+  }
+}
+
 /** one area, cropped and renumbered (still in its own metres; moved at the end) */
 function prepare(area, d, k) {
+  rejoin(d, area.rejoin);
   const B = d.bounds, C = area.crop || B;
   const base = area.id === 'kent' ? 0 : (k + 1) * 1_000_000;
   let maxNode = 0; for (const id of Object.keys(d.nodes)) maxNode = Math.max(maxNode, +id);
