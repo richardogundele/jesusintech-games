@@ -105,7 +105,7 @@ const KENT = [
   },
   {
     id: 'roundabouts', world: 'kent', route: 'roundabouts', title: 'Roundabouts', blurb: 'Altira, the Margate Road rings, the Eddington junction and the big Greenhill roundabout.',
-    intro: 'Roundabouts. Give way to traffic coming from your right. Left signal for a left exit; for a right exit, the right-hand lane and a right signal; and always signal left once you pass the exit before yours.',
+    intro: 'Roundabouts. Give way to traffic coming from your right. Signal left on the approach for the first exit; none for straight on; for an exit to the right, the right-hand lane and a right signal; and always signal left once you pass the exit before yours.',
   },
   {
     id: 'crossings', world: 'kent', route: 'crossings', title: 'Crossings and lights', blurb: "The King's Road zebras, the Station Road lights and the zebras along Central Parade.",
@@ -377,12 +377,17 @@ export class LessonRun {
       if ((this.kent ? MARK_KENT : MARK_WM).includes(e.kind) && !e.marked && s > e.s + (e.kind === 'rb' ? 20 : 10)) {
         e.marked = true;
         const ref = e.s;
-        const want = e.dir;
+        const want = e.kind === 'rb' ? rbApproach(e) : e.dir;
         // Kent: only look back as far as the end of the manoeuvre before (adjacent rings, turn after turn)
         const back = (d) => (this.kent ? Math.max(ref - d, e.prevEnd) : ref - d);
         if (want !== 'none' && !signalled(want, back(85), ref + 3)) this.fault('minor', 'Signals: necessary');
         const other = want === 'left' ? 'right' : want === 'right' ? 'left' : null;
-        if (want === 'none' ? anySignal(back(60), ref) : signalled(other, back(60), ref + 1)) this.fault('minor', 'Signals: correctly');
+        const wrong = want === 'none' ? anySignal(back(60), ref) : signalled(other, back(60), ref + 1) ? other : null;
+        if (wrong) {
+          // still flashing from the turn before (never cancelled) rather than a wrong signal given here: say so
+          const leftOn = this.sig.some((x) => x.dir === wrong && x.s < back(60) && x.s > back(60) - 10);
+          this.fault('minor', leftOn ? `Signals: correctly (${wrong} indicator left on)` : 'Signals: correctly');
+        }
         if (!mirrors(ref - 120, ref + 2)) this.fault('minor', 'Mirrors: change direction');
       }
       // emerging: you must slow right down (or stop) in the last 15 m to look properly
@@ -1486,15 +1491,25 @@ function carefulKent(run, car, st, bad) {
   return out;
 }
 const MIRROR_BEFORE = ['turn', 'emerge', 'cross', 'mini', 'rb', 'merge', 'diverge', 'laneChange', 'stop', 'pullright', 'pullup', 'baypark'];
+/**
+ * The signal a roundabout's approach wants (Highway Code 186), by the exit, not by the way the exit
+ * points: left for the first exit, right for an exit to the right, none going ahead (then left after
+ * the exit before yours). Judged by the exit's direction, a first exit running straight on wanted
+ * no signal -- the learner's left was "Signals: correctly" -- and a second exit bearing left wanted
+ * a left on the approach, so signalling by the book was "Signals: necessary".
+ */
+const rbApproach = (e) => (e.exit == null ? e.dir : e.exit <= 1 ? 'left' : e.dir === 'right' ? 'right' : 'none'); // (no exit count: Whitmore's rings, by direction as before)
 /** which indicator a manoeuvre wants at arc length s, if any */
 function signalFor(e, s) {
   const at = (a, b) => s > a && s < b;
   switch (e.kind) {
     case 'turn': case 'emerge': case 'mini': return e.dir !== 'none' && at(e.s - 70, e.s + 4) ? e.dir : null;
-    case 'rb': // Highway Code 186: left for a left turn; right for a right, then left after the exit before yours
-      if (e.dir === 'left') return at(e.entryS - 70, e.exitS + 3) ? 'left' : null;
-      if (e.dir === 'right' && at(e.entryS - 70, e.signalLeftS)) return 'right';
+    case 'rb': { // Highway Code 186: left for the first exit; right for one to the right; then left after the exit before yours
+      const a = rbApproach(e);
+      if (a === 'left') return at(e.entryS - 70, e.exitS + 3) ? 'left' : null;
+      if (a === 'right' && at(e.entryS - 70, e.signalLeftS)) return 'right';
       return e.exit >= 2 && at(e.signalLeftS + 1, e.exitS + 3) ? 'left' : null;
+    }
     case 'merge': return at(e.s - 110, e.s + 15) ? 'right' : null;
     case 'diverge': return at(e.s - 30, e.s + 106) ? 'left' : null;
     case 'laneChange': return at(e.s - 45, e.s + 22) ? e.dir : null;

@@ -786,9 +786,14 @@ function learnerHello(c) {
 function updateIndicators(dt, dHeading) {
   if (drive.indicator !== drive.lastInd) { drive.lastInd = drive.indicator; drive.turned = 0; }
   if (drive.indicator) {
-    // self-cancel once a real turn is done (net heading change, so small corrections don't count)
-    drive.turned += Math.atan2(Math.sin(dHeading), Math.cos(dHeading));
-    if (Math.abs(drive.turned) > 1.05 && Math.abs(car.steer) < 0.04) drive.indicator = null;
+    // Self-cancel like a real stalk: once the car has turned the way you signalled (a real turn, not
+    // a lane change) and the wheel comes back from that side. Counted as the net heading change
+    // since it went on, a left signal given going round a roundabout (turning right) and kept
+    // through the left turn off it came out near zero and never cancelled: it was still flashing
+    // at the next roundabout, straight on, and that was "Signals: correctly".
+    const way = drive.indicator === 'left' ? 1 : -1; // left turns raise the heading; positive steer is right
+    drive.turned += Math.max(0, way * Math.atan2(Math.sin(dHeading), Math.cos(dHeading)));
+    if (drive.turned > 0.6 && way * car.steer > -0.04) drive.indicator = null;
   }
   drive.blink += dt;
   const lit = drive.indicator && drive.blink % 0.8 < 0.4;
