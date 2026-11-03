@@ -1519,6 +1519,7 @@ setCityHooks(houseHooks);
 // Driving City (Nov 2026): home moved from Herne Bay into the city, and the cars bought there went with it
 if (!HOMES.includes(state.world)) state.world = 'city';
 for (const c of state.owned.cars) if (c.world === 'kent') c.world = 'city';
+startBtn.textContent = 'Loading the city'; // (the map is the biggest download: say so, not a stuck 100%)
 await loadRegion('city');
 world = getWorld('city'); // home first; the other worlds build on demand
 renderer.compile(world.scene, camera);
