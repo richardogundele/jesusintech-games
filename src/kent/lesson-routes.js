@@ -19,6 +19,7 @@ const LW = 3.65;
 export const CENTRES = {
   herne: { name: 'Herne Bay', match: /herne/i },
   canterbury: { name: 'Canterbury', match: /canterbury/i },
+  kent: { name: 'Herne Bay', match: /herne/i }, // Driving City's Kent area is Herne Bay
 };
 /** the test centre for a key: Kent's two by name, anything else (a city region's auto pool) the region's one */
 export function centreOf(net, key) { const c = CENTRES[key]; return (c && net.testCentres.find((t) => c.match.test(t.name))) || net.testCentres[0]; }

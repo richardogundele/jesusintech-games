@@ -452,6 +452,8 @@ if (opt('gen')) {
   };
   const autoFor = (tc) => {
     const a = (genNet.data.areas || []).find((x) => x.id === tc.area);
+    // the city's Herne Bay keeps its hand-made pool, as the game does (main.js startTest)
+    if (a?.id === 'kent') return G.testRoutes.shiftedPool('herne', [a.x, a.z], { key: 'kent', world: REG, tc });
     return G.autoPool(genNet, tc, a ? { key: a.id, world: REG, bounds: a.box, timeK: G.REGIONS[a.id]?.timeK } : { key: REG, world: REG });
   };
   const pools = REG ? [autoFor(pickCentre())] : opt('gen') === 'both' ? ['herne', 'canterbury'] : [opt('gen')];

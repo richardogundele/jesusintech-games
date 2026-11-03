@@ -22,7 +22,7 @@ import { FreeExam } from './freedrive.js';
 import { ClaudeCoach } from './claudeCoach.js';
 import { SignTeacher } from './signTeach.js';
 import { KENT_ROUTES } from './kent/lesson-routes.js';
-import { generateTest, signsOnRoute } from './kent/test-routes.js';
+import { generateTest, signsOnRoute, shiftedPool } from './kent/test-routes.js';
 import { autoPool } from './kent/auto-pool.js';
 import { signQuestion } from './sign-quiz.js';
 import { buildCar } from './models.js';
@@ -568,7 +568,8 @@ async function land() {
   enterWorld(dest.id);
   hud.show(true);
   await fade(0);
-  hud.toast(dest.id === 'kent' ? 'Chauffeured home to Beltinge. The sea is at the bottom of the garden.'
+  hud.toast(dest.id === 'city' ? 'Home to Driving City. Your cars are in the garage by the house.'
+    : dest.id === 'kent' ? 'Chauffeured home to Beltinge. The sea is at the bottom of the garden.'
     : `Welcome to ${CITIES[dest.id]?.name || dest.name}. Your cars are in the car park by the terminal.`, 5200);
 }
 
@@ -606,7 +607,7 @@ const phone = new Phone({
     if (car?.id === carId) car.setCondition?.(100);
     for (const c of world.cars) if (c.id === carId) c.setCondition?.(100);
   },
-  onJetBought(jetId) { for (const id of ['kent', ...CITY_IDS]) worlds[id]?.addJet?.(jetId); },
+  onJetBought(jetId) { for (const id of ['city', 'kent', ...CITY_IDS]) worlds[id]?.addJet?.(jetId); },
   setLook: (l) => { player.mesh.userData.setLook?.(l); save(); },
   startLesson: (id) => startLesson(id),
   startTest: (centre, seed, kind) => startTest(centre, seed, kind),
@@ -1072,11 +1073,19 @@ async function startTest(centre = 'any', seed = null, kind = 'mock') {
   await ensureWorldData('city');
   const w = getWorld('city');
   const tc = w.net.testCentres.find((t) => t.area === centre), area = w.areas.find((a) => a.id === centre);
-  const pool = autoPool(w.net, tc, { key: centre, world: 'city', bounds: area.box, timeK: REGIONS[centre]?.timeK });
+  // Herne Bay keeps its hand-made pool (moved to where it sits in the city); the rest are read off the map
+  const pool = centre === 'kent' && w.kentAt ? shiftedPool('herne', w.kentAt, { key: 'kent', world: 'city', tc })
+    : autoPool(w.net, tc, { key: centre, world: 'city', bounds: area.box, timeK: REGIONS[centre]?.timeK });
   pool.name = area.name;
-  seed = seed ?? (Math.floor(Math.random() * 1e9) >>> 0);
-  let gen;
-  try { gen = generateTest(w.net, pool, seed); } catch (err) { hud.toast(`Couldn't plan a test route there (${err.message}). Try again.`, 4000); return; }
+  // A seed now and then has no fair route from a centre (Manchester's estates are thin): a new test just
+  // takes the next seed rather than telling the player it couldn't plan one. A retry of a given route can't.
+  const fixed = seed != null;
+  let gen, why = null;
+  for (let k = 0; k < (fixed ? 1 : 6) && !gen; k++) {
+    const s = fixed ? seed : Math.floor(Math.random() * 1e9) >>> 0;
+    try { gen = generateTest(w.net, pool, s); } catch (err) { why = err.message; }
+  }
+  if (!gen) { hud.toast(`Couldn't plan a test route there (${why}). Try again.`, 4000); return; }
   gen.signs = signsOnRoute(w.net, gen.route);
   return startLesson(testDef(gen, kind));
 }
@@ -1243,6 +1252,8 @@ function updateSoundscape() {
   const p = car ? car.pos : player.pos;
   const kind = world.id === 'cabin' ? 'indoor'
     : world.id === 'kent' ? (world.indoors?.(p.x, p.z) ? 'indoor' : p.z < -5500 ? 'coast' : 'city')
+    // Driving City: the sea along Herne Bay's front, as in Kent (its own z, moved by where it sits)
+    : world.id === 'city' ? (world.indoors?.(p.x, p.z) ? 'indoor' : world.kentAt && p.z - world.kentAt[1] < -5500 && world.areaAt(p.x, p.z)?.id === 'kent' ? 'coast' : 'city')
     : ['uk', 'motorway', ...CITY_IDS].includes(world.id) ? 'city' : 'none';
   audio.ambience.set(kind, mode === 'car');
 }

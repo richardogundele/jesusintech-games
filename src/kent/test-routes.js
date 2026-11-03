@@ -111,6 +111,15 @@ const POOLS = {
   },
 };
 export const TEST_CENTRES = Object.fromEntries(Object.entries(POOLS).map(([k, p]) => [k, p.name]));
+/**
+ * A hand-made pool moved by [dx, dz]: Driving City sets Herne Bay down elsewhere (tools/driving-city.mjs)
+ * with its node ids unchanged, so only the points written as { x, z } move. `extra` names it in the city
+ * (key: its area, tc: its centre there).
+ */
+export function shiftedPool(key, [dx, dz], extra = {}) {
+  const p = POOLS[key], P = (q) => (q && typeof q === 'object' ? { ...q, x: q.x + dx, z: q.z + dz } : q);
+  return { ...p, start: P(p.start), first: p.first.map(P), last: (p.last || []).map(P), pullUpAt: P(p.pullUpAt), ...extra };
+}
 
 const MPH = 2.23694;
 /** minutes a careful driver takes (limit less 3 mph, slower round bends and rings, plus waits), calibrated on the full mocks */

@@ -2,6 +2,7 @@
 // topSpeed in km/h, accel in m/s^2 (roughly 0-100 time), grip = lateral grip, mass feel via steerResponse.
 
 import { REGIONS, metresPerDegree } from '../tools/regions.mjs';
+import { CITY } from '../tools/driving-city.mjs';
 
 export const CARS = {
   revuelto: {
@@ -179,10 +180,14 @@ export const talkFee = (reached, crowd) => 250_000 + fameLevel(reached).level * 
 // from tools/regions.mjs, the same table the map was fetched with, and the distances are worked out
 // from them. Kent has its own older pipeline and is not in REGIONS; its flights are measured from
 // Manston, the airfield the jet centre stands on.
+// Driving City (home, with the jet park at the house) is measured from Guildford.
 const WHERE = {
+  city: { name: 'Driving City', lat: 51.2593, lon: -0.5654 },
   kent: { name: 'Kent', lat: 51.342, lon: 1.346 },
   ...Object.fromEntries(Object.entries(REGIONS).filter(([, R]) => R.ready).map(([id, R]) => [id, { name: R.name, lat: R.centre.lat, lon: R.centre.lon }])),
 };
+// the places that are areas of Driving City now: you drive there, so no jet or motorway goes to their old maps
+const IN_CITY = new Set(CITY.areas.map((a) => a.id));
 export const CITIES = Object.fromEntries(Object.entries(WHERE).map(([id, c]) => [id, { name: c.name }]));
 const key = (a, b) => [a, b].sort().join('-');
 /** great-circle km, flat-earth over a few hundred km: the error is metres, and jets fly in 5-minute steps */
@@ -204,7 +209,7 @@ export const ROADS_BETWEEN = {
   'birmingham-london': { road: 'M40', miles: 120 }, 'london-manchester': { road: 'M1 · M6', miles: 200 }, 'birmingham-manchester': { road: 'M6', miles: 85 },
 };
 export const roadBetween = (a, b) => ROADS_BETWEEN[key(a, b)] || { road: 'Motorway', miles: Math.round(km(a, b) * 0.75) };
-export const otherCities = (from) => Object.keys(CITIES).filter((c) => c !== from);
+export const otherCities = (from) => Object.keys(CITIES).filter((c) => c !== from && !IN_CITY.has(c));
 /**
  * The smaller print on a motorway sign: the places you pass on the way, nearest the destination
  * first. A real gantry names two or three, and once there are ten cities every one of them on one
