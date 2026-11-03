@@ -8,6 +8,7 @@ import { DL25_ROWS } from './dl25.js';
 import { LESSONS } from './lessons.js';
 import { PARKED_ON } from './kent/parked.js';
 import { LOOKS, CIVILIANS } from './character.js';
+import { CITY } from '../tools/driving-city.mjs';
 
 const $ = (id) => document.getElementById(id);
 const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -78,7 +79,8 @@ export class Phone {
     const h = uk.history || [];
     const mocks = h.filter((t) => t.kind !== 'real'), mocksPassed = mocks.filter((t) => t.passed).length;
     const reals = h.filter((t) => t.kind === 'real');
-    const centres = (act) => `<div class="seg" style="flex-wrap:wrap"><button data-act="${act}" data-id="herne">Herne Bay</button><button data-act="${act}" data-id="canterbury">Canterbury</button><button data-act="${act}" data-id="london">Mill Hill</button><button data-act="${act}" data-id="birmingham">Kings Heath</button><button data-act="${act}" data-id="manchester">West Didsbury</button><button data-act="${act}" data-id="any">Surprise me</button></div>`;
+    // every test centre in Driving City, by its area (tools/driving-city.mjs)
+    const centres = (act) => `<div class="seg" style="flex-wrap:wrap">${CITY.areas.map((a) => `<button data-act="${act}" data-id="${a.id}">${a.name}</button>`).join('')}<button data-act="${act}" data-id="any">Surprise me</button></div>`;
     const lic = uk.licence === 'full' ? 'Full' : uk.licence === 'auto' ? 'Automatic' : 'Provisional';
     return `<div class="hero"><div class="big">${lic}<span>UK licence</span></div>
         <div class="s">${uk.licence === 'auto' ? 'Automatic cars only: pass a test in a manual for a full licence. ' : uk.licence === 'full' ? 'Manual and automatic. ' : ''}Real UK rules on real roads: drive on the left, mph limits, give way to the right at roundabouts. Z and X are the indicators, Q checks your mirrors.</div></div>
@@ -96,7 +98,7 @@ export class Phone {
       <h3>The driving test</h3>
       <p class="note">The one that counts. Same route maker, same DL25 marking: 15 driving faults or fewer and no serious faults to pass. The examiner says nothing about a fault until the debrief. A pass gets you your licence and pays €5m.${reals.length ? ` ${reals.length} attempt${reals.length === 1 ? '' : 's'} so far.` : mocksPassed ? '' : ' Take a mock first if you want to see how you are marked.'}</p>
       ${centres('real')}
-      <p class="note">Kent's routes were written by hand; the city ones are planned off the real map around the centre the moment you press the button.</p>
+      <p class="note">Every route is planned off the real streets round that centre the moment you press the button, and stays inside its part of the city.</p>
       ${this.testHistory()}
       <h3>Study</h3><div class="row"><div class="grow"><div class="t">Road signs</div><div class="s">Name ten Highway Code signs. Not marked: just practice.</div></div><button class="buy" data-act="signs">Start</button></div>`;
   }

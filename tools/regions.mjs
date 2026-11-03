@@ -86,6 +86,13 @@ export const REGIONS = {
     centre: { lat: 53.444053, lon: -2.930239 }, half: 4000,
     testCentre: { name: 'Norris Green (Liverpool)', lat: 53.444053, lon: -2.930239, address: 'Falklands Approach, Parthenon Drive, Norris Green, Liverpool L11 5BR' },
   },
+  guildford: {
+    // home in Driving City. gov.uk's finder for GU1 4AA, 2026-11-03: car, lorry and bus, ADI parts 2 and 3;
+    // the coordinates are that result's own map link. Not `ready`: it is part of the city, not a world of its own.
+    id: 'guildford', name: 'Guildford', place: 'Slyfield',
+    centre: { lat: 51.2593018, lon: -0.56542965 }, half: 4000,
+    testCentre: { name: 'Guildford', lat: 51.2593018, lon: -0.56542965, address: 'Slyfield Industrial Estate, Off Moorfield Road, Guildford GU1 1SA' },
+  },
 };
 
 /** metres per degree at a latitude (WGS84 series) */

@@ -8,7 +8,9 @@ import { Hud } from './hud.js';
 import { state, save, recordDrive, careerRating } from './state.js';
 import { JETS, CITIES, otherCities, fuelStop, flightTime, roadBetween, LEARNER, CARS } from './catalog.js';
 import { REGIONS } from '../tools/regions.mjs';
+import { CITY } from '../tools/driving-city.mjs';
 import { buildKent, setKentHooks } from './worlds/kent.js';
+import { buildCity, setCityHooks } from './worlds/city.js';
 import * as P from './progress.js';
 import { Phone } from './phone.js';
 import { buildCabin } from './worlds/cabin.js';
@@ -112,13 +114,13 @@ const cityBuilder = (id, name, extra = {}) => (r) => buildRegion(r, { id, name, 
 const CITY_IDS = Object.keys(REGIONS).filter((id) => REGIONS[id].ready); // only cities whose map is baked and checked
 const builders = {
   kent: buildKent, driveuk: cityBuilder('driveuk', 'Drive UK'), motorway: buildMotorway, uk: buildUK,
-  city: cityBuilder('city', 'Driving City'), // the areas joined into one map (tools/city-merge.mjs)
+  city: (r) => buildCity(r, { data: misc('cityRegion') }), // Driving City: the areas joined into one map (tools/city-merge.mjs), home included
   ...Object.fromEntries(CITY_IDS.map((id) => [id, cityBuilder(id, REGIONS[id].name)])),
 };
 // driveuk is the authored teaching city (tools/city-build.mjs); the rest are the real map
 const REGION_WORLDS = ['driveuk', 'city', ...CITY_IDS];
 const ensureWorldData = (id) => (REGION_WORLDS.includes(id) && !worlds[id] ? loadRegion(id) : Promise.resolve());
-const HOMES = ['kent']; // the world you live in: the save remembers it
+const HOMES = ['city']; // the world you live in: the save remembers it (Driving City; Kent was home before it)
 const worlds = {};
 function getWorld(id) {
   if (!worlds[id]) {
@@ -574,7 +576,7 @@ async function land() {
 let lastPlace = '';
 let hudSlow = 0;
 let prevMode = 'foot';
-const homeId = () => (HOMES.includes(world.id) ? world.id : HOMES.includes(state.world) ? state.world : 'kent');
+const homeId = () => (HOMES.includes(world.id) ? world.id : HOMES.includes(state.world) ? state.world : 'city');
 
 function refreshHudExtras() {}
 
@@ -1035,7 +1037,8 @@ async function goHome() {
   if (car) { car.park(); car = null; }
   hud.show(false);
   await fade(1);
-  enterWorld(state.world in builders && state.world !== 'uk' ? state.world : 'kent');
+  await ensureWorldData('city');
+  enterWorld(HOMES.includes(state.world) ? state.world : 'city');
   hud.show(true);
   await fade(0);
 }
@@ -1057,16 +1060,20 @@ async function goKent() {
   await fade(0);
 }
 /**
- * A 15-minute driving test from a test centre ('herne' | 'canterbury' | 'any') on a route made from a
- * seed (a new one each time, or the seed of a test you want to retry).
+ * A 15-minute driving test from one of Driving City's test centres (an area id: 'kent' is Herne Bay,
+ * 'leeds', 'manchester' ...; 'any' picks one) on a route made from a seed (a new one each time, or the seed
+ * of a test you want to retry). The route is planned off the map round that centre, inside its own area.
  */
 async function startTest(centre = 'any', seed = null, kind = 'mock') {
-  if (centre === 'any') centre = Math.random() < 0.5 ? 'herne' : 'canterbury';
-  // Kent's two centres have hand-authored route pools; a city's is read off its map on the spot
-  const city = REGION_WORLDS.includes(centre);
-  if (city) await ensureWorldData(centre);
-  const w = getWorld(city ? centre : 'kent');
-  const pool = city ? autoPool(w.net, w.testCentre, { key: centre, world: centre }) : centre;
+  const areas = CITY.areas.map((a) => a.id);
+  if (centre === 'herne') centre = 'kent'; // a retry from before the city: Herne Bay is its Kent area now
+  if (centre === 'any') centre = areas[Math.floor(Math.random() * areas.length)];
+  if (!areas.includes(centre)) { hud.toast(`That test centre isn't in Driving City. Pick one of its ${areas.length}.`, 4000); return; }
+  await ensureWorldData('city');
+  const w = getWorld('city');
+  const tc = w.net.testCentres.find((t) => t.area === centre), area = w.areas.find((a) => a.id === centre);
+  const pool = autoPool(w.net, tc, { key: centre, world: 'city', bounds: area.box, timeK: REGIONS[centre]?.timeK });
+  pool.name = area.name;
   seed = seed ?? (Math.floor(Math.random() * 1e9) >>> 0);
   let gen;
   try { gen = generateTest(w.net, pool, seed); } catch (err) { hud.toast(`Couldn't plan a test route there (${err.message}). Try again.`, 4000); return; }
@@ -1102,15 +1109,16 @@ async function startLesson(id) {
   camMode = 0;
   drive.indicator = null;
   for (const k in autoState) delete autoState[k];
-  const kent = where === 'kent', centre = kent ? def.centre || KENT_ROUTES[def.route].centre : null;
+  const kent = where === 'kent', inCity = where === 'city';
+  const centre = kent ? def.centre || KENT_ROUTES[def.route].centre : inCity ? def.generated?.centre : null;
   // the gearbox you're learning in (the clutch and gears lessons are always in the manual)
   learner.setTrans(def.trans || state.uk.trans);
   if (learner.autoBadge) learner.autoBadge.visible = learner.trans === 'auto';
   if (tiled && !window.__game?.autoQuiz) { hud.show(false); await fade(1); }
   const pre = [];
-  if (def.checks && kent) { // the eyesight car is parked at Kent's centres only (a city test skips it for now)
+  if (def.checks && (kent || (inCity && world.eyesight?.some((e) => e.centre === centre)))) { // an eyesight car is parked at Kent's centres and at every Driving City centre
     // the real test opens with an eyesight check (read a number plate about 20 m away) and a tell me question
-    const spot = kent ? world.eyesight.find((e) => e.centre === centre) : { x: world.parked.x, z: world.parked.z, heading: 0 };
+    const spot = world.eyesight?.find((e) => e.centre === centre) ?? { x: world.parked.x, z: world.parked.z, heading: 0 };
     world.setPlate?.(randomPlate(), centre);
     player.mesh.visible = true;
     car = null;
@@ -1349,7 +1357,7 @@ function updateMenuCamera(dt) {
 $('start').onclick = () => {
   audio.start();
   $('title').classList.add('hidden');
-  enterWorld(state.world in builders ? state.world : 'kent');
+  enterWorld(HOMES.includes(state.world) ? state.world : 'city');
   hud.show(true);
   refreshHudExtras();
   if (!state.welcomed) {
@@ -1484,14 +1492,19 @@ startBtn.disabled = true;
 startBtn.textContent = 'Loading 0%';
 await loadAll(renderer, (p) => { startBtn.textContent = `Loading ${Math.round(p * 100)}%`; });
 player.mesh = buildPlayer(state.look);
-setKentHooks({
+const houseHooks = {
   toast: (t, ms) => hud.toast(t, ms),
   openPhone: (tab) => { if (mode !== 'phone') togglePhone(); phone.tab = tab; phone.render(); },
   quiz: (item) => quiz(item),
   sfx: (k) => audio.sfx(k),
-});
-getWorld('kent'); // home first; the other cities build on demand (travel compiles them during the flight)
-world = getWorld(state.world in builders && HOMES.includes(state.world) ? state.world : 'kent');
+};
+setKentHooks(houseHooks);
+setCityHooks(houseHooks);
+// Driving City (Nov 2026): home moved from Herne Bay into the city, and the cars bought there went with it
+if (!HOMES.includes(state.world)) state.world = 'city';
+for (const c of state.owned.cars) if (c.world === 'kent') c.world = 'city';
+await loadRegion('city');
+world = getWorld('city'); // home first; the other worlds build on demand
 renderer.compile(world.scene, camera);
 startBtn.disabled = false;
 startBtn.textContent = 'Enter';

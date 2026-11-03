@@ -246,7 +246,7 @@ function link(L, areas) {
 }
 
 /** one height grid for the whole city: the areas' own hills, and a smooth fill (0 at the city's edge) between */
-function terrain(areas, bounds) {
+function terrain(areas, bounds, flat = []) {
   const step = 100, x0 = Math.floor(bounds.minX / step) * step, z0 = Math.floor(bounds.minZ / step) * step;
   const nx = Math.ceil((bounds.maxX - x0) / step) + 1, nz = Math.ceil((bounds.maxZ - z0) / step) + 1;
   const h = new Float64Array(nx * nz), fixed = new Uint8Array(nx * nz);
@@ -259,6 +259,12 @@ function terrain(areas, bounds) {
       if (x < tx0 || x > tx1 || z < tz0 || z > tz1 || !inBox(x, z, A.box)) continue;
       h[j * nx + i] = at(x - A.ox, z - A.oz); fixed[j * nx + i] = 1;
     }
+  }
+  // the house and the jet park are built level, at height 0: their ground is held at 0, and for 300 m
+  // round it the hills are let go, so the fill below eases them down to it
+  for (let j = 0; j < nz; j++) for (let i = 0; i < nx; i++) {
+    const x = x0 + i * step, z = z0 + j * step, k = j * nx + i, d = Math.min(Infinity, ...flat.map((f) => f.dist(x, z)));
+    if (d <= 0) { h[k] = 0; fixed[k] = 1; } else if (d < 300) fixed[k] = 0;
   }
   // between the areas: relax towards the average of the neighbours (a soap film across the gaps)
   for (let it = 0; it < 800; it++) for (let j = 1; j < nz - 1; j++) for (let i = 1; i < nx - 1; i++) {
@@ -314,6 +320,54 @@ function countryside(areas, bounds) {
   return out;
 }
 
+/**
+ * Home: the house and, beside it, the jet park, at points in an area's own metres (CITY.home). Each is
+ * built level by house.js / airfield.js, so their ground is flattened (terrain), nothing is built on
+ * them, and each gate gets a private service road to the nearest quiet street, as kent-data.mjs gave
+ * Beltinge its Home Drive and Maypole its Jet Centre Road.
+ */
+function estate(cfg, areas) {
+  const A = areas.get(cfg.area);
+  const home = { x: A.ox + cfg.house[0], z: A.oz + cfg.house[1] }, airfield = { x: A.ox + cfg.jets[0], z: A.oz + cfg.jets[1] };
+  // airfield.js: the fenced site x -230..+45, z -920..+50 of its origin, the approach strip x +-40, z -1320..-920
+  const rects = [
+    { minX: airfield.x - 230, maxX: airfield.x + 45, minZ: airfield.z - 920, maxZ: airfield.z + 50 },
+    { minX: airfield.x - 40, maxX: airfield.x + 40, minZ: airfield.z - 1320, maxZ: airfield.z - 920 },
+  ];
+  const rectDist = (r, x, z) => Math.hypot(Math.max(r.minX - x, 0, x - r.maxX), Math.max(r.minZ - z, 0, z - r.maxZ));
+  const zones = [
+    { dist: (x, z) => hypot(x - home.x, z - home.z) - 120 }, // the house, its garden and the garage court
+    ...rects.map((r) => ({ dist: (x, z) => rectDist(r, x, z) - 40 })),
+  ];
+  return { home, airfield, zones, gates: [['Home Drive', [home.x, home.z + 42]], ['Jet Centre Road', [airfield.x - 120, airfield.z + 50]]] };
+}
+let nextNodeId = 50_000_000; // nodes the bake adds itself (drive gates and joins), clear of every area's range
+/** a two-point private road from a gate to the foot of the perpendicular on the nearest quiet two-way street */
+function addDrive(name, gate, ways, nodes) {
+  let best = null;
+  for (const w of ways) {
+    const r = RANK[w.cls] ?? 3;
+    if (w.oneway || w.rb || w.synthetic || w.link || r < 2 || r > 5) continue;
+    for (let i = 0; i < w.pts.length - 1; i++) {
+      const a = w.pts[i], b = w.pts[i + 1], dx = b[0] - a[0], dz = b[1] - a[1], L2 = dx * dx + dz * dz || 1;
+      const t = Math.max(0, Math.min(1, ((gate[0] - a[0]) * dx + (gate[1] - a[1]) * dz) / L2)), q = [a[0] + dx * t, a[1] + dz * t], d = hypot(q[0] - gate[0], q[1] - gate[1]);
+      if (!best || d < best.d) best = { w, i, t, q, d };
+    }
+  }
+  if (!best || best.d > 900) throw new Error(`${name}: no street within 900 m of its gate (${gate})`);
+  const { w, i, q } = best, node = (x, z) => { const id = nextNodeId++; nodes.set(id, { x: +x.toFixed(2), z: +z.toFixed(2), ways: [], signals: false, crossing: null, giveWay: false, stop: false, mini: false, levelCrossing: false }); return id; };
+  let join;
+  if (hypot(q[0] - w.pts[i][0], q[1] - w.pts[i][1]) < 1.5) join = w.nodes[i] || (w.nodes[i] = node(...w.pts[i]));
+  else if (hypot(q[0] - w.pts[i + 1][0], q[1] - w.pts[i + 1][1]) < 1.5) join = w.nodes[i + 1] || (w.nodes[i + 1] = node(...w.pts[i + 1]));
+  else { join = node(q[0], q[1]); w.pts.splice(i + 1, 0, [+q[0].toFixed(2), +q[1].toFixed(2)]); w.nodes.splice(i + 1, 0, join); }
+  if (!nodes.get(join).ways.includes(w.id)) nodes.get(join).ways.push(w.id);
+  const g = node(gate[0], gate[1]);
+  const drive = { id: wayId(-1), name, ref: null, cls: 'service', limit: 20, nsl: false, oneway: false, lanesF: 1, lanesB: 1, lanesSrc: 'derived', rb: null, dual: false, link: false, bridge: false, tunnel: false, layer: 0,
+    width: 5.0, pave: false, rural: false, turnLanes: null, pts: [[gate[0], gate[1]], [+q[0].toFixed(2), +q[1].toFixed(2)]], nodes: [g, join], synthetic: true };
+  nodes.get(g).ways.push(drive.id); nodes.get(join).ways.push(drive.id);
+  return { drive, to: w.name || w.cls, m: Math.round(best.d) };
+}
+
 // ---------- bake ----------
 const areas = new Map();
 CITY.areas.forEach((area, k) => {
@@ -330,8 +384,13 @@ const all = (k) => [...areas.values()].flatMap((A) => A[k]);
 const box = { minX: Infinity, maxX: -Infinity, minZ: Infinity, maxZ: -Infinity };
 for (const A of areas.values()) { box.minX = Math.min(box.minX, A.box.minX); box.maxX = Math.max(box.maxX, A.box.maxX); box.minZ = Math.min(box.minZ, A.box.minZ); box.maxZ = Math.max(box.maxZ, A.box.maxZ); }
 const bounds = { minX: box.minX - 1500, maxX: box.maxX + 1500, minZ: box.minZ - 1500, maxZ: box.maxZ + 1500 };
-const home = areas.get(CITY.home);
+const home = areas.get(CITY.home.area);
 const ways = [...all('ways'), ...links.flatMap((l) => l.ways)];
+const E = CITY.home.house ? estate(CITY.home, areas) : null;
+const inEstate = (x, z) => !!E && E.zones.some((f) => f.dist(x, z) <= 0);
+const drives = E ? E.gates.map(([name, gate]) => addDrive(name, gate, ways, nodes)) : [];
+for (const d of drives) ways.push(d.drive);
+for (const A of areas.values()) A.buildings = A.buildings.filter((b) => !b.pts.some((p) => inEstate(p[0], p[1])));
 const out = {
   attribution: [...new Set([...areas.values()].map((A) => A.attribution))].join(' | '),
   osm_base: 'per area, see each area\'s own region.json',
@@ -345,12 +404,12 @@ const out = {
   roundabouts: all('roundabouts'), minis: all('minis'), signals: all('signals'), crossings: all('crossings'), calming: all('calming'),
   levelCrossings: all('levelCrossings'), railways: all('railways'), rivers: all('rivers'),
   coastline: all('coastline'), sea: all('sea'),
-  buildings: all('buildings'), landuse: [...all('landuse'), ...countryside(areas, bounds)], landmarks: all('landmarks'),
+  buildings: all('buildings'), landuse: [...all('landuse'), ...countryside(areas, bounds)].filter((l) => !inEstate(...centroid(l.pts))), landmarks: all('landmarks'),
   // each area is a place in its own right, so the signs at a link road name the next area
   places: [...[...areas.values()].map((A) => ({ name: A.name, x: (A.box.minX + A.box.maxX) / 2, z: (A.box.minZ + A.box.maxZ) / 2, r: Math.max(A.box.maxX - A.box.minX, A.box.maxZ - A.box.minZ) / 2, rank: 1 })), ...all('places').filter((p) => !CITY.areas.some((a) => a.name === p.name))],
   testCentres: all('testCentres'),
-  home: home.home || null, airfield: home.airfield,
-  terrain: terrain(areas, bounds),
+  home: E ? E.home : home.home || null, airfield: E ? E.airfield : home.airfield,
+  terrain: terrain(areas, bounds, E ? E.zones : []),
 };
 const file = path.join(ROOT, 'public/assets/city/region.json');
 fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -358,3 +417,4 @@ fs.writeFileSync(file, JSON.stringify(out));
 console.log(`${CITY.name}: ${areas.size} areas, ${ways.length} ways, ${nodes.size} nodes, ${out.roundabouts.length} rings, ${out.signals.length} signal nodes, ${out.testCentres.length} test centres, ${(fs.statSync(file).size / 1e6).toFixed(1)} MB`);
 for (const A of areas.values()) console.log(`  ${A.name.padEnd(12)} at ${A.ox},${A.oz}  ${A.ways.length} ways, ${A.testCentres.map((t) => t.name).join(', ')}`);
 for (const l of links) console.log(`  link (${l.kind}) ${l.from} -> ${l.to}: ${l.km.toFixed(2)} km`);
+if (E) console.log(`  home at ${E.home.x},${E.home.z}, jets at ${E.airfield.x},${E.airfield.z}; ${drives.map((d) => `${d.drive.name} ${d.m} m to ${d.to}`).join(', ')}`);

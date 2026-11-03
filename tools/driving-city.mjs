@@ -10,13 +10,15 @@
 //
 // The middle of the city is kept for Guildford, home, once its map is fetched and baked
 // (tools/regions.mjs, osm-fetch.mjs, region-data.mjs): Kent above it, Leeds and Manchester either side,
-// Birmingham and Coventry below. Until then the learner car and the jet centre are at Birmingham.
+// Birmingham and Coventry below. Until then home is on open land just north of Birmingham.
 
 const CITY_SQUARE = { minX: -3980, maxX: 3980, minZ: -3980, maxZ: 3980 }; // the 4 km fetches, without the jet-centre land south of them
 
 export const CITY = {
   id: 'city', name: 'Driving City',
-  home: 'birmingham',
+  // home: the house and the jet park beside it, in the area's own metres (city-merge.mjs flattens their
+  // ground and joins each gate to the nearest street). For now on open land just north of Birmingham.
+  home: { area: 'birmingham', house: [0, -2620], jets: [1500, -2650] },
   areas: [
     // Herne Bay and its coast, Swalecliffe to Reculver; Canterbury, Maypole and the cliff-top house left out.
     // Its 40 generated test routes keep inside x 594..3469, z -5901..-3363, so this has 760 m to spare.
