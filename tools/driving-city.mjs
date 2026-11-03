@@ -19,7 +19,8 @@ export const CITY = {
   id: 'city', name: 'Driving City',
   // home: the house and the jet park beside it, in the area's own metres (city-merge.mjs flattens their
   // ground and joins each gate to the nearest street)
-  home: { area: 'guildford', house: [3150, -2650], jets: [3600, -2250] },
+  // (`junction`: where the Home Drive, straight south from the gate, meets the jet park's road)
+  home: { area: 'guildford', house: [3150, -2650], jets: [3600, -2250], junction: [3150, -2130] },
   areas: [
     // The old Woking Road meets the A320 in a V just north of the Slyfield roundabout, drawn 3-6 m from it for
     // 40 m: the two carriageways overlapped and cars met head on there, locking the roundabout below. It now

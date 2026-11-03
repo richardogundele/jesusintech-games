@@ -363,7 +363,7 @@ function countryside(areas, bounds) {
 /**
  * Home: the house and, beside it, the jet park, at points in an area's own metres (CITY.home). Each is
  * built level by house.js / airfield.js, so their ground is flattened (terrain), nothing is built on
- * them, and each gate gets a private service road to the nearest quiet street, as kent-data.mjs gave
+ * them, and they get private roads to the nearest quiet street (estateRoads), as kent-data.mjs gave
  * Beltinge its Home Drive and Maypole its Jet Centre Road.
  */
 function estate(cfg, areas) {
@@ -379,33 +379,62 @@ function estate(cfg, areas) {
     { dist: (x, z) => hypot(x - home.x, z - home.z) - 120 }, // the house, its garden and the garage court
     ...rects.map((r) => ({ dist: (x, z) => rectDist(r, x, z) - 40 })),
   ];
-  return { home, airfield, zones, gates: [['Home Drive', [home.x, home.z + 42]], ['Jet Centre Road', [airfield.x - 120, airfield.z + 50]]] };
+  // the house faces south: its drive leaves the gate 42 m south of it (house.js driveEnd), and the jet
+  // park's gate is at its origin + (-120, 50); `junction` is where the two private roads meet
+  const junction = cfg.junction ? [A.ox + cfg.junction[0], A.oz + cfg.junction[1]] : null;
+  return { home, airfield, zones, junction, homeGate: [home.x, home.z + 42], jetGate: [airfield.x - 120, airfield.z + 50] };
 }
 let nextNodeId = 50_000_000; // nodes the bake adds itself (drive gates and joins), clear of every area's range
-/** a two-point private road from a gate to the foot of the perpendicular on the nearest quiet two-way street */
-function addDrive(name, gate, ways, nodes) {
-  let best = null;
+const newNode = (nodes, x, z) => { const id = nextNodeId++; nodes.set(id, { x: +x.toFixed(2), z: +z.toFixed(2), ways: [], signals: false, crossing: null, giveWay: false, stop: false, mini: false, levelCrossing: false }); return id; };
+const privateRoad = (name, pts, ids, nodes) => {
+  const way = { id: wayId(-1), name, ref: null, cls: 'service', limit: 20, nsl: false, oneway: false, lanesF: 1, lanesB: 1, lanesSrc: 'derived', rb: null, dual: false, link: false, bridge: false, tunnel: false, layer: 0,
+    width: 5.0, pave: false, rural: false, turnLanes: null, pts: pts.map((p) => [+p[0].toFixed(2), +p[1].toFixed(2)]), nodes: ids, synthetic: true };
+  for (const id of ids) if (id) nodes.get(id).ways.push(way.id);
+  return way;
+};
+/**
+ * A straight private road from node `from` (at point `at`) to the nearest quiet two-way street it can reach
+ * without crossing a link road or running through the estate, joined at the foot of the perpendicular. A
+ * street end the crop left at an area's edge stops being one (no cap, no No Entry sign: the road goes on).
+ */
+function addDrive(name, at, from, ways, nodes, avoid) {
+  const cands = [];
   for (const w of ways) {
     const r = RANK[w.cls] ?? 3;
     if (w.oneway || w.rb || w.synthetic || w.link || r < 2 || r > 5) continue;
     for (let i = 0; i < w.pts.length - 1; i++) {
       const a = w.pts[i], b = w.pts[i + 1], dx = b[0] - a[0], dz = b[1] - a[1], L2 = dx * dx + dz * dz || 1;
-      const t = Math.max(0, Math.min(1, ((gate[0] - a[0]) * dx + (gate[1] - a[1]) * dz) / L2)), q = [a[0] + dx * t, a[1] + dz * t], d = hypot(q[0] - gate[0], q[1] - gate[1]);
-      if (!best || d < best.d) best = { w, i, t, q, d };
+      const t = Math.max(0, Math.min(1, ((at[0] - a[0]) * dx + (at[1] - a[1]) * dz) / L2)), q = [a[0] + dx * t, a[1] + dz * t], d = hypot(q[0] - at[0], q[1] - at[1]);
+      if (d < 900) cands.push({ w, i, q, d });
     }
   }
-  if (!best || best.d > 900) throw new Error(`${name}: no street within 900 m of its gate (${gate})`);
-  const { w, i, q } = best, node = (x, z) => { const id = nextNodeId++; nodes.set(id, { x: +x.toFixed(2), z: +z.toFixed(2), ways: [], signals: false, crossing: null, giveWay: false, stop: false, mini: false, levelCrossing: false }); return id; };
+  cands.sort((p, q) => p.d - q.d);
+  const best = cands.find((c) => { const seg = [at, c.q]; return !avoid.lines.some((l) => cross(l, seg)) && [0.25, 0.5, 0.75].every((f) => !avoid.inside(at[0] + (c.q[0] - at[0]) * f, at[1] + (c.q[1] - at[1]) * f)); });
+  if (!best) throw new Error(`${name}: no street within 900 m of (${at}) reachable without crossing a link or the estate`);
+  const { w, i, q } = best;
   let join;
-  if (hypot(q[0] - w.pts[i][0], q[1] - w.pts[i][1]) < 1.5) join = w.nodes[i] || (w.nodes[i] = node(...w.pts[i]));
-  else if (hypot(q[0] - w.pts[i + 1][0], q[1] - w.pts[i + 1][1]) < 1.5) join = w.nodes[i + 1] || (w.nodes[i + 1] = node(...w.pts[i + 1]));
-  else { join = node(q[0], q[1]); w.pts.splice(i + 1, 0, [+q[0].toFixed(2), +q[1].toFixed(2)]); w.nodes.splice(i + 1, 0, join); }
-  if (!nodes.get(join).ways.includes(w.id)) nodes.get(join).ways.push(w.id);
-  const g = node(gate[0], gate[1]);
-  const drive = { id: wayId(-1), name, ref: null, cls: 'service', limit: 20, nsl: false, oneway: false, lanesF: 1, lanesB: 1, lanesSrc: 'derived', rb: null, dual: false, link: false, bridge: false, tunnel: false, layer: 0,
-    width: 5.0, pave: false, rural: false, turnLanes: null, pts: [[gate[0], gate[1]], [+q[0].toFixed(2), +q[1].toFixed(2)]], nodes: [g, join], synthetic: true };
-  nodes.get(g).ways.push(drive.id); nodes.get(join).ways.push(drive.id);
-  return { drive, to: w.name || w.cls, m: Math.round(best.d) };
+  if (hypot(q[0] - w.pts[i][0], q[1] - w.pts[i][1]) < 1.5) join = w.nodes[i] || (w.nodes[i] = newNode(nodes, ...w.pts[i]));
+  else if (hypot(q[0] - w.pts[i + 1][0], q[1] - w.pts[i + 1][1]) < 1.5) join = w.nodes[i + 1] || (w.nodes[i + 1] = newNode(nodes, ...w.pts[i + 1]));
+  else { join = newNode(nodes, q[0], q[1]); w.pts.splice(i + 1, 0, [+q[0].toFixed(2), +q[1].toFixed(2)]); w.nodes.splice(i + 1, 0, join); }
+  const jn = nodes.get(join);
+  if (!jn.ways.includes(w.id)) jn.ways.push(w.id);
+  jn.edge = false;
+  return { drive: privateRoad(name, [at, q], [from, join], nodes), to: w.name || w.cls, m: Math.round(best.d) };
+}
+/**
+ * The estate's roads: the Home Drive straight south out of the house's gate (it faces that way: a drive
+ * leaving the gate at a slant ran back past the house, through the garden), the Jet Centre Road from the
+ * jet park's gate to it at the junction, and from there one road on to the nearest quiet street.
+ */
+function estateRoads(E, ways, nodes, avoid) {
+  const J = E.junction || [E.homeGate[0], E.homeGate[1] + 300];
+  const g1 = newNode(nodes, ...E.homeGate), g2 = newNode(nodes, ...E.jetGate), j = newNode(nodes, ...J);
+  // each gate is in its site's south fence: both roads leave it heading south, the jet park's turning across
+  // to the junction once it is level with it (run straight along the fence, it was a wall for 100 m)
+  const bend = [E.jetGate[0], J[1]];
+  const roads = [privateRoad('Home Drive', [E.homeGate, J], [g1, j], nodes), privateRoad('Jet Centre Road', [E.jetGate, bend, J], [g2, 0, j], nodes)];
+  const out = addDrive('Home Drive', J, j, ways, nodes, avoid);
+  return { roads: [...roads, out.drive], note: `Home Drive ${Math.round(hypot(J[0] - E.homeGate[0], J[1] - E.homeGate[1]))} m south from the gate, Jet Centre Road ${Math.round(lengthOf(roads[1].pts))} m to it, then ${out.m} m on to ${out.to}` };
 }
 
 // ---------- bake ----------
@@ -429,8 +458,10 @@ const bounds = { minX: box.minX - 1500, maxX: box.maxX + 1500, minZ: box.minZ - 
 const home = areas.get(CITY.home.area);
 const ways = [...all('ways'), ...links.flatMap((l) => l.ways)];
 const inEstate = (x, z) => !!E && E.zones.some((f) => f.dist(x, z) <= 0);
-const drives = E ? E.gates.map(([name, gate]) => addDrive(name, gate, ways, nodes)) : [];
-for (const d of drives) ways.push(d.drive);
+// (the private roads may not cross a link road, nor run through the house or the jet park themselves)
+const estateAvoid = { lines: linkCtx.built, inside: (x, z) => !!E && hypot(x - E.home.x, z - E.home.z) < 100 };
+const estateNet = E ? estateRoads(E, ways, nodes, estateAvoid) : null;
+if (estateNet) ways.push(...estateNet.roads);
 for (const A of areas.values()) A.buildings = A.buildings.filter((b) => !b.pts.some((p) => inEstate(p[0], p[1])));
 const out = {
   attribution: [...new Set([...areas.values()].map((A) => A.attribution))].join(' | '),
@@ -458,4 +489,4 @@ fs.writeFileSync(file, JSON.stringify(out));
 console.log(`${CITY.name}: ${areas.size} areas, ${ways.length} ways, ${nodes.size} nodes, ${out.roundabouts.length} rings, ${out.signals.length} signal nodes, ${out.testCentres.length} test centres, ${(fs.statSync(file).size / 1e6).toFixed(1)} MB`);
 for (const A of areas.values()) console.log(`  ${A.name.padEnd(12)} at ${A.ox},${A.oz}  ${A.ways.length} ways, ${A.testCentres.map((t) => t.name).join(', ')}`);
 for (const l of links) console.log(`  link (${l.kind}) ${l.from} -> ${l.to}: ${l.km.toFixed(2)} km`);
-if (E) console.log(`  home at ${E.home.x},${E.home.z}, jets at ${E.airfield.x},${E.airfield.z}; ${drives.map((d) => `${d.drive.name} ${d.m} m to ${d.to}`).join(', ')}`);
+if (E) console.log(`  home at ${E.home.x},${E.home.z}, jets at ${E.airfield.x},${E.airfield.z}; ${estateNet.note}`);
