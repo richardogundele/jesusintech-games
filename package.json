@@ -4,10 +4,11 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "rm -rf dist && vite build",
+    "dev": "node tools/city-merge.mjs && vite",
+    "build": "rm -rf dist && node tools/city-merge.mjs && vite build",
     "preview": "vite preview",
-    "check": "node tools/check-regions.mjs && node tools/net-check.mjs"
+    "check": "node tools/check-regions.mjs && node tools/net-check.mjs",
+    "city": "node tools/city-merge.mjs"
   },
   "dependencies": {
     "three": "0.170.0"

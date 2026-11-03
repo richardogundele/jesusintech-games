@@ -4,3 +4,6 @@ dist
 assets-src
 .netlify
 scratch
+
+# Driving City is baked from the areas at build time (npm run city / build / dev)
+public/assets/city/region.json

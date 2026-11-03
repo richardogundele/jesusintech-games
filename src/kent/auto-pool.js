@@ -27,12 +27,14 @@ const ESTATE = new Set(['residential', 'unclassified', 'living_street', 'tertiar
  * Manchester's two multi-lane roundabouts sat 2.3 km out on a 2.5 km map, 75 m from the edge, and
  * the only way to them came out at 12.5 km. So the reach grows with the map and stops 900 m short of
  * the edge, and never falls below the 2.2 km that the first three cities were measured at.
+ * In Driving City the map is the centre's own area (`bounds`, its box in the city), not the whole
+ * city, and `timeK` is that area's (the world, 'city', has none of its own).
  */
-export function autoPool(net, tc, { key = 'auto', world = null, radius = null } = {}) {
+export function autoPool(net, tc, { key = 'auto', world = null, radius = null, bounds = null, timeK = null } = {}) {
   const layout = testCentreLayout(net, tc);
   const hit = layout.hit;
   if (!hit) throw new Error(`${tc.name}: no road within 120 m of the test centre`);
-  const b = net.bounds;
+  const b = bounds ?? net.bounds;
   const edge = b ? Math.min(tc.x - b.minX, b.maxX - tc.x, tc.z - b.minZ, b.maxZ - tc.z) : 2500;
   const reach = radius ?? Math.max(2200, Math.min(3000, edge - 900));
   const near = (x, z) => Math.hypot(x - tc.x, z - tc.z) <= reach;
@@ -129,7 +131,7 @@ export function autoPool(net, tc, { key = 'auto', world = null, radius = null } 
     // and both checks plan the same test. The planning window stays the wide one: narrowing it to
     // Kent's 14.3-15.7 was measured and rejected -- it forces the few routes that fit, which on
     // Birmingham meant nearly every seed driving through the same two junctions it gridlocks at.
-    timeK: REGIONS[world]?.timeK ?? 1.0, quick: [1.0, 0.03, 2.4], window: [13.8, 16.2],
+    timeK: timeK ?? REGIONS[world]?.timeK ?? 1.0, quick: [1.0, 0.03, 2.4], window: [13.8, 16.2],
     stats: { mains: Object.keys(mains).length, loops: Object.keys(loops).length, multiLaneRbs, reach: Math.round(reach) },
   };
 }

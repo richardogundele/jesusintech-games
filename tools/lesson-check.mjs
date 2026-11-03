@@ -15,6 +15,7 @@
 //                               route seed (the traffic uses the same seed); reports sim minutes against the 13-17 target
 //   --gen auto --region london   the same, for a city: the pool comes from its baked map (auto-pool.js)
 //                               rather than Kent's two authored ones, so a city's roads get driven
+//   --gen auto --region city --centre coventry   Driving City: one area's test centre (default the first)
 //   --colliders builds the Kent tiles along the route (scenery, roads, signs) and adds their colliders,
 //   so the car can hit buildings, posts and barriers as in the browser (slower: tiles take a while)
 //   ids: lesson ids (moveoff, junctions, ... mock, mock-canterbury, wm-moveoff ...), 'kent', 'whitmore' or 'all'
@@ -70,6 +71,7 @@ export { CENTRES, centreOf, testCentreLayout } from './src/kent/lesson-routes.js
 export * as THREE from 'three';
 export * as testRoutes from './src/kent/test-routes.js';
 export { autoPool } from './src/kent/auto-pool.js';
+export { REGIONS } from './tools/regions.mjs';
 export { makeTerrain } from './src/worlds/terrain.js';
 export * as dl25 from './src/dl25.js';
 `;
@@ -435,7 +437,20 @@ if (opt('gen')) {
   const REG = opt('region') || null;
   if (REG && !hasRegion(REG)) { console.error(`no baked map at ${regionFile(REG)}`); process.exit(2); }
   const genNet = regionNet(REG || 'kent');
-  const pools = REG ? [G.autoPool(genNet, genNet.testCentres[0], { key: REG, world: REG })] : opt('gen') === 'both' ? ['herne', 'canterbury'] : [opt('gen')];
+  // --centre <area|name|index>: which test centre (Driving City has one per area); a city area's pool
+  // reads its own box and timeK, not the whole city's
+  const pickCentre = () => {
+    const c = opt('centre'), tcs = genNet.testCentres;
+    if (c == null) return tcs[0];
+    const t = /^\d+$/.test(c) ? tcs[+c] : tcs.find((x) => x.area === c || x.name.toLowerCase().includes(c.toLowerCase()));
+    if (!t) { console.error(`no test centre ${c}: ${tcs.map((x) => x.area || x.name).join(', ')}`); process.exit(2); }
+    return t;
+  };
+  const autoFor = (tc) => {
+    const a = (genNet.data.areas || []).find((x) => x.id === tc.area);
+    return G.autoPool(genNet, tc, a ? { key: a.id, world: REG, bounds: a.box, timeK: G.REGIONS[a.id]?.timeK } : { key: REG, world: REG });
+  };
+  const pools = REG ? [autoFor(pickCentre())] : opt('gen') === 'both' ? ['herne', 'canterbury'] : [opt('gen')];
   for (const centre of pools) for (const gs of range(opt('gseeds', '1-5'))) {
     try { const win = opt('genwin') ? opt('genwin').split(',').map(Number) : null;
     const gen = G.testRoutes.generateTest(genNet, centre, gs, flag('genwhy') || win || opt('signs') ? { ...(win ? { minMin: win[0], maxMin: win[1] } : {}), ...(opt('signs') ? { signsRate: +opt('signs') } : {}), log: !flag('genwhy') ? null : (k, used, why, mins, rt) => console.log(`   try ${k}: ${used.join(',')} ${mins.toFixed(1)} min ${(rt.length / 1000).toFixed(1)} km: ${why.join(', ') || 'OK'} | ${rt.events.filter((e) => ['turn', 'emerge', 'cross'].includes(e.kind)).map((e) => e.kind[0] + (e.dir || '')[0]).join('')}`) } : {}); gen.signs = G.testRoutes.signsOnRoute(genNet, gen.route); genRuns.push({ def: Lmod.testDef(gen), seed: gs, gen }); }
