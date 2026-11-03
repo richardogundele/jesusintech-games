@@ -406,7 +406,7 @@ const out = {
   coastline: all('coastline'), sea: all('sea'),
   buildings: all('buildings'), landuse: [...all('landuse'), ...countryside(areas, bounds)].filter((l) => !inEstate(...centroid(l.pts))), landmarks: all('landmarks'),
   // each area is a place in its own right, so the signs at a link road name the next area
-  places: [...[...areas.values()].map((A) => ({ name: A.name, x: (A.box.minX + A.box.maxX) / 2, z: (A.box.minZ + A.box.maxZ) / 2, r: Math.max(A.box.maxX - A.box.minX, A.box.maxZ - A.box.minZ) / 2, rank: 1 })), ...all('places').filter((p) => !CITY.areas.some((a) => a.name === p.name))],
+  places: [...[...areas.values()].map((A) => ({ name: A.name, x: (A.box.minX + A.box.maxX) / 2, z: (A.box.minZ + A.box.maxZ) / 2, r: Math.round(hypot(A.box.maxX - A.box.minX, A.box.maxZ - A.box.minZ) / 2 + 200), rank: 1 })), ...all('places').filter((p) => !CITY.areas.some((a) => a.name === p.name))],
   testCentres: all('testCentres'),
   home: E ? E.home : home.home || null, airfield: E ? E.airfield : home.airfield,
   terrain: terrain(areas, bounds, E ? E.zones : []),
