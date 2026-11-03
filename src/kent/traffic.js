@@ -647,13 +647,16 @@ export class KentTraffic {
    * Giving way to such a car is a loop nobody can break -- on Driveuk a car held at a staggered
    * crossroads gave way to a car standing in the box, which was queued behind the car that was
    * itself waiting on the one giving way, and a forty-car queue stood for the whole watchdog.
+   * A car whose plan says go but whose move is refused, every frame, for pushing into the one giving
+   * way (bumpId) is waiting on it too: #plan clears blockId, so the chain broke there, and a car held
+   * at its line gave way for good to a car queued behind one pinned against its own nose (Manchester seed 1).
    */
   #waitsOn(B, A) {
-    for (let k = 0, id = B.blockId; id > 0 && k < 30; k++) {
+    for (let k = 0, id = B.blockId || B.bumpId; id > 0 && k < 30; k++) {
       if (id === A.id) return true;
       const C = this.byId?.get(id) ?? this.cars.find((c) => c.id === id);
       if (!C || C.v >= 0.3) return false;
-      id = C.blockId;
+      id = C.blockId || C.bumpId;
     }
     return false;
   }
@@ -776,6 +779,7 @@ export class KentTraffic {
     // squeezing: carry on until clear of every car and the player, then back to the normal rules
     if (A.ghost > 0) A.ghost = this.#worse(A, A.x, A.z, A.fx, A.fz, true) || this.#overPlayer(A) ? Math.max(A.ghost, 0.5) : A.ghost - dt;
     const bumped = dt > 0 && (A.v > 0 || back > 0) && !(A.ghost > 0) ? this.#worse(A, ox, oz, ofx, ofz) : 0;
+    A.bumpId = bumped; // (kept through the next #plan, which clears blockId: #waitsOn follows it)
     if (bumped) {
       A.s = os; A.idx = oi; A.aim = oa; A.x = ox; A.z = oz; A.heading = oh; A.fx = ofx; A.fz = ofz; A.nudge = on; A.v = 0;
       A.freeD = 0; A.blockId = bumped; // so others know I'm going nowhere, and who for
@@ -956,7 +960,7 @@ export class KentTraffic {
       // start at a speed that can still stop for the first line on the route (lights, a give-way)
       const first = A.ev.length ? A.ev[0].s - A.L / 2 : Infinity;
       A.v = Math.min(A.vcap[0] * 0.9, Math.sqrt(2 * STOP_BRAKE * Math.max(0, first - 3))); A.stun = 0; A.stopT = 0; A.extTried = false; A.lastGroup = null; A.lastGroupS = -1e9;
-      A.held = false; A.freeD = Infinity; A.minorNode = 0; A.minorNode2 = 0; A.nudge = 0; A.nudgeT = 0; A.blockId = 0; A.blockedByMe = false; A.backUp = 0; A.noRoom = false; A.ghost = 0; A.passT = 0; A.passOff = 0;
+      A.held = false; A.freeD = Infinity; A.minorNode = 0; A.minorNode2 = 0; A.nudge = 0; A.nudgeT = 0; A.blockId = 0; A.bumpId = 0; A.blockedByMe = false; A.backUp = 0; A.noRoom = false; A.ghost = 0; A.passT = 0; A.passOff = 0;
       this.#move(A, 0);
       this.cars.push(A);
       this.stats.spawned++;
@@ -976,7 +980,7 @@ export class KentTraffic {
       pos: new THREE.Vector3(), x: 0, z: 0, heading: 0, fx: 0, fz: 1, v: 0, want: 0,
       lane: { rb: null }, u: 0, stun: 0, stunned: false, under: 0, ghost: 0,
       n: 0, px: null, pz: null, ps: null, vcap: null, rbArr: [], ev: [], evI: 0, s: 0, idx: 0, aim: 0,
-      route: null, dest: null, held: false, freeD: Infinity, blockId: 0, blockedByMe: false, nudge: 0, nudgeT: 0, backUp: 0, noRoom: false, minorNode: 0, minorNode2: 0, lastGroup: null, lastGroupS: -1e9, stopT: 0, extTried: false,
+      route: null, dest: null, held: false, freeD: Infinity, blockId: 0, bumpId: 0, blockedByMe: false, nudge: 0, nudgeT: 0, backUp: 0, noRoom: false, minorNode: 0, minorNode2: 0, lastGroup: null, lastGroupS: -1e9, stopT: 0, extTried: false,
     };
   }
   /** load a lane path into a car: typed arrays, the speed it may do at each point, its lines */
