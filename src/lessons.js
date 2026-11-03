@@ -321,10 +321,13 @@ export class LessonRun {
   track(car) {
     const pts = this.route.pts;
     let best = this.idx, bd = Infinity;
-    const lo = Math.max(0, this.idx - 15), hi = Math.min(pts.length - 1, this.idx + 80);
-    const scan = (a, b) => { for (let i = a; i <= b; i++) { const d = (pts[i].x - car.pos.x) ** 2 + (pts[i].z - car.pos.z) ** 2; if (d < bd) { bd = d; best = i; } } };
-    scan(lo, hi);
-    if (bd > 400) scan(0, pts.length - 1); // lost: search everywhere
+    // follow the route as it is driven, 25 m ahead at most: where it comes back past itself (Stoke's two-arm
+    // ring, the road out beside the way in) the later stretch can be nearer, and jumping to it skipped the
+    // whole roundabout -- the exit signal was never counted and the bot steered for the road beyond
+    const lo = Math.max(0, this.idx - 15), hi = Math.min(pts.length - 1, this.idx + 80), sMax = pts[this.idx].s + 25;
+    const scan = (a, b, lim) => { for (let i = a; i <= b && (i <= this.idx + 2 || pts[i].s <= lim); i++) { const d = (pts[i].x - car.pos.x) ** 2 + (pts[i].z - car.pos.z) ** 2; if (d < bd) { bd = d; best = i; } } };
+    scan(lo, hi, sMax);
+    if (bd > 400) scan(0, pts.length - 1, Infinity); // lost: search everywhere
     this.idx = best;
     const p = pts[best], q = pts[Math.min(pts.length - 1, best + 1)], o = pts[Math.max(0, best - 1)];
     let dx = q.x - o.x, dz = q.z - o.z;
