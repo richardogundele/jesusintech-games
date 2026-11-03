@@ -347,12 +347,15 @@ export class RoadNet {
       // mouths of the arms, and the learner clipped a car waiting on the next arm. Over 60 Kent runs
       // that version had 8 collisions against main's 2. Mini roundabouts are a node flag
       // (node.mini), not rings in this map at all, so none of this touches them.
-      // Never narrows a ring: a tagged four-lane ring keeps its four.
+      // Never narrows a ring a tag gave its lanes -- a tagged four-lane ring keeps its four -- except a
+      // compact one under 13 m with nothing but single-lane approaches: Guildford's Slyfield ring is
+      // tagged two lanes on a 12.7 m radius round a 4.7 m island, and every test from the centre stalled
+      // or collided on it, for the reason above.
       let lanes = Math.max(1, r.lanes || 1);
       {
         const widest = Math.max(1, ...rb.arms.filter((a) => a.entry).map((a) => a.entryLanes || 1));
         const want = r.r >= TWO_LANE_R ? Math.max(lanes, Math.min(3, Math.max(2, widest)))
-          : r.lanesSrc === 'tag' ? lanes : r.r < 10 ? 1 : Math.min(3, widest);
+          : r.lanesSrc === 'tag' && !(r.r < 13 && widest === 1) ? lanes : r.r < 10 ? 1 : Math.min(3, widest);
         if (want !== lanes) {
           lanes = want; rb.lanes = want;
           const laneW = r.laneW || (r.r < 12 ? 3.0 : LW);
