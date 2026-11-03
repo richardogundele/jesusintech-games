@@ -241,13 +241,14 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'Escape' && (mode === 'car' || mode === 'foot')) { e.preventDefault(); togglePause(); return; }
   if (window.__game?.paused) { if (e.code === 'Escape') togglePause(); return; }
   if (learnerCar() && !window.__game?.autoDrive) {
-    // Left Shift (held) is the clutch (readInput); 1-5 gears (1 is D in an automatic), R reverse, 0 neutral, 9 park, I engine, Space handbrake
-    const g = { Digit1: 1, Digit2: 2, Digit3: 3, Digit4: 4, Digit5: 5, Digit0: 'N', Digit9: 'P', KeyR: 'R', Numpad1: 1, Numpad2: 2, Numpad3: 3, Numpad4: 4, Numpad5: 5, Numpad0: 'N', Numpad9: 'P' }[e.code];
+    // Shift (held) is the clutch (readInput); P park, N neutral, D drive, R reverse, 1-5 a manual's gears (D is
+    // first in a manual, P its neutral), I engine, Space handbrake. 0 and 9, the old neutral and park, still work.
+    const g = { KeyP: 'P', KeyN: 'N', KeyD: 'D', KeyR: 'R', Digit1: 1, Digit2: 2, Digit3: 3, Digit4: 4, Digit5: 5, Digit0: 'N', Digit9: 'P', Numpad1: 1, Numpad2: 2, Numpad3: 3, Numpad4: 4, Numpad5: 5, Numpad0: 'N', Numpad9: 'P' }[e.code];
     if (g != null) press.shift = car.drive.kind === 'auto' && typeof g === 'number' && g > 1 ? null : g;
     if (e.code === 'KeyI') press.ignition = true;
     if (e.code === 'Space') press.pbrakeToggle = true;
   }
-  if ((e.code === 'KeyP' || e.code === 'Tab') && !e.repeat) { e.preventDefault(); togglePhone(); return; }
+  if (e.code === 'Tab' && !e.repeat) { e.preventDefault(); togglePhone(); return; } // (P is Park now)
   if (mode === 'phone' || mode === 'result' || mode === 'quiz') { if (e.code === 'Escape' && mode !== 'quiz') mode === 'phone' ? togglePhone() : closeResult(); return; }
   if (e.code === 'KeyE') interact();
   if (mode === 'car' && (e.code === 'KeyZ' || e.code === 'KeyX')) {
@@ -269,9 +270,10 @@ window.addEventListener('blur', () => keys.clear());
 function readInput() {
   const learner = learnerCar();
   const out = {
-    up: down('KeyW', 'ArrowUp'),
-    down: down('KeyS', 'ArrowDown'),
-    steer: (down('KeyD', 'ArrowRight') ? 1 : 0) - (down('KeyA', 'ArrowLeft') ? 1 : 0),
+    // the arrow keys walk and drive (W A S D did too, but D is Drive now)
+    up: down('ArrowUp'),
+    down: down('ArrowDown'),
+    steer: (down('ArrowRight') ? 1 : 0) - (down('ArrowLeft') ? 1 : 0),
     brake: learner ? false : down('Space'), // the learner car's Space is the parking brake (a press, not a hold)
     run: down('ShiftLeft', 'ShiftRight'),
     clutch: learner ? down('ShiftLeft', 'ShiftRight') : false,
@@ -1376,10 +1378,10 @@ $('start').onclick = () => {
   if (!state.welcomed) {
     // a cold save: say what this is and where to start, once
     state.welcomed = true; save();
-    hud.toast('Your learner car is outside. Get in with E and drive: the game shows you the controls as you go. Mock and real driving tests are on your phone (P).', 9000);
+    hud.toast('Your learner car is outside. Get in with E and drive: the game shows you the controls as you go. Mock and real driving tests are on your phone (Tab).', 9000);
   } else {
     const hello = { kent: 'Welcome home to Kent.', london: 'Welcome to London.', birmingham: 'Welcome to Birmingham.', manchester: 'Welcome to Manchester.' }[world.id] || 'Welcome back.';
-    hud.toast(`${hello} Press E by the red Polo to get in and drive. Press P for your phone: lessons, parking practice and the driving test are under Drive.`, 7000);
+    hud.toast(`${hello} Press E by the red Polo to get in and drive. Drive with the arrow keys; D drive, N neutral, P park. Tab opens your phone: lessons, parking practice and the driving test are under Drive.`, 7000);
   }
 };
 

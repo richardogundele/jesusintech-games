@@ -369,7 +369,7 @@ export function buildKentHouse({ scene, colliders, tickers, origin, interactions
   I(8.5, -1.6, 1.6, () => 'Make a coffee', () => toast(pick(COFFEE), 2800));
   I(8.5, 4.4, 1.6, () => 'Open the laptop', () => {
     if (hooks.openPhone) hooks.openPhone('wins');
-    else toast('Log your real wins on the phone (P).', 2800);
+    else toast('Log your real wins on the phone (Tab).', 2800);
   });
   I(-10.5, -2.6, 1.8, () => 'Train for 30 minutes', () => {
     const logged = hooks.logWin ? hooks.logWin('train') : false;

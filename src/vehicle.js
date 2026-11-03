@@ -119,7 +119,7 @@ class Manual extends Drivetrain {
     this.rpm = Math.max(0, this.rpm);
     if (this.engineOn && this.crank <= 0 && this.rpm < STALL_RPM) {
       this.engineOn = false; this.stalled = true; this.stalls++; this.flags.stalledAt = this.t;
-      this.say('Stalled. Clutch down, select neutral (0), then press I to restart');
+      this.say('Stalled. Clutch down, select neutral (N), then press I to restart');
     }
     const f = this.flags, moving = Math.abs(v) > 0.5, inGear = K !== 0 && eng > 0.9;
     f.coasting = moving && (this.gear === 'N' || this.pedal > 0.6);
@@ -137,7 +137,7 @@ class Auto extends Drivetrain {
   ignition(v) {
     if (this.crank > 0) return;
     if (this.engineOn) { if (Math.abs(v) < 1) { this.engineOn = false; this.keyOff = true; } return; }
-    if (this.gear !== 'P' && this.gear !== 'N') return this.say('Select P (9) or N (0) before you start the engine');
+    if (this.gear !== 'P' && this.gear !== 'N') return this.say('Select P or N before you start the engine');
     this.crank = 0.5; this.stalled = false;
   }
   select(g, v) {
