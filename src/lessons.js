@@ -706,6 +706,11 @@ export class LessonRun {
     const n = Math.max(1, here.road?.lanes || 1);
     return Math.max(1, Math.min(n, (here.lane || 1) - Math.round(this.lat / this.laneW(here))));
   }
+  /** how far the car's centre is inside the nearside edge of way w, measured from the car itself */
+  edgeGap(car, here, w) {
+    const net = this.world.net, sw = net.sAlong(w, car.pos.x, car.pos.z), c = net.pointAt(w, sw), d = net.dirAt(w, sw);
+    return w.halfW - ((car.pos.x - c[0]) * d[1] - (car.pos.z - c[1]) * d[0]) * ((here.dir ?? 1) < 0 ? -1 : 1);
+  }
   laneW(here) {
     const w = this.world.net.ways.get(here.way);
     return !w ? LW : w.oneway ? w.width / Math.max(1, w.lanesF) : w.halfW / Math.max(1, (here.dir ?? 1) < 0 ? w.lanesB : w.lanesF);
@@ -842,8 +847,11 @@ export class LessonRun {
       }
       if (this.held('lane2', lane > 1 && (here.lane || 1) === 1 && !this.slowAhead(car), dt, 15)) this.fault('minor', 'Positioning: lane discipline (keep left unless overtaking)', 'lanedisc', 20);
       const kerb = w.halfW - this.world.net.laneOffset(w, here.lane || 1) - (here.off || 0); // lane centre to the nearside edge
-      if (lane === 1 && this.held('kerb', this.lat > kerb - 0.8, dt, 0.2)) this.fault('minor', 'Control: steering (ran onto the edge line)', 'kerb', 8);
-      if (lane === 1 && this.held('pave', this.lat > kerb + 0.05, dt, 0.3)) this.fault('serious', 'Control: steering (left the carriageway)', 'pave', 10);
+      // and the edge as measured from the car: a lane change's diagonal is labelled with one lane but lies
+      // between two, so a car holding the left lane through one was "off the carriageway" (Birmingham seed 4)
+      const gap = lane === 1 && this.lat > kerb - 0.8 ? this.edgeGap(car, here, w) : Infinity;
+      if (lane === 1 && this.held('kerb', this.lat > kerb - 0.8 && gap < 0.8, dt, 0.2)) this.fault('minor', 'Control: steering (ran onto the edge line)', 'kerb', 8);
+      if (lane === 1 && this.held('pave', this.lat > kerb + 0.05 && gap < -0.05, dt, 0.3)) this.fault('serious', 'Control: steering (left the carriageway)', 'pave', 10);
       return;
     }
     this.lane = null;
@@ -1322,6 +1330,8 @@ function carefulKent(run, car, st, bad) {
   let want = plan[Math.min(pts.length - 1, run.idx + 1)];
   if (bad.speed) want = Math.max(want, plan[run.idx]); // the over-speeder doesn't plan ahead either
   let reverse = false;
+  // let go of a lane hold (laneGap): one more look in the mirror as the car moves across
+  if (run.botHoldS != null && run.s - run.botHoldS >= 1) { run.botHoldS = null; out.mirror = true; }
 
   for (const e of run.events) {
     const ref = e.kind === 'rb' ? e.entryS : e.lineS ?? e.s;
@@ -1355,6 +1365,15 @@ function carefulKent(run, car, st, bad) {
         if (e.botGo && !bad.noStops && toLine > -4 && toLine < 1.6) {
           if (Math.abs(v) > 0.3) e.botStillT = null; else if (e.botStillT == null) e.botStillT = st.t;
           if (e.botStillT != null && st.t - e.botStillT > 1.5 && run.majorBusy(e, car, 3.5, 35)) want = 0;
+          // and keep looking until the nose is at the line, where the examiner looks: a car coming off
+          // the mini roundabout next door (not yet heading for this junction when the gap was judged)
+          // met the nose 0.3 s away (Milton Keynes seed 4; Manchester seed 6 in Driving City). Wait for
+          // that car only, then carry on: going back to waiting for a whole new gap lost every one at
+          // Driveuk's busy crossroads.
+          if (toLine > 0.05) {
+            const tNose = (Math.sqrt(v * v + 3 * toLine) - Math.max(0, v)) / 1.5; // moving off at ~1.5 m/s/s
+            if (run.majorBusy(e, car, 3 + tNose, 45)) want = 0;
+          }
         }
         if (bad.noStops && toLine < 30 && toLine > -2) want = Math.max(want, 16 / MPH);
         break;
@@ -1382,7 +1401,7 @@ function carefulKent(run, car, st, bad) {
         if (!e.botGo && toLine < 25) {
           // keep looking right until the front is over the line
           const p = posAtS(run, e.entryS + 1.7);
-          if (run.rbConflict({ pos: p }, 32, e.rb) || ringEntering(run, e, car)) want = Math.min(want, stopIn(toLine - 2.5)); // the front well short of the ring lane (the approach comes in at a slant)
+          if (run.rbConflict({ pos: p }, 32, e.rb) || ringEntering(run, e, car, toLine - 0.3 > (v * v) / 8)) want = Math.min(want, stopIn(toLine - 2.5)); // the front well short of the ring lane (the approach comes in at a slant)
           else if (toLine < -1) e.botGo = true;
         }
         if (e.exit >= 2 && s > e.signalLeftS - 10 && s < e.exitS && !e.botExitMirror) { e.botExitMirror = true; out.mirror = true; }
@@ -1588,6 +1607,13 @@ function steerKent(run, car, out, bad, want, off = 0) {
     const h = Math.atan2(q.x - o.x, q.z - o.z);
     tx += Math.cos(h) * off; tz -= Math.sin(h) * off;
   }
+  // waiting for room to change lanes (laneGap): straight on along the lane the car is in, not drifting
+  // across to the one the path is moving to (Birmingham seed 4: the nose slid into a queue at the lights)
+  const here = run.route.pts[run.idx], hw = run.botHoldS != null && run.s - run.botHoldS < 1 && !p.rb && !bad.wrongLane && run.world.net.ways.get(here.way);
+  if (hw && !hw.rb) { // parallel to the road from where the car is (a flare's lane centres are not where the path tapers)
+    const d = run.world.net.dirAt(hw, run.world.net.sAlong(hw, car.pos.x, car.pos.z)), sg = (here.dir ?? 1) < 0 ? -1 : 1;
+    tx = car.pos.x + d[0] * sg * Ld; tz = car.pos.z + d[1] * sg * Ld;
+  }
   if (bad.wrongLane && (p.lane || 1) > 1) {
     const q = pts[Math.min(pts.length - 1, Math.max(run.idx + 1, i) + 1)], o = pts[Math.max(0, Math.max(run.idx + 1, i) - 1)];
     if (p.rb) { const rb = run.world.net.roundabouts.get(p.rb), R = Math.hypot(p.x - rb.x, p.z - rb.z), k = (R + (p.lane - 1) * rb.laneW) / R; tx = rb.x + (p.x - rb.x) * k; tz = rb.z + (p.z - rb.z) * k; }
@@ -1622,12 +1648,25 @@ function oncoming(run, car, e, secs, r = 60) {
   });
 }
 /** a car about to come onto the ring from the arm before mine (it shouldn't, but it might) */
-function ringEntering(run, e, car) {
+function ringEntering(run, e, car, canStop = true) {
   const rb = run.world.net.roundabouts.get(e.rb), p = posAtS(run, e.entryS);
   // heading in towards the ring: a car LEAVING it down the exit beside our entry passes just as close
   // to the line, and counting those held the learner at a busy ring for the whole two-minute watchdog
-  return (run.world.traffic?.cars || []).some((c) => c.v > 1 && !c.lane?.rb && Math.hypot(c.x - p.x, c.z - p.z) < 14 && Math.hypot(c.x - rb.x, c.z - rb.z) < rb.r + 10 && Math.hypot(c.x - car.pos.x, c.z - car.pos.z) > 4
-    && (rb.x - c.x) * c.fx + (rb.z - c.z) * c.fz > 0);
+  // On a small ring the arm before ours is only a quarter-turn round: a car about to join there is
+  // coming at us as surely as one already circulating (Guildford's Slyfield ring, seed 5: the bot went
+  // as one joined 20 m round and it had to stop for us), so it counts while it is within a third of a
+  // turn upstream of our entry -- while we can still stop short of the line: past it, braking for one
+  // left the nose in the ring for it to brush (the Kent mock in Driving City, seed 2).
+  const thE = Math.atan2(p.z - rb.z, p.x - rb.x), sense = rb.sense || 1;
+  return (run.world.traffic?.cars || []).some((c) => {
+    if (c.v <= 1 || c.lane?.rb || Math.hypot(c.x - car.pos.x, c.z - car.pos.z) <= 4) return false;
+    const dc = Math.hypot(c.x - rb.x, c.z - rb.z), inward = (rb.x - c.x) * c.fx + (rb.z - c.z) * c.fz > 0;
+    if (!inward || dc >= rb.r + 10) return false;
+    if (Math.hypot(c.x - p.x, c.z - p.z) < 14) return true;
+    if (!canStop || rb.r >= 20 || c.v < 2) return false;
+    let d = (thE - Math.atan2(c.z - rb.z, c.x - rb.x)) * sense; d = ((d % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+    return d > 0.2 && d < (2 * Math.PI) / 3;
+  });
 }
 /** joining from a slip road: the speed that has us arrive in a gap, not alongside someone */
 function mergeGap(run, car, e, want) {
@@ -1645,11 +1684,16 @@ function mergeGap(run, car, e, want) {
 }
 /** a lane change: hold back if someone is alongside in the lane we're moving into */
 function laneGap(run, car, e, want) {
-  const fx = Math.sin(car.heading), fz = Math.cos(car.heading), side = e.dir === 'right' ? -1 : 1;
+  const fx = Math.sin(car.heading), fz = Math.cos(car.heading), side = e.dir === 'right' ? -1 : 1, v = Math.max(0, car.vF);
   for (const c of run.world.traffic?.cars || []) {
     const dx = c.x - car.pos.x, dz = c.z - car.pos.z, al = dx * fx + dz * fz, lat = dx * fz - dz * fx;
     if (c.fx * fx + c.fz * fz < 0.7) continue;
-    if (lat * side > 1.5 && lat * side < 5.5 && al > -20 && al < 8) return Math.min(want, Math.max(3, c.v - 2));
+    // a car further back than a length and a half is only in the way if it's catching up (one crawling
+    // along 10 m back in a queue kept the bot out of its lane all the way to the ring -- Birmingham seed 4)
+    if (al < -7 && (c.v - v < 0.5 || (-al - 7) / (c.v - v) > 3)) continue;
+    // (and hold the lane we are in until it has gone: steering on across, the bot slid its nose into the
+    // car's lane, stopped at the lights there, and each waited for the other -- Birmingham seed 4)
+    if (lat * side > 1.5 && lat * side < 5.5 && al > -20 && al < 8) { run.botHoldS = run.s; return Math.min(want, Math.max(3, c.v - 2)); }
   }
   return want;
 }

@@ -727,6 +727,15 @@ export class RoadNet {
     const off = this.laneOffset(way, k), n = leftOf(d[0], d[1]);
     return { x: p[0] + n[0] * off, z: p[1] + n[1] * off, dir: k < 0 ? [-d[0], -d[1]] : d };
   }
+  /** distance along the way of the point on it nearest (x, z) */
+  sAlong(way, x, z) {
+    let best = Infinity, s = 0;
+    for (let i = 0; i < way.pts.length - 1; i++) {
+      const a = way.pts[i], b = way.pts[i + 1], [t, px, pz] = projSeg(a[0], a[1], b[0], b[1], x, z), d = hypot(x - px, z - pz);
+      if (d < best) { best = d; s = way.cum[i] + t * (way.cum[i + 1] - way.cum[i]); }
+    }
+    return s;
+  }
 
   // ---------- point lookups ----------
   nearest(x, z, maxD = 60) {
