@@ -74,6 +74,22 @@ function prepare(area, d, k) {
     }
   }
   for (const w of ways) for (const n of w.nodes) if (n && !nodes.has(n)) { const src = d.nodes[n - base]; if (src) nodes.set(n, { ...src, ways: [] }); }
+  // A crop can leave streets that only reached the rest through what was cut (Herne Bay's estates that
+  // joined it by the roads south): an island nobody can drive to. Keep the area's largest network, as
+  // region-data.mjs does at the edge of its own fetch.
+  {
+    const parent = new Map(), find = (a) => { while (parent.get(a) !== a) { parent.set(a, parent.get(parent.get(a))); a = parent.get(a); } return a; };
+    for (const w of ways) { const ns = w.nodes.filter(Boolean); for (const n of ns) if (!parent.has(n)) parent.set(n, n); for (let i = 1; i < ns.length; i++) parent.set(find(ns[i]), find(ns[0])); }
+    const root = (w) => find(w.nodes.find(Boolean)), size = new Map();
+    for (const w of ways) size.set(root(w), (size.get(root(w)) || 0) + w.pts.length);
+    let main = null; for (const [r, n] of size) if (main == null || n > size.get(main)) main = r;
+    const before = ways.length, gone = new Set();
+    for (let i = ways.length - 1; i >= 0; i--) if (root(ways[i]) !== main) { gone.add(ways[i].id); ways.splice(i, 1); }
+    const used = new Set(ways.flatMap((w) => w.nodes));
+    for (const n of [...nodes.keys()]) if (!used.has(n)) nodes.delete(n);
+    for (const [wid, ps] of pieces) pieces.set(wid, ps.filter((p) => !gone.has(p.id)));
+    if (gone.size) console.log(`  ${area.id}: ${gone.size} of ${before} ways were islands once cropped, left out`);
+  }
   for (const w of ways) for (const n of w.nodes) if (n) nodes.get(n).ways.push(w.id);
   const kept = (old) => nodes.has(nid(old));
   const pieceAt = (wid, newNode) => (pieces.get(wid) || []).find((p) => p.nodes.includes(newNode))?.id ?? null;
@@ -136,53 +152,97 @@ function shift(A, ox, oz) {
   A.ox = ox; A.oz = oz;
 }
 
-/** a road between two areas: from the best road leaving `a` on `side` to the best leaving `b` on the far side */
-function link(L, areas, nodes) {
-  const A = areas.get(L.a), Bz = areas.get(L.b);
-  const opp = { N: 'S', S: 'N', E: 'W', W: 'E' }[L.side];
-  const normal = { N: [0, -1], S: [0, 1], E: [1, 0], W: [-1, 0] };
-  const onSide = (X, side, n) => (side === 'E' ? Math.abs(n.x - X.box.maxX) : side === 'W' ? Math.abs(n.x - X.box.minX) : side === 'N' ? Math.abs(n.z - X.box.minZ) : Math.abs(n.z - X.box.maxZ)) < 2;
-  const ends = (X, side) => {
-    const out = [];
-    for (const [id, n] of X.nodes) {
-      if (!n.edge || n.ways.length !== 1 || !onSide(X, side, n)) continue;
-      const w = X.ways.find((q) => q.id === n.ways[0]);
-      if (!w || w.oneway || w.rb || w.link || (RANK[w.cls] ?? 3) < 4) continue;
-      const atStart = w.nodes[0] === id, p = atStart ? w.pts[0] : w.pts[w.pts.length - 1], q = atStart ? w.pts[1] : w.pts[w.pts.length - 2];
-      const l = hypot(p[0] - q[0], p[1] - q[1]) || 1;
-      out.push({ id, n, w, out: [(p[0] - q[0]) / l, (p[1] - q[1]) / l] });
-    }
-    return out;
-  };
-  const ea = ends(A, L.side), eb = ends(Bz, opp);
-  if (!ea.length || !eb.length) throw new Error(`link ${L.a} ${L.side} -> ${L.b}: no two-way road leaves ${!ea.length ? L.a : L.b} on that side`);
-  const nrm = normal[L.side];
-  let best = null;
-  for (const x of ea) for (const y of eb) {
-    const dx = y.n.x - x.n.x, dz = y.n.z - x.n.z, across = Math.abs(dx * nrm[1] - dz * nrm[0]);
-    const score = across - 300 * Math.min(RANK[x.w.cls], RANK[y.w.cls]) - 100 * (RANK[x.w.cls] + RANK[y.w.cls]);
-    if (!best || score < best.score) best = { x, y, score };
-  }
-  const { x, y } = best;
-  // carry straight on along each road as it leaves its area (no kink at the join), then a smooth curve
-  // between. A road that leaves at a slant gets a shorter lead, so it turns out across the country
-  // sooner instead of running along the edge of the area.
+/** a smooth road from end x to end y: carry straight on along each road as it leaves its area (no kink
+ * at the join), then a cubic curve between. A road that leaves at a slant gets a shorter lead, so it turns
+ * out across the country sooner instead of running along the edge of the area. */
+function curve(x, nx, y, ny) {
   const P0 = [x.n.x, x.n.z], P3 = [y.n.x, y.n.z], D = hypot(P3[0] - P0[0], P3[1] - P0[1]);
   const lead = (o, s) => D * 0.4 * Math.max(0.3, Math.min(1, o[0] * s[0] + o[1] * s[1]));
-  const la = lead(x.out, nrm), lb = lead(y.out, [-nrm[0], -nrm[1]]);
+  const la = lead(x.out, nx), lb = lead(y.out, ny);
   const P1 = [P0[0] + x.out[0] * la, P0[1] + x.out[1] * la], P2 = [P3[0] + y.out[0] * lb, P3[1] + y.out[1] * lb];
   const n = Math.max(2, Math.ceil(D / 12)), pts = [];
   for (let i = 0; i <= n; i++) {
     const t = i / n, u = 1 - t;
     pts.push([+(u ** 3 * P0[0] + 3 * u * u * t * P1[0] + 3 * u * t * t * P2[0] + t ** 3 * P3[0]).toFixed(2), +(u ** 3 * P0[1] + 3 * u * u * t * P1[1] + 3 * u * t * t * P2[1] + t ** 3 * P3[1]).toFixed(2)]);
   }
-  const way = {
-    id: wayId(-1), name: L.name || `${A.name} Road`, ref: L.ref || null, cls: 'primary', limit: 60, nsl: true, oneway: false, lanesF: 1, lanesB: 1, lanesSrc: 'derived',
-    rb: null, dual: false, link: false, bridge: false, tunnel: false, layer: 0, width: Math.max(7.3, x.w.width, y.w.width), pave: false, rural: true, turnLanes: null,
-    pts, nodes: pts.map((_, i) => (i === 0 ? x.id : i === pts.length - 1 ? y.id : 0)), synthetic: true,
+  return pts;
+}
+const lengthOf = (pts) => pts.slice(1).reduce((s, q, i) => s + hypot(q[0] - pts[i][0], q[1] - pts[i][1]), 0);
+/** do two polylines cross? */
+function cross(a, b) {
+  const ccw = (p, q, r) => (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]);
+  for (let i = 0; i < a.length - 1; i++) for (let j = 0; j < b.length - 1; j++) {
+    const d1 = ccw(a[i], a[i + 1], b[j]), d2 = ccw(a[i], a[i + 1], b[j + 1]), d3 = ccw(b[j], b[j + 1], a[i]), d4 = ccw(b[j], b[j + 1], a[i + 1]);
+    if (d1 * d2 < 0 && d3 * d4 < 0) return true;
+  }
+  return false;
+}
+
+/**
+ * The road between two areas. Where a dual carriageway leaves both on the facing sides (the A299 out of
+ * Herne Bay, Manchester's A34), the link is a dual too: each half carries on one way to the other area's
+ * half going the same way, keeping left, so the two never cross. Otherwise it joins the best two-way
+ * roads with a 60 mph single carriageway. Side: the edge of `a` the road leaves by; `bSide`, of `b`.
+ */
+function link(L, areas) {
+  const A = areas.get(L.a), Bz = areas.get(L.b);
+  const opp = L.bSide || { N: 'S', S: 'N', E: 'W', W: 'E' }[L.side];
+  const normal = { N: [0, -1], S: [0, 1], E: [1, 0], W: [-1, 0] };
+  const nA = normal[L.side], nB = normal[opp];
+  const onSide = (X, side, n) => (side === 'E' ? Math.abs(n.x - X.box.maxX) : side === 'W' ? Math.abs(n.x - X.box.minX) : side === 'N' ? Math.abs(n.z - X.box.minZ) : Math.abs(n.z - X.box.maxZ)) < 2;
+  const byId = (X) => X.byId || (X.byId = new Map(X.ways.map((w) => [w.id, w])));
+  // every road end on this side: which way it points out of the area, and for a one-way road whether
+  // its traffic is leaving (the edge is its last node) or arriving (its first)
+  const ends = (X, side) => {
+    const out = [];
+    for (const [id, n] of X.nodes) {
+      if (!n.edge || n.ways.length !== 1 || !onSide(X, side, n)) continue;
+      const w = byId(X).get(n.ways[0]);
+      if (!w || w.rb || w.link || (RANK[w.cls] ?? 3) < 4) continue;
+      const atStart = w.nodes[0] === id, p = atStart ? w.pts[0] : w.pts[w.pts.length - 1], q = atStart ? w.pts[1] : w.pts[w.pts.length - 2];
+      const l = hypot(p[0] - q[0], p[1] - q[1]) || 1;
+      out.push({ id, n, w, rank: RANK[w.cls] ?? 3, leaving: w.oneway ? !atStart : null, out: [(p[0] - q[0]) / l, (p[1] - q[1]) / l] });
+    }
+    return out;
   };
-  x.n.edge = false; y.n.edge = false; x.n.ways.push(way.id); y.n.ways.push(way.id);
-  return { way, from: `${x.w.name || x.w.cls} (${L.a})`, to: `${y.w.name || y.w.cls} (${L.b})`, km: way.pts.slice(1).reduce((s, q, i) => s + hypot(q[0] - pts[i][0], q[1] - pts[i][1]), 0) / 1000 };
+  const ea = ends(A, L.side), eb = ends(Bz, opp);
+  // a dual: a leaving half and an arriving half of a major road, within 60 m of each other, the same road
+  const duals = (E) => {
+    const out = [];
+    for (const o of E) for (const i of E) {
+      if (o.leaving !== true || i.leaving !== false || o.rank < 6 || i.rank < 6) continue;
+      if (hypot(o.n.x - i.n.x, o.n.z - i.n.z) > 60 || (o.w.ref || o.w.name) !== (i.w.ref || i.w.name)) continue;
+      out.push({ o, i, x: (o.n.x + i.n.x) / 2, z: (o.n.z + i.n.z) / 2, rank: Math.min(o.rank, i.rank) });
+    }
+    return out;
+  };
+  const score = (a, b) => hypot(b.x - a.x, b.z - a.z) - 300 * Math.min(a.rank, b.rank) - 100 * (a.rank + b.rank);
+  const base = { nsl: true, lanesSrc: 'derived', rb: null, link: false, bridge: false, tunnel: false, layer: 0, pave: false, rural: true, turnLanes: null, synthetic: true };
+  const join = (x, y, pts, props) => {
+    const way = { id: wayId(-1), name: L.name || `${A.name} Road`, ref: L.ref || null, ...base, ...props, pts, nodes: pts.map((_, i) => (i === 0 ? x.id : i === pts.length - 1 ? y.id : 0)) };
+    x.n.edge = false; y.n.edge = false; x.n.ways.push(way.id); y.n.ways.push(way.id);
+    return way;
+  };
+  const da = L.single ? [] : duals(ea), db = L.single ? [] : duals(eb);
+  let bestD = null;
+  for (const a of da) for (const b of db) { const sc = score(a, b); if (!bestD || sc < bestD.sc) bestD = { a, b, sc }; }
+  if (bestD) {
+    const { a, b } = bestD;
+    const there = curve(a.o, nA, b.i, nB), back = curve(b.o, nB, a.i, nA);
+    if (!cross(there, back)) {
+      const cls = (RANK[a.o.w.cls] >= RANK[b.o.w.cls] ? b.o.w : a.o.w).cls, lanes = Math.max(1, Math.min(a.o.w.lanesF, b.i.w.lanesF, b.o.w.lanesF, a.i.w.lanesF));
+      const props = (w1, w2) => ({ cls, limit: 70, oneway: true, dual: true, lanesF: lanes, lanesB: 0, width: Math.max(w1.width, w2.width) });
+      const ways = [join(a.o, b.i, there, props(a.o.w, b.i.w)), join(b.o, a.i, back, props(b.o.w, a.i.w))];
+      return { ways, kind: `dual ${cls}`, from: `${a.o.w.ref || a.o.w.name} (${L.a})`, to: `${b.o.w.ref || b.o.w.name} (${L.b})`, km: lengthOf(there) / 1000 };
+    }
+  }
+  const sa = ea.filter((e) => e.leaving === null), sb = eb.filter((e) => e.leaving === null);
+  if (!sa.length || !sb.length) throw new Error(`link ${L.a} ${L.side} -> ${L.b} ${opp}: no two-way road and no dual leaves ${!sa.length ? L.a : L.b} on that side`);
+  let best = null;
+  for (const x of sa) for (const y of sb) { const sc = score({ ...x.n, rank: x.rank }, { ...y.n, rank: y.rank }); if (!best || sc < best.sc) best = { x, y, sc }; }
+  const { x, y } = best, pts = curve(x, nA, y, nB);
+  const way = join(x, y, pts, { cls: 'primary', limit: 60, oneway: false, dual: false, lanesF: 1, lanesB: 1, width: Math.max(7.3, x.w.width, y.w.width) });
+  return { ways: [way], kind: 'single', from: `${x.w.name || x.w.cls} (${L.a})`, to: `${y.w.name || y.w.cls} (${L.b})`, km: lengthOf(pts) / 1000 };
 }
 
 /** one height grid for the whole city: the areas' own hills, and a smooth fill (0 at the city's edge) between */
@@ -265,13 +325,13 @@ CITY.areas.forEach((area, k) => {
 });
 const nodes = new Map();
 for (const A of areas.values()) for (const [id, n] of A.nodes) { if (nodes.has(id)) throw new Error(`node id ${id} in two areas`); nodes.set(id, n); }
-const links = CITY.links.map((L) => link(L, areas, nodes));
+const links = CITY.links.map((L) => link(L, areas));
 const all = (k) => [...areas.values()].flatMap((A) => A[k]);
 const box = { minX: Infinity, maxX: -Infinity, minZ: Infinity, maxZ: -Infinity };
 for (const A of areas.values()) { box.minX = Math.min(box.minX, A.box.minX); box.maxX = Math.max(box.maxX, A.box.maxX); box.minZ = Math.min(box.minZ, A.box.minZ); box.maxZ = Math.max(box.maxZ, A.box.maxZ); }
 const bounds = { minX: box.minX - 1500, maxX: box.maxX + 1500, minZ: box.minZ - 1500, maxZ: box.maxZ + 1500 };
 const home = areas.get(CITY.home);
-const ways = [...all('ways'), ...links.map((l) => l.way)];
+const ways = [...all('ways'), ...links.flatMap((l) => l.ways)];
 const out = {
   attribution: [...new Set([...areas.values()].map((A) => A.attribution))].join(' | '),
   osm_base: 'per area, see each area\'s own region.json',
@@ -297,4 +357,4 @@ fs.mkdirSync(path.dirname(file), { recursive: true });
 fs.writeFileSync(file, JSON.stringify(out));
 console.log(`${CITY.name}: ${areas.size} areas, ${ways.length} ways, ${nodes.size} nodes, ${out.roundabouts.length} rings, ${out.signals.length} signal nodes, ${out.testCentres.length} test centres, ${(fs.statSync(file).size / 1e6).toFixed(1)} MB`);
 for (const A of areas.values()) console.log(`  ${A.name.padEnd(12)} at ${A.ox},${A.oz}  ${A.ways.length} ways, ${A.testCentres.map((t) => t.name).join(', ')}`);
-for (const l of links) console.log(`  link ${l.from} -> ${l.to}: ${l.km.toFixed(2)} km`);
+for (const l of links) console.log(`  link (${l.kind}) ${l.from} -> ${l.to}: ${l.km.toFixed(2)} km`);
