@@ -7,7 +7,8 @@
 // Kent's is its own map origin) lands in the city; `crop` (the area's own metres) keeps only part of an
 // area, and `drop` leaves out ways. Each link joins one road leaving area `a` on `side` to the nearest
 // matching road leaving `b` on `bSide` (default the opposite side), keeping clear of other areas, the
-// home estate and the other links. Areas sit 1.5 km apart, edge to edge.
+// home estate and the other links. Areas sit 1.5 km apart, edge to edge. Every other street the crop
+// cuts runs on out to a ring road round its area (city-merge.mjs outerRoads): no road in the city ends.
 //
 // Guildford, home, is in the middle: Herne Bay above it, Leeds and Manchester either side, Birmingham and
 // Coventry below. The house and its jet park are on open land just past Guildford's north-east corner,

@@ -22,10 +22,10 @@ await loadAll(renderer, (p) => (info.textContent = `loading ${Math.round(p * 100
 // the game's own sky and sun (worlds/kent.js), so a street is judged in the light it is driven in
 const env = setupSky(scene, renderer, { ...UK_GOLDEN, hdri: hdri('monaco'), sunAzimuth: Number(q.get('sun')) || 182 });
 
-// ---- data: region.json if present, else the fixture ----
+// ---- data: region.json if present, else the fixture (?region=city looks at Driving City instead of Kent) ----
 let data = FIXTURE, source = 'fixture';
 try {
-  const r = await fetch(`${import.meta.env.BASE_URL}assets/kent/region.json`);
+  const r = await fetch(`${import.meta.env.BASE_URL}assets/${q.get('region') || 'kent'}/region.json`);
   if (r.ok && (r.headers.get('content-type') || '').includes('json')) { data = await r.json(); source = 'region.json'; }
 } catch { /* fixture */ }
 let net = data;

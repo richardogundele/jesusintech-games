@@ -96,8 +96,14 @@ export class KentTraffic {
     this.P = { x: net.home?.x ?? 0, z: net.home?.z ?? 0 };
     this.spawnT = 0; this.pedT = 0;
     this.stats = { spawned: 0, despawned: 0, failed: 0, watchdog: 0, extended: 0, zebraCrossings: 0, signalCrossings: 0, zebraGaveUp: 0, signalGaveUp: 0, updateMs: 0, houseMs: 0 };
-    // where a route may end: junctions off the rings (lanePath needs a ring's exit to draw it)
-    this.destNodes = [...net.nodes.values()].filter((n) => n.kind === 'junction' && !n.rb && n.ways.some((r) => !r.way.rb && r.way.cls !== 'service'));
+    // where a route may end: junctions off the rings (lanePath needs a ring's exit to draw it), and in Driving
+    // City not on a ring road round an area (traffic drives them, but heads for the streets: and a car's
+    // destination is picked by its place in this list, so the ring roads leave every other pick as it was)
+    this.destNodes = [...net.nodes.values()].filter((n) => n.kind === 'junction' && !n.rb && n.ways.some((r) => !r.way.rb && r.way.cls !== 'service') && !n.ways.some((r) => r.way.outer));
+    // and the traffic keeps to the towns: a ring road is a quick way round, and routed along it the cars
+    // left the streets inside (Birmingham's tests all ran faster, one under 13 minutes). Nor does a car
+    // start out on one: they are quiet roads round the outside, and the traffic in the areas is as it was.
+    this.outerIds = [...net.ways.values()].filter((w) => w.outer).map((w) => w.id);
     // zebras and signal-controlled crossings, by the key lanePath names them with and by way
     this.crossings = new Map(); this.crossByWay = new Map();
     for (const c of net.data.crossings || []) {
@@ -910,7 +916,7 @@ export class KentTraffic {
     for (const b of this.boxes) {
       if (b.x1 < x0 || b.x0 > x1 || b.z1 < z0 || b.z0 > z1) continue;
       const w = b.way;
-      if (!w.rb && w.cls !== 'service' && w.len > 70) cars.push(w);
+      if (!w.rb && w.cls !== 'service' && w.len > 70 && !w.outer) cars.push(w); // (not out on a ring road: see outerIds)
       if (paveOk(w)) peds.push(w);
     }
     const cum = (list) => { const a = new Float64Array(list.length); let t = 0; list.forEach((w, i) => { t += w.len; a[i] = t; }); return a; };
@@ -958,7 +964,7 @@ export class KentTraffic {
       const dest = this.#pickDest(x, z); if (!dest) continue;
       // one route per call: they cost a few milliseconds
       let route = null;
-      try { route = net.route({ x, z, maxD: 10 }, dest.id); } catch { route = null; }
+      try { route = net.route({ x, z, maxD: 10 }, dest.id, { avoid: this.outerIds }); } catch { route = null; }
       const lp = route && route.ways.length ? net.lanePath(route) : null;
       if (!lp || lp.pts.length < 30 || route.ways[0].way !== w || len(lp.pts[0].x - P.x, lp.pts[0].z - P.z) < SPAWN_MIN) { this.stats.failed++; return false; }
       const A = this.pool.pop() || this.#newCar();
@@ -1096,7 +1102,7 @@ export class KentTraffic {
     if (!from) return false;
     const dest = this.#pickDest(A.dest.x, A.dest.z); if (!dest) return false;
     let r2 = null;
-    try { r2 = net.route(from.id, dest.id, { via: [A.dest.id] }); } catch { r2 = null; }
+    try { r2 = net.route(from.id, dest.id, { via: [A.dest.id], avoid: this.outerIds }); } catch { r2 = null; }
     if (!r2) return false;
     for (let k = 0; k + 1 < r2.ways.length; k++) if (r2.ways[k].way === r2.ways[k + 1].way && r2.ways[k].dir !== r2.ways[k + 1].dir) return false; // a U-turn at the old destination
     const lp = net.lanePath(r2);

@@ -57,6 +57,11 @@ export function testCentreLayout(net, tc) {
 }
 
 // ---------- routes ----------
+/** the ids of Driving City's ring roads and the ways out to them (tools/city-merge.mjs outerRoads): no test or lesson route leaves its area along one */
+export function outerWays(net) {
+  if (!net.outerIds) net.outerIds = [...net.ways.values()].filter((w) => w.outer).map((w) => w.id);
+  return net.outerIds;
+}
 /**
  * spec: { centre, start: { x, z, heading? }, vias: [node id | { x, z }], to: node id | { x, z },
  *   end: 'pullup' | 'baypark', bayFrom: where on the road (m along it) the route hands over to the
@@ -78,7 +83,7 @@ export function buildKentRoute(net, spec, { rnd = Math.random, legs = null } = {
     const lane = layout.roadDist - 17.5; // road centreline n offset from the lot centre
     to = layout.at(spec.bayFrom ?? 38, lane); // bayFrom: + is up the road on the side we come from
   }
-  const route = net.route({ x: spec.start.x, z: spec.start.z, maxD: 30 }, to, { via: spec.vias || [], noUturn: !!spec.noUturn, avoid: spec.avoid || [], legs }); // legs: test-routes.js remembers legs across its tries
+  const route = net.route({ x: spec.start.x, z: spec.start.z, maxD: 30 }, to, { via: spec.vias || [], noUturn: !!spec.noUturn, avoid: [...(spec.avoid || []), ...outerWays(net)], legs }); // legs: test-routes.js remembers legs across its tries
   if (!route) throw new Error(`no route for ${spec.id || 'lesson'}`);
   const lp = net.lanePath(route, { end: spec.end === 'baypark' || spec.end === 'parallel' ? 'pullup' : spec.end || 'pullup' });
   const pts = lp.pts;

@@ -18,7 +18,7 @@
 // independent driving is briefed with the car pulled up on the left, by sat nav or by following
 // traffic signs (roughly one test in five), one manoeuvre, a normal stop and an angled start, and
 // sometimes an emergency stop.
-import { buildKentRoute, testCentreLayout, centreOf, idxAtS } from './lesson-routes.js';
+import { buildKentRoute, testCentreLayout, centreOf, idxAtS, outerWays } from './lesson-routes.js';
 
 /** a small seeded random number generator (mulberry32): the same seed, the same test */
 export function seeded(seed) {
@@ -292,8 +292,9 @@ function prepare(net, pool) {
   p = {
     mains: Object.entries(pool.mains || {}).map(part), loops: Object.entries(pool.loops).map(part),
     homes: Object.entries(pool.homes || {}).map(part).map((h) => ({ ...h, at: 'last' })),
-    // roads the route must not use: by name (the way ids come from the map), or a way id for an unnamed one
-    avoid: (pool.avoid || []).flatMap((nm) => (typeof nm === 'number' ? [nm] : [...net.ways.values()].filter((w) => w.name === nm).map((w) => w.id))),
+    // roads the route must not use: by name (the way ids come from the map), or a way id for an unnamed one;
+    // and in Driving City the ring roads outside each area and the streets' ways out to them (a test stays in its area)
+    avoid: [...(pool.avoid || []).flatMap((nm) => (typeof nm === 'number' ? [nm] : [...net.ways.values()].filter((w) => w.name === nm).map((w) => w.id))), ...outerWays(net)],
   };
   byPool.set(pool, p);
   return p;
