@@ -290,6 +290,15 @@ function roundCorners(P, R) {
   return out;
 }
 
+/**
+ * A Kent route spec moved by [dx, dz]: Driving City sets Herne Bay down elsewhere (tools/driving-city.mjs)
+ * with its node ids unchanged, so only the points written as { x, z } move.
+ */
+export function shiftSpec(spec, [dx, dz]) {
+  const P = (p) => (p && typeof p === 'object' ? { ...p, x: p.x + dx, z: p.z + dz } : p);
+  return { ...spec, start: P(spec.start), to: P(spec.to), pullUpAt: P(spec.pullUpAt), vias: spec.vias?.map(P) };
+}
+
 // ---------- the lessons' routes ----------
 // Starts are kerbside points on the road outside the test centre; vias are graph node ids (they
 // can't snap to the wrong carriageway) or points on two-way roads. Lengths are what net.route gives.

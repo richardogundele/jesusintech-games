@@ -11,7 +11,7 @@
 // (kentEvent, kentPosition and the Kent careful driver, carefulKent).
 import * as THREE from 'three';
 import { buildRoute, MPH, LANE, LW, LOT, BAYS, inLot } from './worlds/uk.js';
-import { buildKentRoute, KENT_ROUTES, idxAtS } from './kent/lesson-routes.js';
+import { buildKentRoute, KENT_ROUTES, idxAtS, shiftSpec } from './kent/lesson-routes.js';
 import { pedalsManual, pedalsAuto, gearFor } from './pedals.js';
 import { seeded } from './kent/test-routes.js';
 import { scoreSheet, debrief } from './dl25.js';
@@ -218,7 +218,9 @@ export class LessonRun {
     this.kent = !!world.net; // the real Kent roads; else Whitmore
     if (this.kent) {
       // a generated test (def.spec) rebuilds exactly from its seed; the lessons use their fixed routes
-      this.route = buildKentRoute(world.net, { ...(def.spec || KENT_ROUTES[def.route]), id: def.id }, def.seed != null ? { rnd: seeded(def.seed) } : undefined);
+      // (a Kent lesson in Driving City: its route's points moved to where Herne Bay is in the city)
+      const spec = def.spec || (world.kentAt ? shiftSpec(KENT_ROUTES[def.route], world.kentAt) : KENT_ROUTES[def.route]);
+      this.route = buildKentRoute(world.net, { ...spec, id: def.id }, def.seed != null ? { rnd: seeded(def.seed) } : undefined);
       this.spec = this.route.spec; // with the manoeuvre picked for this run
       this.viaS = viaPositions(this.route);
     } else this.route = buildRoute(def.stops, { end: def.end || 'pullup' });

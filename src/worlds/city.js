@@ -122,6 +122,7 @@ export function buildCity(renderer, { data }) {
     },
     spawn: house.spawn, garage: house.garage, slots: house.slots, learnerAt: house.learnerAt,
     eyesight, centres, areas, areaAt,
+    kentAt: areas.find((a) => a.id === 'kent') ? [areas.find((a) => a.id === 'kent').x, areas.find((a) => a.id === 'kent').z] : null, // where Herne Bay's own origin is in the city (its lessons' routes move by it)
     terminal: air.terminal, jetPark: air.jetPark, runway: air.runway, addJet: air.addJet,
     landmarks,
     place(x, z, y = 0) {

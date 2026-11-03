@@ -16,6 +16,7 @@
 //   --gen auto --region london   the same, for a city: the pool comes from its baked map (auto-pool.js)
 //                               rather than Kent's two authored ones, so a city's roads get driven
 //   --gen auto --region city --centre coventry   Driving City: one area's test centre (default the first)
+//   --city                      Kent's lessons in Driving City's Herne Bay (all but mock-canterbury)
 //   --colliders builds the Kent tiles along the route (scenery, roads, signs) and adds their colliders,
 //   so the car can hit buildings, posts and barriers as in the browser (slower: tiles take a while)
 //   ids: lesson ids (moveoff, junctions, ... mock, mock-canterbury, wm-moveoff ...), 'kent', 'whitmore' or 'all'
@@ -31,7 +32,7 @@ const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
 const opt = (k, d) => { const i = args.indexOf(`--${k}`); return i >= 0 ? args[i + 1] : d; };
 const flag = (k) => args.includes(`--${k}`);
-const BOOL = ['--colliders', '--quiet', '--events', '--trace', '--hash', '--said', '--stalls', '--roads', '--talk', '--genwhy', '--peds'];
+const BOOL = ['--colliders', '--quiet', '--events', '--trace', '--hash', '--said', '--stalls', '--roads', '--talk', '--genwhy', '--peds', '--city'];
 // --dump s0,s1: print the route's points between those arc lengths (x, z, s, way, lane, park, manoeuvre offset)
 if (args.includes('--watch')) BOOL.push();
 const ids = args.filter((a, i) => !a.startsWith('--') && !(i > 0 && args[i - 1].startsWith('--') && !BOOL.includes(args[i - 1])));
@@ -291,9 +292,12 @@ const WANT = { noSignals: /^Signals: necessary/, noMirrors: /^Mirrors|^Move off:
   stall: /stalled/, wrongGear: /^Control: gears/, coast: /coasting/, handbrake: /parking brake/ };
 async function runLesson(def, s0, bad = null, maxSec = 3600) {
   seed = s0;
-  const regionId = def.world && hasRegion(def.world) ? def.world : !def.world && !def.stops ? 'kent' : null;
+  // --city: Kent's lessons in Driving City's Herne Bay, as the game now runs them (its routes moved by world.kentAt)
+  const inCity = flag('city') && def.world === 'kent' && def.route !== 'mock-canterbury';
+  const regionId = inCity ? 'city' : def.world && hasRegion(def.world) ? def.world : !def.world && !def.stops ? 'kent' : null;
   const kent = !!regionId; // a real baked map (Kent or a city), not the stand-in Whitmore
   const world = kent ? makeRegion(regionId) : makeWhitmore();
+  if (inCity) { const k = regionData('city').areas.find((a) => a.id === 'kent'); world.kentAt = [k.x, k.z]; }
   const trans = def.trans || (TRANS === 'none' ? null : TRANS);
   const car = new Car('learner', world.learnerAt || { x: 0, z: 0, heading: 0 }, trans ? { ...LEARNER, trans } : LEARNER);
   world.cars.push(car);

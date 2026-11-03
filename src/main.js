@@ -1096,7 +1096,9 @@ async function startLesson(id) {
   let def = typeof id === 'object' ? id : LESSONS.find((l) => l.id === id); // (let: the parking practice resolves its route where the car is, below)
   // Kent lessons start at their test centre; the Whitmore ones are practice in the made-up town; a
   // city's test starts at that city's centre
-  const where = def.world === 'kent' ? 'kent' : REGION_WORLDS.includes(def.world) ? def.world : 'uk';
+  // Kent's lessons are Herne Bay's, which is in Driving City now; only the Canterbury mock still needs Kent
+  const kentLesson = def.world === 'kent';
+  const where = kentLesson ? (def.route === 'mock-canterbury' ? 'kent' : 'city') : REGION_WORLDS.includes(def.world) ? def.world : 'uk';
   if (world.id !== where) await (where === 'kent' ? goKent() : where === 'uk' ? goUK() : goCity(where));
   const tiled = where !== 'uk'; // Kent and the cities stream tiles: warm them behind a fade
   if (lesson) lesson.cancel();
@@ -1110,7 +1112,7 @@ async function startLesson(id) {
   drive.indicator = null;
   for (const k in autoState) delete autoState[k];
   const kent = where === 'kent', inCity = where === 'city';
-  const centre = kent ? def.centre || KENT_ROUTES[def.route].centre : inCity ? def.generated?.centre : null;
+  const centre = kent ? def.centre || KENT_ROUTES[def.route].centre : inCity ? (kentLesson ? 'kent' : def.generated?.centre) : null;
   // the gearbox you're learning in (the clutch and gears lessons are always in the manual)
   learner.setTrans(def.trans || state.uk.trans);
   if (learner.autoBadge) learner.autoBadge.visible = learner.trans === 'auto';
