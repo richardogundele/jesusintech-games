@@ -88,6 +88,18 @@ export class SignalSystem {
       }
       if (!phases.length) phases.push({ yaw: 0, n: 0, state: 'red' });
       phases.sort((a, b) => a.yaw - b.yaw); // clockwise round the junction
+      // A junction the map gives a plan of its own (region.json `signalPlans`: stages, each a list of
+      // approach headings in degrees as these phases have them) runs its approaches together as the plan
+      // says. Guildford's Woking Road at Moorfield Road is the case: OSM puts a signal on every stop line
+      // and on the exits too, so it came out as four phases, the two sides of the A320 on 14 s each of a
+      // 93 s cycle and one for cars driving away along Moorfield Road, and the queue on the A320 cost
+      // every test there two minutes. A phase the plan does not name keeps a stage of its own.
+      const plan = net.data.signalPlans?.[id];
+      if (plan) {
+        const stages = plan.map((ds) => ({ yaw: wrapYaw(ds[0] * DEG), yaws: ds.map((d) => wrapYaw(d * DEG)), n: 0, state: 'red' }));
+        const rest = phases.filter((p) => { const s = stages.find((q) => q.yaws.some((y) => angDiff(y, p.yaw) <= 20 * DEG)); if (s) s.n += p.n; return !s; });
+        phases.splice(0, phases.length, ...stages.filter((s) => s.n), ...rest);
+      }
       const cycle = phases.length * SLOT + (phases.length === 1 ? WALK : 0);
       const g = { id, kind: 'junction', nodes: nodes.map((n) => n.id), x: nodes[0].x, z: nodes[0].z, phases, cycle, t: this.rnd() * cycle };
       this.#phaseStates(g);
@@ -185,7 +197,7 @@ export class SignalSystem {
   }
   #phaseFor(g, yaw) {
     let best = g.phases[0], bd = Infinity;
-    for (const p of g.phases) { const d = angDiff(p.yaw, yaw); if (d < bd) { bd = d; best = p; } }
+    for (const p of g.phases) for (const y of p.yaws || [p.yaw]) { const d = angDiff(y, yaw); if (d < bd) { bd = d; best = p; } }
     return best;
   }
 
