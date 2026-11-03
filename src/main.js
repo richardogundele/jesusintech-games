@@ -260,7 +260,7 @@ window.addEventListener('keydown', (e) => {
   if (mode === 'car' && e.code === 'KeyJ') {
     aiCoach.ask({ type: 'hint' }, coachCtx(), coachReply);
   }
-  if (e.code === 'KeyC' && mode === 'car') camMode = (camMode + 1) % 3;
+  if (e.code === 'KeyV' && mode === 'car') camMode = (camMode + 1) % 3; // (C is the clutch)
   if (e.code === 'KeyM') { const m = audio.toggleMute(); hud.toast(m ? 'Sound off' : 'Sound on', 1200); }
   if (e.code === 'Escape' && mode === 'jets') closeJets();
 });
@@ -270,13 +270,14 @@ window.addEventListener('blur', () => keys.clear());
 function readInput() {
   const learner = learnerCar();
   const out = {
-    // the arrow keys walk and drive (W A S D did too, but D is Drive now)
-    up: down('ArrowUp'),
-    down: down('ArrowDown'),
+    // the pedals as they sit in the footwell, left to right: C clutch, B brake, A accelerator (the up and
+    // down arrows are the accelerator and brake too); the left and right arrows steer, and walk you on foot
+    up: down('KeyA', 'ArrowUp'),
+    down: down('KeyB', 'ArrowDown'),
     steer: (down('ArrowRight') ? 1 : 0) - (down('ArrowLeft') ? 1 : 0),
     brake: learner ? false : down('Space'), // the learner car's Space is the parking brake (a press, not a hold)
     run: down('ShiftLeft', 'ShiftRight'),
-    clutch: learner ? down('ShiftLeft', 'ShiftRight') : false,
+    clutch: learner ? down('KeyC', 'ShiftLeft', 'ShiftRight') : false, // (Shift was the clutch: it still is)
     shift: press.shift, ignition: press.ignition, pbrakeToggle: press.pbrakeToggle,
   };
   press.shift = null; press.ignition = false; press.pbrakeToggle = false;
@@ -1381,7 +1382,7 @@ $('start').onclick = () => {
     hud.toast('Your learner car is outside. Get in with E and drive: the game shows you the controls as you go. Mock and real driving tests are on your phone (Tab).', 9000);
   } else {
     const hello = { kent: 'Welcome home to Kent.', london: 'Welcome to London.', birmingham: 'Welcome to Birmingham.', manchester: 'Welcome to Manchester.' }[world.id] || 'Welcome back.';
-    hud.toast(`${hello} Press E by the red Polo to get in and drive. Drive with the arrow keys; D drive, N neutral, P park. Tab opens your phone: lessons, parking practice and the driving test are under Drive.`, 7000);
+    hud.toast(`${hello} Press E by the red Polo to get in and drive. Drive with A (accelerate), B (brake) and C (clutch), the arrows to steer; D drive, N neutral, P park. Tab opens your phone: lessons, parking practice and the driving test are under Drive.`, 7000);
   }
 };
 

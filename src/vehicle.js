@@ -62,7 +62,7 @@ class Manual extends Drivetrain {
     if (g === 'D') g = 1; // the auto's Drive key in a manual is first
     if (g === 'P') g = 'N';
     if (g === this.gear) return;
-    if (this.pedal < 0.75) { this.flags.grind = true; this.grinds++; return this.say('Crunch! Clutch down (Shift) before you change gear'); }
+    if (this.pedal < 0.75) { this.flags.grind = true; this.grinds++; return this.say('Crunch! Clutch down (C) before you change gear'); }
     if (g === 'R' && v > 0.8) { this.flags.grind = true; this.grinds++; return this.say('Stop before you select reverse'); }
     if (typeof g === 'number' && v < -0.8) return this.say('Stop before you select a forward gear');
     this.gear = g; this.locked = false;

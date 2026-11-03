@@ -258,7 +258,7 @@ export class FreeExam {
     // stopped facing uphill: the hill-start routine (handbrake, bite, then release as it pulls)
     if (this.cHeld('hill', (car.grade || 0) > 0.03 && Math.abs(car.vF) < 0.3, dt, 1.2)) {
       return this.tip(d.kind === 'manual'
-        ? 'Hill start: handbrake on (Space), first gear, a little gas (up arrow), let the clutch (Shift) up to the bite — then Space off as the car tries to pull'
+        ? 'Hill start: handbrake on (Space), first gear, a little gas (A), let the clutch (C) up to the bite — then Space off as the car tries to pull'
         : 'Hill start: hold it on the brake, select Drive, then move your foot to the gas — it won’t roll back', 'hill', 12);
     }
     if (d.kind !== 'manual' || typeof d.gear !== 'number') return;

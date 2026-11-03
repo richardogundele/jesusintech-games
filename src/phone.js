@@ -87,7 +87,7 @@ export class Phone {
       <h3>Start here</h3>
       <p class="note">Pick one. Lessons are ten to twenty minutes with an instructor talking you through; a mock is the real test format with nothing riding on it; the test is the one that counts.</p>
       <div class="seg" style="flex-wrap:wrap"><button data-act="jump" data-id="ph-lessons">Lessons</button>${PARKED_ON ? '<button data-act="lesson" data-id="park">Parking practice</button>' : ''}<button data-act="jump" data-id="ph-mock">Mock test</button><button data-act="jump" data-id="ph-test">Driving test</button></div>
-      <p class="note">Free driving needs no button: close the phone (Tab), get in the car (E) and go with the arrow keys. The gearbox, the lesson car and its paint are under <b>Settings</b>.</p>
+      <p class="note">Free driving needs no button: close the phone (Tab), get in the car (E) and go: A to accelerate, B to brake, the arrows to steer. The gearbox, the lesson car and its paint are under <b>Settings</b>.</p>
       <div id="ph-lessons"></div>
       ${this.practice(trans)}
       <div id="ph-mock"></div>
@@ -111,8 +111,8 @@ export class Phone {
       <h3>Learning in</h3>
       <div class="seg"><button class="${trans === 'manual' ? 'on' : ''}" data-act="trans" data-id="manual">Manual</button><button class="${trans === 'auto' ? 'on' : ''}" data-act="trans" data-id="auto">Automatic</button></div>
       <p class="note">${trans === 'manual'
-        ? 'Manual: the <b>arrow keys</b> drive and steer, <b>Shift</b> is the clutch (hold it, either Shift key), <b>1</b>-<b>5</b> the gears, <b>N</b> neutral, <b>R</b> reverse, <b>I</b> the engine, <b>Space</b> the handbrake. Pass in a manual and you can drive both.'
-        : 'Automatic: the <b>arrow keys</b> drive and steer, <b>D</b> drive, <b>R</b> reverse, <b>N</b> neutral, <b>P</b> park, <b>I</b> the engine, <b>Space</b> the handbrake. It creeps in D: cover the brake. Pass in an automatic and your licence is for automatics only.'}</p>
+        ? 'Manual: the pedals are <b>C</b> clutch (hold it), <b>B</b> brake and <b>A</b> accelerator, left to right as in the car; <b>←</b> <b>→</b> steer, <b>1</b>-<b>5</b> the gears, <b>N</b> neutral, <b>R</b> reverse, <b>I</b> the engine, <b>Space</b> the handbrake, <b>V</b> the camera. Pass in a manual and you can drive both.'
+        : 'Automatic: <b>B</b> brake and <b>A</b> accelerator; <b>←</b> <b>→</b> steer, <b>D</b> drive, <b>R</b> reverse, <b>N</b> neutral, <b>P</b> park, <b>I</b> the engine, <b>Space</b> the handbrake, <b>V</b> the camera. It creeps in D: cover the brake. Pass in an automatic and your licence is for automatics only.'}</p>
       <h3>Lesson car</h3>
       <div class="seg" style="flex-wrap:wrap">${this.hooks.lessonCars().map((c) => `<button class="${c.sel ? 'on' : ''}" data-act="lessoncar" data-id="${c.id}">${c.name}</button>`).join('')}</div>
       <p class="note">Take your test in any car you own — it wears L plates and drives like a learner car. No more taxi.</p>

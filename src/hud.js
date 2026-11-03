@@ -30,18 +30,18 @@ function conceal(el) {
 // ---------- contextual hints: what to press, only when it matters, fewer as you learn ----------
 // max = how many times (ever) the hint is shown; counts live in localStorage
 const HINTS = {
-  foot: { max: 3, ms: 7000, html: `${k('W', 'A', 'S', 'D')} to walk · ${k('Shift')} to run · ${k('P')} for your phone` },
-  drive: { max: 4, ms: 5000, html: `${k('W')} to drive · ${k('E')} to get out` },
+  foot: { max: 3, ms: 7000, html: `${k('↑', '↓', '←', '→')} to walk · ${k('Shift')} to run · ${k('Tab')} for your phone` },
+  drive: { max: 4, ms: 5000, html: `${k('A')} to accelerate · ${k('B')} to brake · ${k('←', '→')} to steer · ${k('E')} to get out` },
   learner: { max: 3, ms: 5000, html: `${k('H')} for every control · ${k('E')} to get out` },
   engine: { max: 5, html: `${k('I')} starts the engine` },
-  stalled: { max: 6, html: `Clutch down, ${k('0')}, then ${k('I')}` },
+  stalled: { max: 6, html: `Clutch down (${k('C')}), ${k('N')}, then ${k('I')}` },
   pbrake: { max: 6, linger: 3000, html: `${k('Space')} releases the handbrake` },
   // the first time in a manual: the move-off, each step moved on by doing it...
-  m0: { html: `Hold ${k('Shift')} for the clutch` },
+  m0: { html: `Hold ${k('C')} for the clutch` },
   m1: { html: `Press ${k('1')} for first gear` },
-  m2: { html: `Ease off ${k('Shift')} while pressing ${k('W')}` },
+  m2: { html: `Ease off ${k('C')} while pressing ${k('A')}` },
   // the first time in an automatic
-  a0: { html: `Press ${k('1')} for Drive` },
+  a0: { html: `Press ${k('D')} for Drive` },
   // ...then, once rolling, the two things nobody can guess and the one thing that explains the game.
   // Shared by both gearboxes. 'look' clears when you press Q, the others on a timer.
   look: { html: `${k('Q')} checks your mirrors — do it before you signal or slow down` },
@@ -56,8 +56,8 @@ const H_TIP_SESSIONS = 3;
 // ---------- the controls card (H) ----------
 const GROUPS = {
   foot: ['On foot', [[k('↑', '↓', '←', '→'), 'Walk'], [k('Shift'), 'Run'], [k('E'), 'Get in a car · interact']]],
-  drive: ['Driving', [[k('↑'), 'Accelerate'], [k('↓'), 'Brake · reverse'], [k('←', '→'), 'Steer'], [k('Space'), 'Handbrake'], [k('C'), 'Camera'], [k('E'), 'Get out']]],
-  manual: ['Gearbox <small>· manual</small>', [[k('Shift'), 'Clutch (hold)'], [`${k('1')}–${k('5')}`, 'Gears'], [k('R'), 'Reverse'], [k('N'), 'Neutral'], [k('I'), 'Engine on · off'], [k('Space'), 'Parking brake on · off']]],
+  drive: ['Driving', [[k('A'), 'Accelerate'], [k('B'), 'Brake'], [k('←', '→'), 'Steer'], [k('Space'), 'Handbrake'], [k('V'), 'Camera'], [k('E'), 'Get out']]],
+  manual: ['Gearbox <small>· manual</small>', [[k('C'), 'Clutch (hold)'], [`${k('1')}–${k('5')}`, 'Gears'], [k('R'), 'Reverse'], [k('N'), 'Neutral'], [k('I'), 'Engine on · off'], [k('Space'), 'Parking brake on · off']]],
   auto: ['Gearbox <small>· automatic</small>', [[k('D'), 'Drive'], [k('R'), 'Reverse'], [k('N'), 'Neutral'], [k('P'), 'Park'], [k('I'), 'Engine on · off'], [k('Space'), 'Parking brake on · off']]],
   lesson: ['Lessons', [[k('Z'), 'Left indicator'], [k('X'), 'Right indicator'], [k('Q'), 'Check your mirrors']]],
   game: ['Game', [[k('Tab'), 'Phone'], [k('M'), 'Sound on · off'], [k('J'), 'AI instructor hint (in a car)'], [k('H'), 'These controls']]],
