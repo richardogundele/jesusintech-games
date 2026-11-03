@@ -1549,9 +1549,37 @@ function signalFor(e, s) {
   }
   return null;
 }
-/** pure pursuit on the lane path; the wrong-lane driver stays in lane 1 when the path wants another */
+/**
+ * The line the bot steers by: the lane path with every left corner tighter than the car can turn opened
+ * out to a radius it can, cut on the inside and begun early as a driver does. Turning into a side road
+ * the lane path bends ~80 degrees in 3 m; the car needs ~4 m of radius, so on the raw path it ran out
+ * of lock and went 1-1.4 m wide, into the car waiting at the give-way line. Right corners stay as they
+ * are (cutting one crosses the side road's other lane), and so do rings and manoeuvres.
+ */
+function botLine(run, car) {
+  const src = run.route.pts;
+  if (run.botLine?.src === src) return run.botLine.pts;
+  const R = (1.15 * car.wheelbase) / Math.tan(car.spec.steer);
+  const pts = src.map((p) => ({ ...p }));
+  for (let pass = 0; pass < 60; pass++) {
+    let moved = false;
+    for (let i = 1; i < pts.length - 1; i++) {
+      const o = pts[i - 1], p = pts[i], q = pts[i + 1];
+      if (p.rb || p.man) continue;
+      const ax = p.x - o.x, az = p.z - o.z, bx = q.x - p.x, bz = q.z - p.z;
+      const turn = Math.atan2(bx * az - bz * ax, ax * bx + az * bz); // + = left (left turns raise the heading)
+      if (turn <= 0 || (Math.hypot(ax, az) + Math.hypot(bx, bz)) / 2 > R * turn) continue;
+      p.x += ((o.x + q.x) / 2 - p.x) * 0.5; p.z += ((o.z + q.z) / 2 - p.z) * 0.5;
+      moved = true;
+    }
+    if (!moved) break;
+  }
+  run.botLine = { src, pts };
+  return pts;
+}
+/** pure pursuit on the lane path (opened out where it turns left tighter than the car can); the wrong-lane driver stays in lane 1 when the path wants another */
 function steerKent(run, car, out, bad, want, off = 0) {
-  const pts = run.route.pts, v = Math.abs(car.vF);
+  const pts = botLine(run, car), v = Math.abs(car.vF);
   const Ld = 2.6 + 0.32 * Math.max(v, want * 0.5);
   const i = idxAtS(pts, run.s + Ld), p = pts[Math.min(pts.length - 1, Math.max(run.idx + 1, i))];
   let tx = p.x, tz = p.z;
