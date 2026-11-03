@@ -783,6 +783,9 @@ export class LessonRun {
         if (q && car.drive) this.drillQ.push(...q.map((k) => ({ k, ...DRILLS[k] })));
       } else if (s > e.s + 25) { e.done = true; this.fault('minor', 'Control: pulling up (did not stop when asked)'); }
     }
+    // the angled start's parked car goes once we're well clear of it: a route that comes back along the same
+    // street later has no way round it, and drove into it (Milton Keynes seed 5, 2 km on)
+    if (e.parkedH && e.done && Math.hypot(car.pos.x - e.parked.x, car.pos.z - e.parked.z) > 150) { this.hooks.removeParked?.(e.parkedH); e.parkedH = null; }
     if (e.kind === 'pullright') {
       // pull up on the right, reverse about two car lengths, drive on (DVSA manoeuvre)
       if (!e.phase) {

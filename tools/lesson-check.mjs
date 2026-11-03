@@ -302,6 +302,7 @@ async function runLesson(def, s0, bad = null, maxSec = 3600) {
     say: (t) => said.push(t), hud: () => {}, flash: () => {}, estop: () => {}, satnav: () => {},
     quiz: () => Promise.resolve(true), result: (r) => { result = r; }, cancelled: (why) => { cancelled = why || 'cancelled'; },
     parkedCar: (p) => world.colliders.obb?.(p.x, p.z, 1.9, 4.5, p.heading), // a body like the eyesight car's
+    removeParked: (b) => b && world.colliders.remove?.(b),
   };
   const t0 = Date.now();
   const run = new LessonRun(world, def, hooks);
