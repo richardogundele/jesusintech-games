@@ -1496,12 +1496,15 @@ const MIRROR_BEFORE = ['turn', 'emerge', 'cross', 'mini', 'rb', 'merge', 'diverg
  * points: left for the first exit, right for an exit to the right, none going ahead (then left after
  * the exit before yours). Judged by the exit's direction, a first exit running straight on wanted
  * no signal -- the learner's left was "Signals: correctly" -- and a second exit bearing left wanted
- * a left on the approach, so signalling by the book was "Signals: necessary".
+ * a left on the approach, so signalling by the book was "Signals: necessary". An exit to the right
+ * wants a right even when it is the first (Stoke's two-arm ring: "turn right please (it is the first
+ * exit). Use the right-hand lane.") -- "first exit, signal left" assumes the first exit is on the left.
  */
-const rbApproach = (e) => (e.exit == null ? e.dir : e.exit <= 1 ? 'left' : e.dir === 'right' ? 'right' : 'none'); // (no exit count: Whitmore's rings, by direction as before)
+const rbApproach = (e) => (e.exit == null || e.dir === 'right' ? e.dir : e.exit <= 1 ? 'left' : 'none'); // (no exit count: Whitmore's rings, by direction as before)
 /** which indicator a manoeuvre wants at arc length s, if any */
 function signalFor(e, s) {
-  const at = (a, b) => s > a && s < b;
+  // never before the manoeuvre ahead of this one is done: ring 2's left, given on the way into ring 1, says "first exit" there
+  const at = (a, b) => s > Math.max(a, e.prevEnd ?? -Infinity) && s < b;
   switch (e.kind) {
     case 'turn': case 'emerge': case 'mini': return e.dir !== 'none' && at(e.s - 70, e.s + 4) ? e.dir : null;
     case 'rb': { // Highway Code 186: left for the first exit; right for one to the right; then left after the exit before yours
