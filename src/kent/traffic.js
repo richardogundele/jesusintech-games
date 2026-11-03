@@ -441,7 +441,11 @@ export class KentTraffic {
         // Head-on, 0.05 m: a van passing the learner in a narrow street with a hand's width to spare
         // is meant to, and a fat margin stopped the pair nose to nose for good. At an angle, 0.25 m
         // alongside: the tail of a car turning across the learner's nose swings wider than its path.
-        const clr = A.fx * ofx0 + A.fz * ofz0 < -0.85 ? 0.05 : 0.25;
+        // The hand's width is for a learner standing still: one still driving towards the car closes
+        // the gap while they pass, and round a sharp bend the two met corner to corner (Leeds seed 2,
+        // Fillingfir Drive), so then it is the 0.25 m too.
+        const closing = this.me.v > 1.5 && (A.x - obstacle.x) * this.me.fx + (A.z - obstacle.z) * this.me.fz > 0;
+        const clr = A.fx * ofx0 + A.fz * ofz0 < -0.85 && !closing ? 0.05 : 0.25;
         const padL = 0.4 + 0.1, padW = 0.4 + 2 * clr;
         const pb = { x: obstacle.x, z: obstacle.z, fx: ofx0, fz: ofz0, L: obstacle.L, W: obstacle.W }, px = A.px, pz = A.pz, ps = A.ps;
         // every 0.25 m along the next 8 m of path, not only at the path's points (up to 2 m apart):
