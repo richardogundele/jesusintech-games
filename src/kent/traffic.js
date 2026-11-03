@@ -143,6 +143,7 @@ export class KentTraffic {
       me.stillT = me.v < 0.3 ? (me.stillT || 0) + dt : 0; // how long the player has stood: parked, not waiting at a junction
     } else if (!obstacle) me.v = 0;
     me.x = obstacle ? obstacle.x : null; me.z = obstacle ? obstacle.z : null;
+    me.ind = obstacle?.indicator ?? null; // what the player is signalling (read on a roundabout: leaving at the next exit)
     if (obstacle?.L) { me.L = obstacle.L; me.W = obstacle.W; me.hx = Math.sin(obstacle.heading); me.hz = Math.cos(obstacle.heading); }
     if (dt > 0) {
       this.#peds(dt);
@@ -509,10 +510,20 @@ export class KentTraffic {
       // (the ring I am joining: still ahead of me, or just crossed into -- pulling out is the moment)
       const rb = ringE?.rb ?? (A.yieldRb && A.s - A.yieldS < 10 ? A.yieldRb : null), Rme = rb ? len(obstacle.x - rb.x, obstacle.z - rb.z) : 0;
       const onRing = rb && this.#circulating(rb, obstacle.x, obstacle.z, me.fx, me.fz), th0 = onRing ? Math.atan2(obstacle.z - rb.z, obstacle.x - rb.x) : 0;
+      // signalling left on it, it is leaving at the next exit: round no further than that. Projected all
+      // the way round, a learner leaving by my own arm (whose exit comes before my entry) stopped me dead
+      // as I pulled out (Driveuk seed 11, rb3), and the stop rippled into a jam three minutes later.
+      // (Whether I go at all is still the decision above, made before I pull out, signal or no signal.)
+      let leaveAt = Infinity;
+      if (onRing && me.ind === 'left') for (const a of rb.arms) {
+        const n = a.exit && this.net.nodes.get(a.exitNode ?? a.node); if (!n) continue;
+        let d = (Math.atan2(n.z - rb.z, n.x - rb.x) - th0) * rb.sense; d = ((d % TAU) + TAU) % TAU;
+        if (d > 0.05 && d < leaveAt) leaveAt = d;
+      }
       if (obstacle.heading != null && obstacle.L && me.v > 3 && d2 < 1600) {
         for (const t of [0.6, 1.2, 1.8]) {
           let qx = obstacle.x + me.fx * me.v * t, qz = obstacle.z + me.fz * me.v * t, qfx = ofx, qfz = ofz;
-          if (onRing) { const th = th0 + (rb.sense * me.v * t) / Rme; qx = rb.x + Rme * Math.cos(th); qz = rb.z + Rme * Math.sin(th); qfx = -Math.sin(th) * rb.sense; qfz = Math.cos(th) * rb.sense; }
+          if (onRing) { if ((me.v * t) / Rme > leaveAt) break; const th = th0 + (rb.sense * me.v * t) / Rme; qx = rb.x + Rme * Math.cos(th); qz = rb.z + Rme * Math.sin(th); qfx = -Math.sin(th) * rb.sense; qfz = Math.cos(th) * rb.sense; }
           const arc = this.#onPath(A, qx, qz, qfx, qfz, obstacle.L / 2, obstacle.W / 2, 0.4, Math.hypot(qx - A.x, qz - A.z), s + 30);
           if (arc < 0) continue;
           const g = arc - s - A.L / 2 - this.ext - GAP;

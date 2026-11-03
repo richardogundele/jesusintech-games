@@ -352,7 +352,7 @@ async function runLesson(def, s0, bad = null, maxSec = 3600) {
     if (run.waiting) { await null; await null; }
     elapsed += dt;
     world.tick(elapsed);
-    const obstacle = { x: car.pos.x, z: car.pos.z, r: car.model.radius * 0.6, heading: car.heading, L: car.model.length, W: car.model.width };
+    const obstacle = { x: car.pos.x, z: car.pos.z, r: car.model.radius * 0.6, heading: car.heading, L: car.model.length, W: car.model.width, indicator: drive.indicator };
     world.traffic.update(dt, obstacle, { x: car.pos.x, z: car.pos.z });
     world.player = obstacle;
     // --detour s: at s, put the car on a road off the route (as if it took a wrong turn) to test rerouting
