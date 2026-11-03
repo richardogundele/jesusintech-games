@@ -62,6 +62,8 @@ function prepare(area, d, k) {
   const nid = (old) => (old ? base + old : 0);
   const ways = [], pieces = new Map(); // source way id -> [{id, nodes}]
   for (const w of d.ways) {
+    // each map's own house drive and jet-centre road: the city's home is the estate (estate() below)
+    if (w.synthetic && /^(Home Drive|Jet Centre Road)$/.test(w.name)) continue;
     if (area.drop?.(w)) continue;
     const parts = clipLine(w.pts, C);
     for (const part of parts) {

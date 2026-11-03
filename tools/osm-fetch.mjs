@@ -2,7 +2,7 @@
 // Pulls the OpenStreetMap extract for a region (tools/regions.mjs) from the Overpass API and writes
 // it in the shape tools/region-data.mjs (and kent-data.mjs) read:
 //
-//   node tools/osm-fetch.mjs <region> [--out scratch/osm/<region>] [--force]
+//   node tools/osm-fetch.mjs <region> [--out scratch/osm/<region>] [--force] [--maxsize bytes]
 //
 // <out>/roads.json, roundabouts.json, features.json, raw/q4_buildings.json, raw/q5_landuse.json
 // Every raw Overpass answer is cached in <out>/raw/, so a rerun only fetches what is missing.
@@ -41,7 +41,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 async function overpass(name, ql) {
   const file = path.join(RAW, `${name}.json`);
   if (!opt.force && fs.existsSync(file)) { const j = JSON.parse(fs.readFileSync(file, 'utf8')); console.log(`${name}: cached (${j.elements.length} elements)`); return j; }
-  const data = `[out:json][timeout:240][maxsize:1073741824][bbox:${BBOX}];\n${ql}`;
+  // --maxsize (bytes): a busy server turns away a query that asks to reserve a gigabyte; a city is ~30 MB
+  const data = `[out:json][timeout:240][maxsize:${+opt.maxsize || 1073741824}][bbox:${BBOX}];\n${ql}`;
   let wait = 3000;
   for (let attempt = 0; attempt < 18; attempt++) {
     const url = ENDPOINTS[attempt % ENDPOINTS.length];
