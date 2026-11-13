@@ -10,15 +10,23 @@ import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js
 // Everything from Poly Haven (CC0). Raw downloads live in assets-src/ (not served);
 // models here were simplified + meshopt/webp compressed with gltf-transform.
 const BASE = `${import.meta.env.BASE_URL}assets`; // the game lives at jesusintech.com/games/
+// Boot downloads only what a world actually draws: on a slow connection every megabyte here is
+// time staring at the title screen. Anything the game never names by hand lives in LAZY_* below
+// and is fetched when something asks for it (the dev labs), not before the Enter button lights up.
 const HDRIS = {
-  monaco: 'ph/hdri/kloofendal_48d_partly_cloudy_puresky_4k.hdr',
-  dubai: 'ph/hdri/kloofendal_43d_clear_puresky_4k.hdr',
+  monaco: 'ph/hdri/kloofendal_48d_partly_cloudy_puresky_4k.hdr', // the sky every world uses
+};
+const LAZY_HDRIS = {
+  dubai: 'ph/hdri/kloofendal_43d_clear_puresky_4k.hdr', // lab.html?sky=dubai only: 11 MB off the boot
 };
 const TEXTURES = ['clean_asphalt', 'asphalt_02', 'rectangular_paving', 'marble_01', 'painted_plaster_wall', 'clay_roof_tiles_02',
-  'white_sandstone_blocks_02', 'coast_sand_01', 'leafy_grass', 'wood_floor_deck', 'granite_tile', 'dark_wood', 'concrete_floor_02'];
-export const MODEL_NAMES = ['lamp_lo', 'shrub2_lo', 'island_tree_01', 'island_tree_02', 'island_tree_03', 'shrub_01', 'shrub_02', 'shrub_04', 'potted_plant_01', 'potted_plant_02',
-  'coastal_cliff_01', 'coastal_cliff_02', 'mountainside', 'coast_rocks_01', 'coast_rocks_02', 'boulder_01', 'street_lamp_01',
-  'modern_arm_chair_01', 'sofa_03', 'modern_coffee_table_01', 'outdoor_table_chair_set_01'];
+  'white_sandstone_blocks_02', 'coast_sand_01', 'leafy_grass', 'wood_floor_deck', 'dark_wood', 'concrete_floor_02'];
+// Every model the game plants or builds with. The scanned cliffs, boulders, coast rocks, the spare
+// trees and shrubs and the indoor furniture are still in public/assets and still open in the lab
+// (lab.html?m=<name>), but nothing places them, so they are not downloaded to play.
+export const MODEL_NAMES = ['lamp_lo', 'shrub2_lo', 'island_tree_01', 'shrub_01', 'potted_plant_01', 'potted_plant_02', 'street_lamp_01'];
+export const LAB_MODEL_NAMES = ['island_tree_02', 'island_tree_03', 'shrub_02', 'shrub_04', 'coastal_cliff_01', 'coastal_cliff_02',
+  'mountainside', 'coast_rocks_01', 'coast_rocks_02', 'boulder_01', 'modern_arm_chair_01', 'sofa_03', 'modern_coffee_table_01', 'outdoor_table_chair_set_01'];
 
 const store = { hdri: {}, tex: {}, model: {}, gltf: {}, misc: {} };
 // full glTFs (keep animations / named parts): three.js example models, see README credits
@@ -30,6 +38,34 @@ const SF_CARS = ['revuelto', 'chiron', 'cullinan', 'g63', 'polo'];
 const GLTFS = { ...(REAL_FERRARI ? { ferrari: 'models/ferrari.glb' } : {}), soldier: 'models/soldier.glb', cesiumman: 'models/cesiumman.glb', michelle: 'models/michelle.glb',
   ...Object.fromEntries(SF_CARS.map((k) => [`car_${k}`, `models/cars/${k}.glb`])) };
 let renderer = null;
+
+/**
+ * One download, retried. On a slow or flaky connection a request is far more likely to be dropped
+ * than to be merely slow, and a bare Promise.all leaves the title screen stuck on "Loading 47%"
+ * for ever when one of 200 files never arrives. Each attempt backs off (0.6s, 1.8s, 5.4s) so a
+ * blip costs a moment, not the session; after the last try the error carries the file's name so
+ * the player is told what to retry instead of watching a frozen percentage.
+ */
+const RETRIES = 3;
+async function withRetry(what, run) {
+  let last;
+  for (let i = 0; i < RETRIES; i++) {
+    try { return await run(); } catch (e) {
+      last = e;
+      if (i < RETRIES - 1) await new Promise((r) => setTimeout(r, 600 * 3 ** i));
+    }
+  }
+  throw new Error(`could not download ${what}: ${last?.message || last}`);
+}
+/** fetch + JSON with the same retry; null only when the server really says no (a missing region) */
+async function fetchJson(url, what) {
+  return withRetry(what, async () => {
+    const r = await fetch(url);
+    if (r.status === 404) return null;        // genuinely absent: not worth retrying
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return r.json();
+  });
+}
 
 export async function loadAll(r, onProgress = () => {}) {
   renderer = r;
@@ -45,7 +81,7 @@ export async function loadAll(r, onProgress = () => {}) {
 
   const jobs = [];
   for (const [k, p] of Object.entries(HDRIS)) {
-    jobs.push(hdrLoader.loadAsync(`${BASE}/${p}`).then((t) => {
+    jobs.push(withRetry('the sky', () => hdrLoader.loadAsync(`${BASE}/${p}`)).then((t) => {
       t.mapping = THREE.EquirectangularReflectionMapping;
       store.hdri[k] = t;
     }));
@@ -53,7 +89,7 @@ export async function loadAll(r, onProgress = () => {}) {
   for (const name of TEXTURES) {
     const set = (store.tex[name] = {});
     for (const ch of ['diff', 'nor', 'arm']) {
-      jobs.push(texLoader.loadAsync(`${BASE}/ph/tex/${name}/${ch}.jpg`).then((t) => {
+      jobs.push(withRetry(`${name}/${ch}`, () => texLoader.loadAsync(`${BASE}/ph/tex/${name}/${ch}.jpg`)).then((t) => {
         t.wrapS = t.wrapT = THREE.RepeatWrapping;
         t.anisotropy = renderer.capabilities.getMaxAnisotropy();
         if (ch === 'diff') t.colorSpace = THREE.SRGBColorSpace;
@@ -62,23 +98,49 @@ export async function loadAll(r, onProgress = () => {}) {
     }
   }
   for (const name of MODEL_NAMES) {
-    jobs.push(gltfLoader.loadAsync(`${BASE}/models/${name}.glb`).then((g) => { store.model[name] = g.scene; }));
+    jobs.push(withRetry(name, () => gltfLoader.loadAsync(`${BASE}/models/${name}.glb`)).then((g) => { store.model[name] = g.scene; }));
   }
   for (const [k, p] of Object.entries(GLTFS)) {
-    jobs.push(gltfLoader.loadAsync(`${BASE}/${p}`).then((g) => { store.gltf[k] = g; }));
+    jobs.push(withRetry(k, () => gltfLoader.loadAsync(`${BASE}/${p}`)).then((g) => { store.gltf[k] = g; }));
   }
   if (REAL_FERRARI) jobs.push(texLoader.loadAsync(`${BASE}/models/ferrari_ao.png`).then((t) => { store.misc.ferrariAO = t; }));
   jobs.push(loadRocketbox(manager, texLoader));
-  // the Kent road network (OpenStreetMap, ODbL); the world builds from it synchronously later
-  jobs.push(fetch(`${BASE}/kent/region.json`).then((r) => (r.ok ? r.json() : null)).then((d) => { store.misc.kentRegion = d; }).catch(() => { store.misc.kentRegion = null; }));
   await Promise.all(jobs);
+  // (Kent's road network is no longer fetched here: home is the city, and Kent loads on the way
+  //  there like every other area — loadRegion('kent') writes the same misc('kentRegion') key.)
+  labLoaders = { gltfLoader, hdrLoader };
 }
 
 /** a city's real-map road network (public/assets/<id>/region.json), fetched once, on the way there */
 const regionJobs = {};
 export function loadRegion(id) {
-  if (!regionJobs[id]) regionJobs[id] = fetch(`${BASE}/${id}/region.json`).then((r) => (r.ok ? r.json() : null)).then((d) => { store.misc[`${id}Region`] = d; return d; }).catch(() => { store.misc[`${id}Region`] = null; return null; });
+  if (!regionJobs[id]) {
+    regionJobs[id] = fetchJson(`${BASE}/${id}/region.json`, `the ${id} map`)
+      .then((d) => { store.misc[`${id}Region`] = d; return d; })
+      .catch((e) => { regionJobs[id] = null; throw e; }); // let a retry start a fresh download
+  }
   return regionJobs[id];
+}
+
+// ---------- dev labs: loaded on demand so playing never pays for them ----------
+let labLoaders = null;
+/** lab.html?sky=dubai — the spare HDRI, 11 MB, fetched only when the lab asks for it */
+export async function loadHdri(k) {
+  if (store.hdri[k]) return store.hdri[k];
+  const p = HDRIS[k] || LAZY_HDRIS[k];
+  if (!p || !labLoaders) return store.hdri.monaco;
+  const t = await labLoaders.hdrLoader.loadAsync(`${BASE}/${p}`);
+  t.mapping = THREE.EquirectangularReflectionMapping;
+  store.hdri[k] = t;
+  return t;
+}
+/** lab.html?m=<name> — a model the game never plants, fetched only to look at it */
+export async function loadModel(name) {
+  if (store.model[name]) return store.model[name];
+  if (!labLoaders) return null;
+  const g = await labLoaders.gltfLoader.loadAsync(`${BASE}/models/${name}.glb`);
+  store.model[name] = g.scene;
+  return g.scene;
 }
 
 export const hdri = (k) => store.hdri[k];

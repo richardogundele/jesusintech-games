@@ -1,6 +1,6 @@
 // Dev-only: inspect one optimised model under the real sky. /lab.html?m=island_tree_01&d=12
 import * as THREE from 'three';
-import { loadAll, model, hdri, modelSize } from './assets.js';
+import { loadAll, model, modelSize, loadHdri, loadModel, MODEL_NAMES, LAB_MODEL_NAMES } from './assets.js';
 
 const q = new URLSearchParams(location.search);
 const renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('c'), antialias: true });
@@ -11,7 +11,7 @@ renderer.shadowMap.enabled = true;
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.05, 5000);
 await loadAll(renderer, (p) => (document.getElementById('info').textContent = `loading ${Math.round(p * 100)}%`));
-scene.background = scene.environment = hdri(q.get('sky') || 'monaco');
+scene.background = scene.environment = await loadHdri(q.get('sky') || 'monaco'); // a spare sky downloads here, not at boot
 const sun = new THREE.DirectionalLight(0xffffff, 2.5);
 sun.position.set(30, 50, 20);
 sun.castShadow = true;
@@ -21,6 +21,7 @@ ground.rotation.x = -Math.PI / 2;
 ground.receiveShadow = true;
 scene.add(ground);
 const name = q.get('m') || 'island_tree_01';
+await loadModel(name); // the ones the game never plants are fetched here, on demand
 const m = model(name);
 scene.add(m);
 const size = modelSize(name);
@@ -31,7 +32,10 @@ const h = Number(q.get('h')) || size.y * 0.5;
 camera.position.set(d * 0.7, h + size.y * 0.15, d * 0.7);
 camera.lookAt(0, size.y * 0.45, 0);
 renderer.render(scene, camera);
+// the size dump covers every model, including the ones only the lab loads (fetched here on demand)
+await Promise.all(LAB_MODEL_NAMES.map((n) => loadModel(n)));
+window.__sizes = Object.fromEntries([...MODEL_NAMES, ...LAB_MODEL_NAMES].map((n) => [n, modelSize(n).toArray().map((v) => +v.toFixed(2))]));
+// last: these on-demand loads share loadAll's LoadingManager, whose progress callback writes to
+// #info, so the model's own line has to be the final word
 document.getElementById('info').textContent = `${name} · ${size.x.toFixed(1)} × ${size.y.toFixed(1)} × ${size.z.toFixed(1)} m · ${Math.round(tris).toLocaleString()} tris`;
 window.__labReady = true;
-import { MODEL_NAMES } from './assets.js';
-window.__sizes = Object.fromEntries(MODEL_NAMES.map((n) => [n, modelSize(n).toArray().map((v) => +v.toFixed(2))]));

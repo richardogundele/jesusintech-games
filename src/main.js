@@ -1054,6 +1054,9 @@ async function warmTiles(x, z, ms = 1500) {
   while (performance.now() - t0 < ms) { world.tiles.update(x, z, 0.016); await wait(0); }
 }
 async function goKent() {
+  // the map comes down BEFORE the screen fades: a failed download then costs a message, not a
+  // black screen you can't get out of (Kent's map is fetched on the way there now, not at boot)
+  try { await loadRegion('kent'); } catch { hud.toast('Couldn\'t download the Kent map. Check your connection and try again.', 4000); return; }
   mode = 'cutscene';
   if (car) { car.park(); car = null; }
   hud.show(false);
@@ -1094,11 +1097,12 @@ async function startTest(centre = 'any', seed = null, kind = 'mock') {
 }
 /** to a city for its test: like goKent, with the region's map loaded first */
 async function goCity(id) {
+  // same as goKent: the area's map first, so a dropped download never strands you behind the fade
+  try { await ensureWorldData(id); } catch { hud.toast('Couldn\'t download that area\'s map. Check your connection and try again.', 4000); return; }
   mode = 'cutscene';
   if (car) { car.park(); car = null; }
   hud.show(false);
   await fade(1);
-  await ensureWorldData(id);
   enterWorld(id);
   renderer.compile(world.scene, camera);
   hud.show(true);
@@ -1112,6 +1116,7 @@ async function startLesson(id) {
   const kentLesson = def.world === 'kent';
   const where = kentLesson ? (def.route === 'mock-canterbury' ? 'kent' : 'city') : REGION_WORLDS.includes(def.world) ? def.world : 'uk';
   if (world.id !== where) await (where === 'kent' ? goKent() : where === 'uk' ? goUK() : goCity(where));
+  if (world.id !== where) return; // the trip was called off (its map wouldn't download): don't start the lesson in the wrong world
   const tiled = where !== 'uk'; // Kent and the cities stream tiles: warm them behind a fade
   if (lesson) lesson.cancel();
   hud.exam(null, false); // a set lesson marks its own route; hide the free-drive tally
@@ -1370,7 +1375,12 @@ function updateMenuCamera(dt) {
   world.env.follow(new THREE.Vector3(0, 0, 0));
 }
 
+// The title button is a loading indicator first and the Enter button last. While it still says
+// "Loading" - or "tap to try again" after a dropped download - a tap belongs to the retry below,
+// not to this: entering with no world built would hide the title over a black screen.
+let booted = false;
 $('start').onclick = () => {
+  if (!booted) return;
   audio.start();
   $('title').classList.add('hidden');
   enterWorld(HOMES.includes(state.world) ? state.world : 'city');
@@ -1506,7 +1516,25 @@ function step(dt) {
 const startBtn = $('start');
 startBtn.disabled = true;
 startBtn.textContent = 'Loading 0%';
-await loadAll(renderer, (p) => { startBtn.textContent = `Loading ${Math.round(p * 100)}%`; });
+/**
+ * Download, and when the connection drops say so and wait for a tap. Each file is already retried
+ * three times inside assets.js; this is the last resort, so that a lost connection reads as
+ * "tap to try again" instead of a percentage that sits there for ever looking like a broken game.
+ * Whatever already arrived is in the browser's cache, so a retry only fetches what is missing.
+ */
+async function download(label, run) {
+  for (;;) {
+    try { return await run(); } catch (e) {
+      console.error(e);
+      startBtn.textContent = `${label} didn't download — tap to try again`;
+      startBtn.disabled = false;
+      await new Promise((r) => startBtn.addEventListener('click', r, { once: true }));
+      startBtn.disabled = true;
+      startBtn.textContent = 'Loading 0%';
+    }
+  }
+}
+await download('The game', () => loadAll(renderer, (p) => { startBtn.textContent = `Loading ${Math.round(p * 100)}%`; }));
 player.mesh = buildPlayer(state.look);
 const houseHooks = {
   toast: (t, ms) => hud.toast(t, ms),
@@ -1520,9 +1548,10 @@ setCityHooks(houseHooks);
 if (!HOMES.includes(state.world)) state.world = 'city';
 for (const c of state.owned.cars) if (c.world === 'kent') c.world = 'city';
 startBtn.textContent = 'Loading the city'; // (the map is the biggest download: say so, not a stuck 100%)
-await loadRegion('city');
+await download('The city map', () => loadRegion('city'));
 world = getWorld('city'); // home first; the other worlds build on demand
 renderer.compile(world.scene, camera);
+booted = true; // from here the button really is Enter
 startBtn.disabled = false;
 startBtn.textContent = 'Enter';
 frame();
