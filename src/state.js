@@ -18,7 +18,7 @@ const DEFAULTS = () => ({
   // driving lessons and tests: licence false | 'auto' (passed in an automatic) | 'full' (passed in a manual);
   // trans: the gearbox you learn in; history: your driving tests (newest last); hints: key hints seen per gearbox
   // paint: a hex colour for your car (null = the car's own colour); plate: your registration (set on first run)
-  uk: { lessons: {}, licence: false, tests: 0, trans: 'manual', lessonCar: null, history: [], hints: {}, paint: null, plate: '' },
+  uk: { lessons: {}, licence: false, tests: 0, trans: 'auto', lessonCar: null, history: [], hints: {}, paint: null, plate: '' },
   // career: every finished drive banks into this, for the overall driver rating (see careerRating)
   career: { drives: 0, passes: 0, fails: 0, minor: 0, serious: 0, dangerous: 0, km: 0, cleanDrives: 0, last10: [] },
   // crash damage: condition 0-100 per car id, and the car ids you wrote off (undrivable until re-bought)
@@ -26,6 +26,7 @@ const DEFAULTS = () => ({
   look: { outfit: 'Realistic soldier', camo: 'Woodland', top: 'Royal blue', jeans: 'Dark denim', skin: 'Brown' }, // what you're wearing
   lookV: 2, // bump to move existing saves onto a new default outfit once
   homeV: 1, // bump to move existing saves to a new home once
+  transV: 1, // bump to move existing saves onto a new default gearbox once
   songs: { on: false, shuffle: false, volume: 0.8, last: null, yt: false }, // your own music (the files live in IndexedDB) and the YouTube radio
 });
 
@@ -50,7 +51,11 @@ function load() {
   const uk = out.uk;
   if (uk.licence === true) uk.licence = 'auto';
   if (uk.licence !== 'auto' && uk.licence !== 'full') uk.licence = false;
-  uk.trans = uk.trans === 'auto' ? 'auto' : 'manual';
+  uk.trans = uk.trans === 'manual' ? 'manual' : 'auto'; // you learn in an automatic unless you chose a manual
+  // you learn in an automatic now (2026-11-13). Every save made while manual was the default has
+  // 'manual' written into it, whether or not anyone chose it, so move those across; a full licence
+  // is the one proof the manual was meant, and the phone's Settings put it back in a tap.
+  if ((saved.transV || 0) < 1) { if (uk.licence !== 'full') uk.trans = 'auto'; out.transV = 1; }
   uk.history = Array.isArray(uk.history) ? uk.history.slice(-60) : [];
   // the lessons went (2026-10-26): there are mock tests and the real test now. Every test driven
   // before that was a practice of the same format, so it reads as a mock
