@@ -16,6 +16,10 @@
 //   --gen auto --region london   the same, for a city: the pool comes from its baked map (auto-pool.js)
 //                               rather than Kent's two authored ones, so a city's roads get driven
 //   --gen auto --region city --centre coventry   Driving City: one area's test centre (default the first)
+//   --gen auto --region city --centre whole      the whole-city mock: a drive from one town's test centre
+//                               to a neighbour's over the link road between them (tools/whole-city-check.mjs
+//                               plans every pair; this drives one). --centre whole:guildford:kent for a
+//                               given pair. Judged against its own window, not the 13-17 of a town's test.
 //   --city                      Kent's lessons in Driving City's Herne Bay (all but mock-canterbury)
 //   --colliders builds the Kent tiles along the route (scenery, roads, signs) and adds their colliders,
 //   so the car can hit buildings, posts and barriers as in the browser (slower: tiles take a while)
@@ -27,6 +31,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { build } from 'esbuild';
+import { CITY } from './driving-city.mjs'; // the city's areas and the link roads between them (--centre whole)
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
@@ -71,7 +76,7 @@ export * as uk from './src/worlds/uk.js';
 export { CENTRES, centreOf, testCentreLayout } from './src/kent/lesson-routes.js';
 export * as THREE from 'three';
 export * as testRoutes from './src/kent/test-routes.js';
-export { autoPool } from './src/kent/auto-pool.js';
+export { autoPool, wholeCityPool } from './src/kent/auto-pool.js';
 export { REGIONS } from './tools/regions.mjs';
 export { makeTerrain } from './src/worlds/terrain.js';
 export * as dl25 from './src/dl25.js';
@@ -468,10 +473,23 @@ if (opt('gen')) {
     if (a?.id === 'kent') return G.testRoutes.shiftedPool('herne', [a.x, a.z], { key: 'kent', world: REG, tc });
     return G.autoPool(genNet, tc, a ? { key: a.id, world: REG, bounds: a.box, timeK: G.REGIONS[a.id]?.timeK } : { key: REG, world: REG });
   };
-  const pools = REG ? [autoFor(pickCentre())] : opt('gen') === 'both' ? ['herne', 'canterbury'] : [opt('gen')];
+  // --centre whole[:<from>:<to>]: the whole-city mock, two towns' pools in one (auto-pool.js wholeCityPool)
+  const wholePool = () => {
+    const areas = genNet.data.areas || [];
+    const asked = String(opt('centre')).split(':').slice(1);
+    const pairs = CITY.links.filter((l) => areas.some((a) => a.id === l.a) && areas.some((a) => a.id === l.b));
+    const linked = asked.length === 2 && pairs.some((l) => (l.a === asked[0] && l.b === asked[1]) || (l.a === asked[1] && l.b === asked[0]));
+    const [ia, ib] = linked ? asked : [pairs[0].a, pairs[0].b];
+    const A = areas.find((a) => a.id === ia), B = areas.find((a) => a.id === ib);
+    if (!A || !B) { console.error(`no such pair of towns: ${ia}, ${ib}`); process.exit(2); }
+    return G.wholeCityPool(genNet, genNet.testCentres.find((t) => t.area === ia), genNet.testCentres.find((t) => t.area === ib),
+      { idA: ia, idB: ib, boundsA: A.box, boundsB: B.box, timeK: G.REGIONS[ia]?.timeK, nameA: A.name, nameB: B.name });
+  };
+  const pools = REG ? [String(opt('centre') || '').startsWith('whole') ? wholePool() : autoFor(pickCentre())]
+    : opt('gen') === 'both' ? ['herne', 'canterbury'] : [opt('gen')];
   for (const centre of pools) for (const gs of range(opt('gseeds', '1-5'))) {
     try { const win = opt('genwin') ? opt('genwin').split(',').map(Number) : null;
-    const gen = G.testRoutes.generateTest(genNet, centre, gs, flag('genwhy') || win || opt('signs') ? { ...(win ? { minMin: win[0], maxMin: win[1] } : {}), ...(opt('signs') ? { signsRate: +opt('signs') } : {}), log: !flag('genwhy') ? null : (k, used, why, mins, rt) => console.log(`   try ${k}: ${used.join(',')} ${mins.toFixed(1)} min ${(rt.length / 1000).toFixed(1)} km: ${why.join(', ') || 'OK'} | ${rt.events.filter((e) => ['turn', 'emerge', 'cross'].includes(e.kind)).map((e) => e.kind[0] + (e.dir || '')[0]).join('')}`) } : {}); gen.signs = G.testRoutes.signsOnRoute(genNet, gen.route); genRuns.push({ def: Lmod.testDef(gen), seed: gs, gen }); }
+    const gen = G.testRoutes.generateTest(genNet, centre, gs, flag('genwhy') || win || opt('signs') ? { ...(win ? { minMin: win[0], maxMin: win[1] } : {}), ...(opt('signs') ? { signsRate: +opt('signs') } : {}), log: !flag('genwhy') ? null : (k, used, why, mins, rt) => console.log(`   try ${k}: ${used.join(',')} ${mins.toFixed(1)} min ${(rt.length / 1000).toFixed(1)} km: ${why.join(', ') || 'OK'} | ${rt.events.filter((e) => ['turn', 'emerge', 'cross'].includes(e.kind)).map((e) => e.kind[0] + (e.dir || '')[0]).join('')}`) } : {}); gen.signs = G.testRoutes.signsOnRoute(genNet, gen.route); gen.pool = typeof centre === 'object' ? centre : null; genRuns.push({ def: Lmod.testDef(gen), seed: gs, gen }); }
     catch (err) { console.log(`FAIL generate ${centre.key || centre} seed ${gs}: ${err.message}`); genRuns.push({ fail: true }); }
   }
   list = [];
@@ -497,10 +515,14 @@ for (const [def, s, gen] of jobs) {
   // and 5 of 5 on Leeds, 2 of 2 on Liverpool -- were this double count, which made the column look
   // like the biggest problem on every map while telling us nothing new about any of them.
   const cutShort = !r.done || r.cancelled || r.terminated;
-  if (gen && !bad && !cutShort && (r.simMin < 13 || r.simMin > 17)) { ok = false; r.timeFail = true; }
+  // A town's test is judged on 13-17 whatever its pool aims for (autoPool plans to 13.8-16.2, and
+  // widening the gate to match would let a 17.1-minute Leeds test through). Only the whole-city mock,
+  // which plans to half an hour, is judged on its own window, widened the same 1 min either side.
+  const win = gen?.gen?.pool?.wholeCity ? gen.gen.pool.window : [14, 16];
+  if (gen && !bad && !cutShort && (r.simMin < win[0] - 1 || r.simMin > win[1] + 1)) { ok = false; r.timeFail = true; }
   if (bad) r.matching = hits;
   if (!ok) failed++;
-  console.log(`${ok ? 'ok  ' : 'FAIL'} ${r.id.padEnd(16)} ${r.trans.padEnd(6)} seed ${s}${r.bad ? ` bad ${r.bad}` : ''}: ${r.done ? (r.passed ? 'passed' : 'not passed') : r.cancelled ? `cancelled (${r.cancelled})` : `did not finish (s ${r.s} of ${r.length} m at ${JSON.stringify(r.stuckAt)})`}, ${r.counts.minor} minor ${r.counts.serious} serious ${r.counts.dangerous} dangerous, route ${(r.length / 1000).toFixed(2)} km, ${r.simMin} sim min${r.terminated === 'danger' || r.terminated === 'serious' ? ` (STOPPED on the ${r.terminated === 'danger' ? 'dangerous' : 'serious'} fault, so not the route's own duration)` : r.terminated ? ` (stopped early: ${r.terminated})` : ''}, ${r.wallS} s wall, estop ${r.estop}${r.stalls || r.grinds ? `, STALLS ${r.stalls} grinds ${r.grinds}` : ''}${r.otherHits ? `, hit by traffic (${r.otherHits} frames)` : ''}${flag('colliders') ? `, ${r.colliders} colliders` : ''}${bad ? `, ${r.matching} matching ${opt('bad')} fault(s)` : ''}${flag('hash') ? `, trace ${r.trace} frames ${r.frames}` : ''}${r.timeFail ? ' (OUTSIDE 13-17 min)' : ''}`);
+  console.log(`${ok ? 'ok  ' : 'FAIL'} ${r.id.padEnd(16)} ${r.trans.padEnd(6)} seed ${s}${r.bad ? ` bad ${r.bad}` : ''}: ${r.done ? (r.passed ? 'passed' : 'not passed') : r.cancelled ? `cancelled (${r.cancelled})` : `did not finish (s ${r.s} of ${r.length} m at ${JSON.stringify(r.stuckAt)})`}, ${r.counts.minor} minor ${r.counts.serious} serious ${r.counts.dangerous} dangerous, route ${(r.length / 1000).toFixed(2)} km, ${r.simMin} sim min${r.terminated === 'danger' || r.terminated === 'serious' ? ` (STOPPED on the ${r.terminated === 'danger' ? 'dangerous' : 'serious'} fault, so not the route's own duration)` : r.terminated ? ` (stopped early: ${r.terminated})` : ''}, ${r.wallS} s wall, estop ${r.estop}${r.stalls || r.grinds ? `, STALLS ${r.stalls} grinds ${r.grinds}` : ''}${r.otherHits ? `, hit by traffic (${r.otherHits} frames)` : ''}${flag('colliders') ? `, ${r.colliders} colliders` : ''}${bad ? `, ${r.matching} matching ${opt('bad')} fault(s)` : ''}${flag('hash') ? `, trace ${r.trace} frames ${r.frames}` : ''}${r.timeFail ? ` (OUTSIDE ${win[0] - 1}-${win[1] + 1} min)` : ''}`);
   if (!flag('quiet') && r.faults.length) console.log('      ' + r.faults.join('\n      '));
   if (flag('peds')) { const p = r.peds; console.log(`      crossed: zebra ${p.zebraCrossings} (gave up ${p.zebraGaveUp}), signals ${p.signalCrossings} (gave up ${p.signalGaveUp}); squeezed ${p.squeezed || 0} (past the learner ${p.squeezedMe || 0}), watchdog ${p.watchdog}`); }
   if (r.stall) console.log('      STALL ' + JSON.stringify(r.stall, null, 0));

@@ -48,6 +48,20 @@ export class TileManager {
     return Math.hypot(dx, dz);
   }
 
+  /**
+   * Has everything within `r` of a point finished building? Streaming normally catches up a frame
+   * or two late and nobody notices, but the eyesight check has to know what is standing between
+   * you and the number plate before it picks where you stand, and a hedge that arrives afterwards
+   * is a hedge it never saw.
+   */
+  readyAround(x, z, r) {
+    for (const t of this.tiles.values()) {
+      if (!t.want || this._complete(t)) continue;
+      if (this._dist(t, x, z) <= r) return false;
+    }
+    return true;
+  }
+
   /** call once per frame with the player's position */
   update(px, pz, dt = 0) {
     this.player.x = px; this.player.z = pz;

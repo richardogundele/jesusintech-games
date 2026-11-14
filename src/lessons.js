@@ -183,7 +183,8 @@ export function testDef(gen, kind = 'mock') {
   const m = gen.meta, real = kind === 'real';
   return {
     id: `test-${m.centre}`, world: m.world || 'kent', title: `${real ? 'Driving test' : 'Mock test'}: ${m.centreName}`, mock: true, real, checks: true, centre: m.centre,
-    blurb: '15 minutes on a route made for this test.', generated: m, spec: gen.spec, seed: m.seed, indepSpec: m.indep, estop: 1 / 7, showMe: 0.55,
+    // its own length, because a whole-city mock is about half an hour and a town's test a quarter
+    blurb: `about ${Math.round(m.minutes)} minutes on a route made for this test.`, generated: m, spec: gen.spec, seed: m.seed, indepSpec: m.indep, estop: 1 / 7, showMe: 0.55,
     intro: DT1_START, signs: gen.signs || null,
   };
 }

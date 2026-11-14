@@ -479,6 +479,12 @@ h1 { font-family: var(--font-display); font-size: clamp(40px, 9vw, 112px); lette
 .quiz-a button:active { transform: scale(0.99); }
 .quiz-a button.plate { font: 800 26px/1 "Arial Narrow", Arial, sans-serif; letter-spacing: 0.08em; background: #f2d300; color: #111; text-align: center; border-color: #111; }
 .quiz-a button.plate:hover { background: #fbe033; border-color: #111; }
+/* The eyesight check has to be answerable by looking: no blur over the view, and the card down at
+   the bottom in two columns, clear of the plate the camera has framed in the upper third. */
+#quiz.eyes { background: linear-gradient(to bottom, transparent 52%, rgba(0, 0, 0, 0.5)); -webkit-backdrop-filter: none; backdrop-filter: none; place-items: end center; }
+#quiz.eyes .modal.quiz { margin-bottom: var(--sp-5); max-width: 760px; }
+#quiz.eyes .modal.quiz h2 { margin-bottom: var(--sp-4); }
+#quiz.eyes .quiz-a { grid-template-columns: 1fr 1fr; }
 #estop { position: fixed; left: 50%; top: 38%; transform: translate(-50%, -50%); font: 900 120px/1 Arial, sans-serif; color: #ff3b30; text-shadow: 0 6px 30px rgba(0,0,0,0.6); z-index: 15; pointer-events: none; letter-spacing: 0.04em; }
 
 #phone-body .swatches { display: flex; flex-wrap: wrap; gap: 10px; margin: 4px 4px 0; }

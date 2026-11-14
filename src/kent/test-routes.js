@@ -387,6 +387,12 @@ export function generateTest(net, centreKey, seed, opts = {}) {
   // within the 14-16 minute window, the part the pool aims for (pool.window): the careful driver's
   // simulated time scatters a minute or so either side of the estimate, a manual a little slower
   const minMin = opts.minMin ?? pool.window[0], maxMin = opts.maxMin ?? pool.window[1];
+  // How long a single leg may take. MAX_LEG is sized for a test inside one town, where seven minutes
+  // between two parts means the router is wandering. The whole-city mock crosses to another town, so
+  // one of its legs is the drive out of this town, along the link road and in to the next: that leg
+  // alone is most of a short test, and at 420 s the router refused it and every pair but three came
+  // back "no route". A pool can raise it (auto-pool.js wholeCityPool).
+  const maxLeg = pool.maxLeg ?? MAX_LEG;
   const pad = 0.3; // a quick guess this close to the window is worth building
   // lean: one estate more or fewer than the draw says, after bare routes that came out too short or too long
   let last = null, builds = 0, lean = 0;
@@ -416,7 +422,7 @@ export function generateTest(net, centreKey, seed, opts = {}) {
     // (ending where buildKentRoute will: short of the car park entrance for the bay park)
     const end = spec.to || layout.at(spec.bayFrom, layout.roadDist - 17.5);
     let r0 = null;
-    try { r0 = net.route({ x: spec.start.x, z: spec.start.z, maxD: 30 }, end, { via: vias, noUturn: true, avoid: P.avoid, legs, maxLeg: MAX_LEG }); } catch { r0 = null; }
+    try { r0 = net.route({ x: spec.start.x, z: spec.start.z, maxD: 30 }, end, { via: vias, noUturn: true, avoid: P.avoid, legs, maxLeg }); } catch { r0 = null; }
     const quick = r0 ? quickMinutes(r0, pool.quick) * pool.timeK : null;
     let bad = [], route = null, mins = quick ?? 0;
     if (!r0) bad = ['no route'];

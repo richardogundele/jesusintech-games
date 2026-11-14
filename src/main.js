@@ -23,7 +23,7 @@ import { ClaudeCoach } from './claudeCoach.js';
 import { SignTeacher } from './signTeach.js';
 import { KENT_ROUTES } from './kent/lesson-routes.js';
 import { generateTest, signsOnRoute, shiftedPool } from './kent/test-routes.js';
-import { autoPool } from './kent/auto-pool.js';
+import { autoPool, wholeCityPool } from './kent/auto-pool.js';
 import { signQuestion } from './sign-quiz.js';
 import { buildCar } from './models.js';
 import { TRAFFIC } from './catalog.js';
@@ -823,6 +823,10 @@ function speak(text) {
   } catch { /* no speech: the text panel is enough */ }
 }
 
+// a UK number plate: 520 x 111 mm, with characters 79 mm tall. The eyesight check sizes its
+// camera from these, so they live here rather than as bare numbers inside the builder.
+const PLATE_W = 0.52, PLATE_H = 0.111, PLATE_CHAR = 79 / 111;
+
 /** the dark blue car whose number plate the eyesight check reads; spot { x, z, heading, centre? } */
 function addEyesightCar(w, spot) {
   const spec = { ...TRAFFIC[0], color: 0x1d2b44 };
@@ -833,26 +837,163 @@ function addEyesightCar(w, spot) {
   if (spot.heading) w.colliders.obb(spot.x, spot.z, 2.0, 4.8, spot.heading);
   else w.colliders.box(spot.x, spot.z, 2.0, 4.8);
   const plateCanvas = document.createElement('canvas');
-  plateCanvas.width = 512; plateCanvas.height = 112;
+  plateCanvas.width = 1040; plateCanvas.height = 222; // a real plate's shape, at 2 px per mm
   const tex = new THREE.CanvasTexture(plateCanvas);
   tex.colorSpace = THREE.SRGBColorSpace;
-  const pl = new THREE.Mesh(new THREE.PlaneGeometry(0.52, 0.11), new THREE.MeshBasicMaterial({ map: tex }));
+  tex.anisotropy = renderer.capabilities.getMaxAnisotropy(); // a plate read at 20 m is all mipmap; without this it is mush
+  const pl = new THREE.Mesh(new THREE.PlaneGeometry(PLATE_W, PLATE_H), new THREE.MeshBasicMaterial({ map: tex }));
   pl.position.set(0, 0.5, -(m.length / 2 + 0.02));
   pl.rotation.y = Math.PI;
   m.root.add(pl);
   const setPlate = (text) => {
     const ctx = plateCanvas.getContext('2d');
-    ctx.fillStyle = '#f2d300'; ctx.fillRect(0, 0, 512, 112);
-    ctx.fillStyle = '#111'; ctx.font = '800 84px "Arial Narrow", Arial, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText(text, 256, 60);
+    const W = plateCanvas.width, H = plateCanvas.height;
+    ctx.fillStyle = '#f2d300'; ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = '#111'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    // Characters as tall as the real thing. They were 84px on a 112px plate - two thirds of life
+    // size - which is not a plate anyone could read at 20 m. 0.716 is Arial's cap height per em.
+    const font = (px) => `800 ${px}px "Arial Narrow", Arial, sans-serif`;
+    const size = Math.round((H * PLATE_CHAR) / 0.716);
+    ctx.font = font(size);
+    const max = W * 0.94, tw = ctx.measureText(text).width;
+    if (tw > max) ctx.font = font(Math.floor(size * (max / tw))); // a wide plate stays inside its edges
+    ctx.fillText(text, W / 2, H * 0.54);
     tex.needsUpdate = true;
     w.plate = text;
   };
+  spot.plateMesh = pl; spot.carRoot = m.root; // eyeViewpoint needs both: what to look at, and what to look past
   spot.setPlate = setPlate;
   // Whitmore has one eyesight car; in Kent, setPlate(text, centre) picks the test centre's
   const prev = w.setPlate;
   w.setPlate = (text, centre) => (spot.centre && centre && spot.centre !== centre && prev ? prev(text, centre) : setPlate(text));
   setPlate(randomPlate());
+}
+
+// Stand the eyesight car on its bay and find somewhere its plate can actually be read from.
+//
+// Two things were hiding it. A test centre's forecourt is not always at the terrain height the car
+// was parked at - Stoke's is a slab 60 cm up, and the car sat underneath it with only its roof
+// showing - so drop a ray on to whatever is really there and put the car on top of it. Then an
+// examiner picks a car you can see: walk back 20 m, and if a hedge or a verge is in the way, step
+// aside or come forward until the plate is in plain sight. The question states the distance reached.
+const EYE_BACK = [20, 17, 14]; // 20 m is the test; nearer only if nothing else is clear
+const EYE_SIDE = [1, -1, 3, -3, 0];
+const EYE_HIGH = [1.7, 2.3]; // eye height, then standing on the kerb: Burgess Hill has a hedge across its forecourt
+function eyeViewpoint(spot, groundAt) {
+  const fx = Math.sin(spot.heading), fz = Math.cos(spot.heading), lx = Math.cos(spot.heading), lz = -Math.sin(spot.heading);
+  const under = (o, root) => { for (let p = o; p; p = p.parent) if (p === root) return true; return false; };
+  // Only what could possibly be in the way. A test centre has five thousand meshes in sight and a
+  // raycast walks every one of them (and every blade inside an instanced clump), which made the
+  // worst case - nothing clear, so every candidate tried - take seven seconds with the game frozen.
+  // Filter on the bounding SPHERE, never on an object's position: a tile mesh is anchored far from
+  // the hedge it holds, and filtering by position is exactly what hid Stoke's forecourt from this.
+  const bay = new THREE.Vector3(spot.x, groundAt(spot.x, spot.z), spot.z);
+  const sphere = new THREE.Sphere();
+  const meshes = [];
+  world.scene.traverse((o) => {
+    if (!o.isMesh || !o.visible || !o.geometry || under(o, spot.carRoot)) return;
+    if (!o.geometry.boundingSphere) o.geometry.computeBoundingSphere();
+    if (!o.geometry.boundingSphere) return;
+    sphere.copy(o.geometry.boundingSphere).applyMatrix4(o.matrixWorld);
+    if (sphere.center.distanceTo(bay) - sphere.radius < 40) meshes.push(o); // every candidate is within 21 m of the bay
+  });
+  const ray = new THREE.Raycaster();
+  const down = new THREE.Vector3(0, -1, 0);
+  /** what you'd stand on at a point: more than a step above the terrain is a roof or a tree, not a floor */
+  const floor = (x, z) => {
+    const g = groundAt(x, z);
+    ray.set(new THREE.Vector3(x, g + 12, z), down);
+    ray.near = 0; ray.far = 24;
+    const hit = ray.intersectObjects(meshes, false)[0];
+    return hit && hit.point.y - g <= 1.5 && hit.point.y > g ? hit.point.y : g;
+  };
+  const bayY = floor(spot.x, spot.z);
+  if (spot.carRoot && bayY > spot.carRoot.position.y + 0.01) { spot.carRoot.position.y = bayY; spot.carRoot.updateMatrixWorld(true); }
+  const at = spot.plateMesh
+    ? spot.plateMesh.getWorldPosition(new THREE.Vector3())
+    : new THREE.Vector3(spot.x, bayY + 0.5, spot.z);
+  // Judge each spot by rendering it and looking at the plate, not by casting a ray at it. Rays and
+  // the renderer disagree here: Coventry's forecourt grass is drawn from a shader that moves its
+  // vertices, so a ray passes through what the eye plainly sees, and the check stood the player in
+  // front of a wall of grass and asked them to read a plate behind it. A draw is also cheaper than
+  // a cast against a merged forecourt tile, and it measures the one thing that matters.
+  let best = null, bestSeen = -1;
+  // measured from the plate, not from the bay: 20 m from the plate is what the real check means
+  for (const h of EYE_HIGH) for (const d of EYE_BACK) for (const s of EYE_SIDE) {
+    // eye height off the bay's own surface. Not off whatever happens to be underfoot: at Coventry
+    // that put the camera on top of a hedge, looking down into the grass with the car off the top
+    // of the screen. You and the car are standing on the same forecourt.
+    const cand = { x: at.x - fx * d + lx * s, y: bayY + h, z: at.z - fz * d + lz * s, d, at };
+    aimAtPlate(cand);
+    const seen = plateSeen(spot.plateMesh);
+    if (seen > 0.45) return { ...cand, seen }; // a plate with nothing in front of it shows about 0.78
+    if (seen > bestSeen) { bestSeen = seen; best = { ...cand, seen }; }
+  }
+  return best; // nothing clear anywhere: the least hidden, rather than refuse to run the test
+}
+
+/** point the camera at a viewpoint's plate, zoomed to read it; the frame loop then leaves it alone */
+function aimAtPlate(view) {
+  // At the usual 62 degree field of view a plate's 79 mm characters come out three pixels tall: no
+  // one can read that, so the four look-alike answers were a one-in-four guess. So focus - a field
+  // of view narrow enough to land the characters near 20 px whatever the size of the window.
+  const zoom = THREE.MathUtils.clamp(THREE.MathUtils.radToDeg(2 * Math.atan((viewH() * PLATE_H * PLATE_CHAR) / (view.d * 2 * 20))), 6, 30);
+  const drop = view.d * Math.tan(THREE.MathUtils.degToRad(zoom) / 2) * 0.36; // aim low, so the plate sits above the card you answer on
+  eyeShot = {
+    pos: new THREE.Vector3(view.x, view.y, view.z),
+    look: view.at.clone().setY(view.at.y - drop),
+    fov: zoom,
+  };
+  snapCamera();
+}
+
+/**
+ * Take the planting out of the forecourt for the few seconds the eyesight check lasts, and give it
+ * back afterwards. A real test centre has a clear view across its car park; the map's does not, and
+ * where it doesn't there is nothing to be done by standing somewhere else - Coventry's bay is in
+ * long grass and Burgess Hill's is inside a hedge, which the camera was then inside too. Scenery is
+ * merged one mesh per tile, so this is the whole tile's bushes, for a shot 9 degrees wide of a car
+ * 20 m away. Returns the undo.
+ */
+function clearSceneryForCheck() {
+  const hidden = [];
+  world.scene.traverse((o) => { if (o.visible && typeof o.name === 'string' && o.name.startsWith('scenery')) { o.visible = false; hidden.push(o); } });
+  return () => { for (const o of hidden) o.visible = true; };
+}
+
+const PLATE_CORNERS = [[-0.26, -0.0555], [0.26, -0.0555], [0.26, 0.0555], [-0.26, 0.0555]];
+/** render, then count how much of the plate's rectangle on screen is really the plate: 0 to 1 */
+function plateSeen(mesh) {
+  if (!mesh) return 1;
+  const fwd = camera.getWorldDirection(new THREE.Vector3());
+  const p = new THREE.Vector3();
+  let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+  const W = renderer.domElement.width, H = renderer.domElement.height;
+  for (const [cx, cy] of PLATE_CORNERS) {
+    p.set(cx, cy, 0).applyMatrix4(mesh.matrixWorld);
+    if (p.clone().sub(camera.position).dot(fwd) <= 0) return 0; // behind you: project() would lie
+    p.project(camera);
+    const px = (p.x * 0.5 + 0.5) * W, py = (-p.y * 0.5 + 0.5) * H;
+    x0 = Math.min(x0, px); x1 = Math.max(x1, px); y0 = Math.min(y0, py); y1 = Math.max(y1, py);
+  }
+  const ax = Math.max(0, Math.floor(x0)), bx = Math.min(W, Math.ceil(x1));
+  const ay = Math.max(0, Math.floor(y0)), by = Math.min(H, Math.ceil(y1));
+  if (bx - ax < 4 || by - ay < 2) return 0; // off the screen, or too small to read anyway
+  draw();
+  try {
+    const gl = renderer.getContext();
+    const w = bx - ax, h = by - ay, n = w * h, buf = new Uint8Array(n * 4);
+    gl.readPixels(ax, H - by, w, h, gl.RGBA, gl.UNSIGNED_BYTE, buf); // GL counts rows from the bottom
+    let yellow = 0, dark = 0;
+    for (let i = 0; i < n; i++) {
+      const r = buf[i * 4], g = buf[i * 4 + 1], b = buf[i * 4 + 2];
+      if (r > 110 && g > 90 && b < 120 && r + g > 2.2 * b) yellow++;
+      if (0.3 * r + 0.6 * g + 0.1 * b < 90) dark++; // the characters: a fifth of a plate is black
+    }
+    // The characters have to be there too. Burgess Hill's camera sat inside a hedge, where the
+    // glare washed the whole frame one shade of yellow and counting yellow alone called it perfect.
+    return dark < n * 0.05 ? 0 : yellow / n;
+  } catch { return 1; } // can't read the buffer: take the spot rather than hunt for ever
 }
 
 // multiple-choice modal for the eyesight check and show me / tell me. Resolves true if right.
@@ -863,6 +1004,7 @@ function quiz({ title, q, a, plate = false, img = null }) {
     $('quiz-q').textContent = q;
     $('quiz-plate').innerHTML = img ? `<img src="${img}" alt="road sign">` : ''; // a road sign to name
     $('quiz-plate').classList.toggle('hidden', !img);
+    $('quiz').classList.toggle('eyes', plate); // the eyesight check: nothing blurred over the view, and the card clear of the car
     const box = $('quiz-a');
     box.innerHTML = '';
     for (const i of order) {
@@ -877,6 +1019,7 @@ function quiz({ title, q, a, plate = false, img = null }) {
     $('quiz').classList.remove('hidden');
     function done(ok) {
       $('quiz').classList.add('hidden');
+      $('quiz').classList.remove('eyes');
       mode = back;
       audio.sfx(ok ? 'cp' : 'spend');
       resolve(ok);
@@ -1015,7 +1158,7 @@ function drawResultMap(map) {
 }
 $('result').addEventListener('click', (e) => {
   const b = e.target.closest('button'); if (!b) return;
-  if (b.dataset.retest) { const [c, sd] = b.dataset.retest.split(':'); closeResult(); startTest(c, +sd, 'mock'); } // a route driven again is practice
+  if (b.dataset.retest) { const i = b.dataset.retest.lastIndexOf(':'); closeResult(); startTest(b.dataset.retest.slice(0, i), +b.dataset.retest.slice(i + 1), 'mock'); } // a route driven again is practice
 });
 function addFundsUI(amount, title) {
   state.balance += amount;
@@ -1047,11 +1190,16 @@ async function goHome() {
   await fade(0);
 }
 /** fill the Kent tiles round a point while the screen is faded (the lesson starts somewhere the player isn't) */
-async function warmTiles(x, z, ms = 1500) {
+/** build the tiles round a point. With `radius`, stop as soon as everything that near is finished. */
+async function warmTiles(x, z, ms = 1500, radius = 0) {
   if (!world.tiles) return;
   world.player = { x, z, r: 0 };
   const t0 = performance.now();
-  while (performance.now() - t0 < ms) { world.tiles.update(x, z, 0.016); await wait(0); }
+  while (performance.now() - t0 < ms) {
+    world.tiles.update(x, z, 0.016);
+    if (radius && world.tiles.readyAround(x, z, radius)) return;
+    await wait(0);
+  }
 }
 async function goKent() {
   // the map comes down BEFORE the screen fades: a failed download then costs a message, not a
@@ -1067,31 +1215,63 @@ async function goKent() {
   await fade(0);
 }
 /**
+ * A test from a pool, or { route: null, why }. A seed now and then has no fair route from a centre
+ * (Manchester's estates are thin): a new test just takes the next seed rather than telling the player
+ * it couldn't plan one. A retry of a given route can't -- it is that route or none.
+ */
+function planTest(w, pool, seed) {
+  const fixed = seed != null;
+  let why = null;
+  for (let k = 0; k < (fixed ? 1 : 6); k++) {
+    const s = fixed ? seed : Math.floor(Math.random() * 1e9) >>> 0;
+    try { return generateTest(w.net, pool, s); } catch (err) { why = err.message; }
+  }
+  return { route: null, why };
+}
+/**
  * A 15-minute driving test from one of Driving City's test centres (an area id: 'kent' is Herne Bay,
  * 'leeds', 'manchester' ...; 'any' picks one) on a route made from a seed (a new one each time, or the seed
  * of a test you want to retry). The route is planned off the map round that centre, inside its own area.
+ *
+ * 'whole' is the whole-city mock instead: one drive from a town's centre to a neighbour's over the link
+ * road between them, about half an hour. It is a mock only -- the real test is the DVSA format, 15
+ * minutes inside one town -- so a real test asked for 'whole' falls back to the town it would start in.
  */
 async function startTest(centre = 'any', seed = null, kind = 'mock') {
   const areas = CITY.areas.map((a) => a.id);
   if (centre === 'herne') centre = 'kent'; // a retry from before the city: Herne Bay is its Kent area now
+  // the whole city is a mock: an examiner's test stays in its area
+  // ('whole' picks a pair; 'whole:<from>:<to>' is a retry of one, the pair being part of that route)
+  let whole = centre === 'whole' || centre.startsWith('whole:');
+  if (whole && kind === 'real') { whole = false; centre = 'any'; }
   if (centre === 'any') centre = areas[Math.floor(Math.random() * areas.length)];
-  if (!areas.includes(centre)) { hud.toast(`That test centre isn't in Driving City. Pick one of its ${areas.length}.`, 4000); return; }
+  if (!whole && !areas.includes(centre)) { hud.toast(`That test centre isn't in Driving City. Pick one of its ${areas.length}.`, 4000); return; }
   await ensureWorldData('city');
   const w = getWorld('city');
+  if (whole) {
+    // a town and one it has a link road to, so the drive between them is a road and not the ring road
+    const pairs = CITY.links.filter((l) => areas.includes(l.a) && areas.includes(l.b));
+    const asked = centre.split(':').slice(1);
+    const linked = asked.length === 2 && pairs.some((l) => (l.a === asked[0] && l.b === asked[1]) || (l.a === asked[1] && l.b === asked[0]));
+    let ia, ib;
+    if (linked) [ia, ib] = asked;
+    else { const l = pairs[Math.floor(Math.random() * pairs.length)]; [ia, ib] = Math.random() < 0.5 ? [l.b, l.a] : [l.a, l.b]; }
+    const A = w.areas.find((a) => a.id === ia), B = w.areas.find((a) => a.id === ib);
+    const pool = wholeCityPool(w.net, w.net.testCentres.find((t) => t.area === ia), w.net.testCentres.find((t) => t.area === ib),
+      { idA: ia, idB: ib, boundsA: A.box, boundsB: B.box, timeK: REGIONS[ia]?.timeK, nameA: A.name, nameB: B.name });
+    const gen = planTest(w, pool, linked ? seed : null);
+    if (!gen.route) { hud.toast(`Couldn't plan a drive across the city (${gen.why}). Try again.`, 4000); return; }
+    gen.meta.area = ia; // the town it starts in: where the eyesight car is parked, and where the car starts
+    gen.signs = signsOnRoute(w.net, gen.route);
+    return startLesson(testDef(gen, 'mock'));
+  }
   const tc = w.net.testCentres.find((t) => t.area === centre), area = w.areas.find((a) => a.id === centre);
   // Herne Bay keeps its hand-made pool (moved to where it sits in the city); the rest are read off the map
   const pool = centre === 'kent' && w.kentAt ? shiftedPool('herne', w.kentAt, { key: 'kent', world: 'city', tc })
     : autoPool(w.net, tc, { key: centre, world: 'city', bounds: area.box, timeK: REGIONS[centre]?.timeK });
   pool.name = area.name;
-  // A seed now and then has no fair route from a centre (Manchester's estates are thin): a new test just
-  // takes the next seed rather than telling the player it couldn't plan one. A retry of a given route can't.
-  const fixed = seed != null;
-  let gen, why = null;
-  for (let k = 0; k < (fixed ? 1 : 6) && !gen; k++) {
-    const s = fixed ? seed : Math.floor(Math.random() * 1e9) >>> 0;
-    try { gen = generateTest(w.net, pool, s); } catch (err) { why = err.message; }
-  }
-  if (!gen) { hud.toast(`Couldn't plan a test route there (${why}). Try again.`, 4000); return; }
+  const gen = planTest(w, pool, seed);
+  if (!gen.route) { hud.toast(`Couldn't plan a test route there (${gen.why}). Try again.`, 4000); return; }
   gen.signs = signsOnRoute(w.net, gen.route);
   return startLesson(testDef(gen, kind));
 }
@@ -1126,10 +1306,11 @@ async function startLesson(id) {
   mode = 'car';
   player.mesh.visible = false;
   camMode = 0;
+  eyeShot = null; // a cancelled or restarted lesson must not inherit the eyesight shot
   drive.indicator = null;
   for (const k in autoState) delete autoState[k];
   const kent = where === 'kent', inCity = where === 'city';
-  const centre = kent ? def.centre || KENT_ROUTES[def.route].centre : inCity ? (kentLesson ? 'kent' : def.generated?.centre) : null;
+  const centre = kent ? def.centre || KENT_ROUTES[def.route].centre : inCity ? (kentLesson ? 'kent' : def.generated?.area || def.generated?.centre) : null;
   // the gearbox you're learning in (the clutch and gears lessons are always in the manual)
   learner.setTrans(def.trans || state.uk.trans);
   if (learner.autoBadge) learner.autoBadge.visible = learner.trans === 'auto';
@@ -1147,17 +1328,37 @@ async function startLesson(id) {
     const groundAt = (x, z) => (world.heightAt ? world.heightAt(x, z) : 0); // a test centre can sit on a hill
     player.pos.set(spot.x - fx * 22 + lx, groundAt(spot.x - fx * 22 + lx, spot.z - fz * 22 + lz), spot.z - fz * 22 + lz);
     player.heading = spot.heading;
-    if (tiled) await warmTiles(player.pos.x, player.pos.z, window.__game?.autoQuiz ? 0 : 1500); // the player is there now, so the frame loop streams the same tiles
-    snapCamera();
-    camera.position.set(spot.x - fx * 21 + lx, groundAt(spot.x - fx * 21 + lx, spot.z - fz * 21 + lz) + 1.7, spot.z - fz * 21 + lz);
-    camera.lookAt(spot.x, groundAt(spot.x, spot.z) + 0.6, spot.z);
+    // Everything within 80 m has to be standing before we can tell what it hides: at Stoke a verge
+    // arrived a second after the check had picked its spot, and hid the plate behind it.
+    if (tiled) await warmTiles(player.pos.x, player.pos.z, window.__game?.autoQuiz ? 0 : 8000, 80);
+    // Stand where the plate can be seen and look. The question says how far away that turned out
+    // to be, which is 20 m unless something still had to be stepped round.
+    const undo = [];
+    const replant = () => { for (const u of undo) u(); undo.length = 0; };
+    const frame = () => {
+      // the forecourt as the map has it first: ten of the twelve centres have a plain view across
+      // their car park, and clearing those of their planting only costs them their car park
+      let view = eyeViewpoint(spot, groundAt);
+      if (view.seen <= 0.45) { undo.push(clearSceneryForCheck()); view = eyeViewpoint(spot, groundAt); }
+      aimAtPlate(view); // eyeViewpoint left the camera on its last trial shot, so set the chosen one
+      player.pos.set(view.x - fx, groundAt(view.x - fx, view.z - fz), view.z - fz); // a step behind the camera, out of its shot
+      return view;
+    };
+    let view = frame();
     if (tiled) { hud.show(true); await fade(0); }
     draw();
     if (!window.__game?.autoQuiz) {
-      hud.toast('Look at the dark blue car ahead — read the number plate (about 20 m away)', 3200);
+      // no distance here: the second look below can move you, and the question states the real one
+      hud.toast('Look at the dark blue car ahead — read its number plate', 3200);
       await wait(3400);
+      // Tiles keep arriving while that message is up, and a new one brings its own scenery, so
+      // this is the first moment the scene is certainly finished. Clear it and look again before
+      // asking: Burgess Hill's first look was taken before its forecourt hedge existed, and the
+      // answer was given facing the inside of it.
+      view = frame();
     }
-    const eyes = await quiz({ title: 'Eyesight check', q: `Read the number plate on the dark blue car ${centre === 'canterbury' ? 'parked in front of the test centre' : 'in the bay ahead'} (about 20 metres away). Which is it?`, a: plateOptions(world.plate), plate: true });
+    snapCamera(); // the shot, exactly, at the moment of reading
+    const eyes = await quiz({ title: 'Eyesight check', q: `Read the number plate on the dark blue car ${centre === 'canterbury' ? 'parked in front of the test centre' : 'in the bay ahead'} (about ${Math.round(view.d)} metres away). Which is it?`, a: plateOptions(world.plate), plate: true });
     if (!eyes) {
       $('res-name').textContent = 'Driving test result';
       $('res-medal').textContent = 'NOT PASSED · EYESIGHT';
@@ -1166,11 +1367,15 @@ async function startLesson(id) {
       $('res-sub').innerHTML = "You couldn't read the number plate, so the test can't go ahead. On the real test you'd get a second try with a different car.";
       prevMode = 'foot';
       mode = 'result';
+      eyeShot = null;
+      replant();
       $('result').classList.remove('hidden');
       return;
     }
     const tm = TELL_ME[Math.floor(Math.random() * TELL_ME.length)];
     if (!(await quiz({ title: 'Tell me', ...tm }))) pre.push('Show me/tell me: tell me question');
+    eyeShot = null;
+    replant();
     if (tiled && !window.__game?.autoQuiz) { hud.show(false); await fade(1); }
     car = learner;
     mode = 'car';
@@ -1268,10 +1473,14 @@ function updateSoundscape() {
 
 // ---------- camera ----------
 let camYaw = 0;
+// The eyesight check's fixed shot. Without it camRig pulls the camera back to the over-the-shoulder
+// walking rig every frame, and the car you are being asked to read is not even on screen.
+let eyeShot = null;
 const desired = new THREE.Vector3();
 const look = new THREE.Vector3();
 
 function camRig() {
+  if (eyeShot) { desired.copy(eyeShot.pos); look.copy(eyeShot.look); return { fov: eyeShot.fov, snap: true }; }
   // key off `car`, not `mode`: the jet picker can open while you're still in the car
   const target = car ? car.pos : player.pos;
   const f = new THREE.Vector3(Math.sin(camYaw), 0, Math.cos(camYaw));

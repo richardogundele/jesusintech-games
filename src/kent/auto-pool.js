@@ -135,3 +135,40 @@ export function autoPool(net, tc, { key = 'auto', world = null, radius = null, b
     stats: { mains: Object.keys(mains).length, loops: Object.keys(loops).length, multiLaneRbs, reach: Math.round(reach) },
   };
 }
+
+/**
+ * The whole-city mock: one drive from one town's test centre to another's, over the link road
+ * between them. Two autoPools in one -- the first town's estates and big roads, then the second's,
+ * and the route ends at the second town's pull-up spot, so getting there is the drive.
+ *
+ * The ordering is the `at: 'last'` rule generateTest already has for the way home: every part of
+ * the second town goes in the tail, so a route sweeps one town, takes the link road and sweeps the
+ * other instead of crossing back and forth. It ends on a pull-up rather than a bay park, because
+ * the car park it would reverse into belongs to the town it started from.
+ *
+ * It is a mock only. The real test is the DVSA format and stays inside one town.
+ */
+export function wholeCityPool(net, tcA, tcB, { idA = '', idB = '', boundsA = null, boundsB = null, timeK = null, nameA = '', nameB = '', window = null } = {}) {
+  // The key carries the pair, because the seed alone cannot: "Retry route" replays a saved test from
+  // its centre and its seed, and for this route the centre is which two towns, in which order.
+  const key = `whole:${idA}:${idB}`;
+  const A = autoPool(net, tcA, { key, world: 'city', bounds: boundsA, timeK });
+  const B = autoPool(net, tcB, { key, world: 'city', bounds: boundsB, timeK });
+  const tail = (o, mark) => Object.fromEntries(Object.entries(o).map(([k, v]) => [`${mark}${k}`, { ...v, at: 'last' }]));
+  return {
+    ...A,
+    name: `${nameA} to ${nameB}`,
+    mains: { ...A.mains, ...tail(B.mains, 'b:') },
+    loops: { ...A.loops, ...tail(B.loops, 'b:') },
+    pullUpAt: B.pullUpAt,
+    bay: false,                                   // the bay park is back in the town you left
+    relaxRb: A.relaxRb && B.relaxRb,
+    // a drive across the city is the two towns plus the link road between them: measured, not guessed
+    window: window || [26, 42],
+    // one leg of this route is the whole crossing: out of this town, along the link road and in to the
+    // next. That is minutes on its own, and the 7-minute cap a one-town test uses refuses it outright.
+    maxLeg: 900,
+    wholeCity: true, towns: [nameA, nameB], areas: [idA, idB],
+    stats: { ...A.stats, b: B.stats },
+  };
+}

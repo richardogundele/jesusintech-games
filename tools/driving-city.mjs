@@ -40,6 +40,22 @@ export const CITY = {
     { id: 'birmingham', name: 'Birmingham', at: [-4500, 6960], crop: SQUARE(2480) },
     // Longford Road and Blackhorse Road: the crossroads by Bayton Road, north-south then east-west
     { id: 'coventry', name: 'Coventry', at: [3500, 8460], crop: SQUARE(3980), signals: { 'j-1395': [[-4, 175], [-101, 106]] } },
+    // The outer six (Nov 2026): every town with a baked map is in the city, so the mock and test
+    // pickers offer all twelve. They take Birmingham's 5 km square rather than the 8 km one the
+    // middle six mostly use: a test route needs the streets round its centre, and the whole city
+    // is one download, so four of these at 8 km would cost more than the rest of the game.
+    // Liverpool and Warrington go above Leeds and Manchester, Stoke and Milton Keynes out to either
+    // side, London and Burgess Hill below, each 1.5 km clear of its neighbours like the rest.
+    // Liverpool and Warrington are pushed out as well as up: Herne Bay's box is 11.2 km wide, so
+    // sitting them squarely above Leeds and Manchester and clear of it meant a 7 km link road, seven
+    // minutes of straight synthetic dual with nothing on it. Out to the side, they clear Herne Bay by
+    // the same 1.5 km and still overlap the town below them, and the link is 1.5 km like every other.
+    { id: 'liverpool', name: 'Liverpool', at: [-9580, -7960], crop: SQUARE(2480) },
+    { id: 'warrington', name: 'Warrington', at: [9580, -7960], crop: SQUARE(2480) },
+    { id: 'stoke', name: 'Stoke', at: [-16420, 0], crop: SQUARE(2480) },
+    { id: 'miltonkeynes', name: 'Milton Keynes', at: [16420, 0], crop: SQUARE(2480) },
+    { id: 'london', name: 'London', at: [-11000, 8000], crop: SQUARE(2480) },
+    { id: 'burgesshill', name: 'Burgess Hill', at: [11500, 9000], crop: SQUARE(2480) },
   ],
   links: [
     // from home to every area
@@ -54,5 +70,12 @@ export const CITY = {
     { a: 'leeds', side: 'S', b: 'birmingham', bSide: 'W' },
     { a: 'manchester', side: 'S', b: 'coventry', bSide: 'E' },
     { a: 'birmingham', side: 'E', b: 'coventry' },
+    // the outer six, each joined to the area it sits beside
+    { a: 'liverpool', side: 'S', b: 'leeds', bSide: 'N' },
+    { a: 'warrington', side: 'S', b: 'manchester', bSide: 'N' },
+    { a: 'stoke', side: 'E', b: 'leeds', bSide: 'W' },
+    { a: 'miltonkeynes', side: 'W', b: 'manchester', bSide: 'E' },
+    { a: 'london', side: 'E', b: 'birmingham', bSide: 'W' },
+    { a: 'burgesshill', side: 'W', b: 'coventry', bSide: 'E' },
   ],
 };
