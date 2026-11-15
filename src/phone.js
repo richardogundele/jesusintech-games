@@ -2,7 +2,7 @@
 // (the gearbox you learn in, the lesson car, its paint and plate), the dealer, the hangar, the wardrobe,
 // your profile, and today's goals.
 import { state, formatMoney } from './state.js';
-import { CARS, JETS, flightTime, fuelStop } from './catalog.js';
+import { CARS, JETS } from './catalog.js';
 import * as P from './progress.js';
 import { DL25_ROWS } from './dl25.js';
 import { LESSONS } from './lessons.js';
@@ -172,13 +172,16 @@ export class Phone {
   }
 
   hangar() {
-    return `<p class="note">New jets are parked in the second row at your Kent jet park, and show up in the jet picker.</p>` +
+    // Every town a jet used to fly to is an area of Driving City now, so there is no route to quote:
+    // the listing is the aircraft itself, and the note says plainly that it is somewhere to walk, not
+    // somewhere to leave from.
+    return `<p class="note">New jets are parked in the second row at your jet park, over the lane from the house. Every town a jet used to fly to is part of Driving City now, so there is nowhere left to fly to: they are yours to own and walk around.</p>` +
       Object.entries(JETS).sort((a, b) => (a[1].price || 0) - (b[1].price || 0)).map(([id, j]) => {
         const owned = P.ownsJet(id);
         const btn = owned ? '<span class="owned">Yours</span>'
           : `<button class="buy" data-act="jet" data-id="${id}" ${state.balance < j.price ? 'disabled' : ''}>${P.shortMoney(j.price)}</button>`;
         return `<div class="row"><div class="grow"><div class="m">${j.maker}</div><div class="t">${j.model}</div>
-          <div class="s">${j.range} · Mach ${j.mach} · Kent to Manchester ${flightTime(j, 'kent', 'manchester')}${fuelStop(j, 'kent', 'manchester') ? ' (fuel stop)' : ' nonstop'}${j.note ? ` · ${j.note}` : ''}</div></div>${btn}</div>`;
+          <div class="s">${j.range} · Mach ${j.mach} · up to ${j.seats} passengers${j.note ? ` · ${j.note}` : ''}</div></div>${btn}</div>`;
       }).join('');
   }
 
@@ -191,7 +194,7 @@ export class Phone {
       ? '<p class="note">A realistic soldier in army digital camouflage (Microsoft Rocketbox avatar, MIT licence). Pick the beret uniform to choose your own camouflage and skin tone.</p>'
       : CIVILIANS.some((c) => c.name === o) ? '<p class="note">Everyday clothes on a Microsoft Rocketbox avatar (MIT licence), the same people you pass on the pavement.</p>'
       : (o === 'Military uniform' ? row('camo', 'Camouflage') : row('top', 'Sweatshirt') + row('jeans', 'Jeans')) + row('skin', 'Skin tone');
-    return `<p class="note">What you're wearing around Kent, London, Birmingham and Manchester.</p>` + row('outfit', 'Outfit') + extra;
+    return `<p class="note">What you're wearing around Driving City.</p>` + row('outfit', 'Outfit') + extra;
   }
 
   me() {

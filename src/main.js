@@ -1616,7 +1616,8 @@ $('start').onclick = () => {
     state.welcomed = true; save();
     hud.toast('Your learner car is outside. Get in with E and drive: the game shows you the controls as you go. Mock and real driving tests are on your phone (Tab).', 9000);
   } else {
-    const hello = { kent: 'Welcome home to Kent.', london: 'Welcome to London.', birmingham: 'Welcome to Birmingham.', manchester: 'Welcome to Manchester.' }[world.id] || 'Welcome back.';
+    // HOMES is Driving City alone, so the old city-by-city greetings could never fire again
+    const hello = world.id === 'city' ? 'Welcome home to Driving City.' : 'Welcome back.';
     hud.toast(`${hello} Press E by the red Polo to get in and drive. Drive with A (accelerate), B (brake) and C (clutch), the arrows to steer; D drive, N neutral, P park. Tab opens your phone: lessons, parking practice and the driving test are under Drive.`, 7000);
   }
 };
