@@ -144,6 +144,9 @@ function getWorld(id) {
     // the prompt names the places while they fit on one line, and counts them once they don't
     if (w.terminal) w.interactions.push({ ...w.terminal, car: true, label: () => {
       const to = otherCities(w.id);
+      // Driving City holds every town that used to be its own map, so from home the list is empty:
+      // the terminal is somewhere to look at the jets, not somewhere to leave from.
+      if (!to.length) return 'Look in at the terminal';
       return to.length <= 4 ? `Fly or drive to ${to.map((c) => CITIES[c].name).join(', ')}` : `Fly or drive to ${to.length} other cities`;
     }, action: openJets });
     if (w.jetPark) w.interactions.push({ ...w.jetPark, car: true, label: () => `Open the jet park (${P.ownedJetIds().length} aircraft)`, action: openJets });
@@ -362,21 +365,34 @@ function openJets() {
   const dests = otherCities(from);
   if (!dests.includes(jetDest)) jetDest = dests[0];
   const render = () => {
-    $('jets-title').textContent = `Where to, Richard?`;
+    // Nowhere to fly: every place a jet went is a district of Driving City now, so the panel is the
+    // hangar rather than a departures board. It asked for CITIES[undefined].name before this and
+    // threw, which lost you the jet park altogether.
+    const flying = Boolean(jetDest);
+    $('jets-title').textContent = flying ? `Where to, Richard?` : 'Your jet park';
     $('jet-dest').innerHTML = dests.map((c) => `<button data-c="${c}" class="${c === jetDest ? 'on' : ''}">${CITIES[c].name}</button>`).join('');
     for (const b of $('jet-dest').children) b.onclick = () => { jetDest = b.dataset.c; render(); };
     const list = $('jet-list');
     list.innerHTML = '';
     for (const id of P.ownedJetIds()) {
       const j = JETS[id];
-      const stop = fuelStop(j, from, jetDest);
+      const stop = flying && fuelStop(j, from, jetDest);
       const b = document.createElement('button');
-      b.className = 'card';
+      b.className = flying ? 'card' : 'card static';
+      b.disabled = !flying;
       b.innerHTML = `<div class="maker">${j.maker}</div><div class="model">${j.model}</div>
         <div class="spec">Range ${j.range} · Mach ${j.mach}<br>Up to ${j.seats} passengers${j.note ? `<br>${j.note}` : ''}</div>
-        <div class="dest">${CITIES[from].name} → ${CITIES[jetDest].name} · ${flightTime(j, from, jetDest)}${stop ? `<br><span class="stop">Fuel stop in ${stop}</span>` : ' · nonstop'}</div>`;
-      b.onclick = () => { closeJets(true); travel(id, jetDest); };
+        <div class="dest">${flying ? `${CITIES[from].name} → ${CITIES[jetDest].name} · ${flightTime(j, from, jetDest)}${stop ? `<br><span class="stop">Fuel stop in ${stop}</span>` : ' · nonstop'}` : 'Parked at home'}</div>`;
+      if (flying) b.onclick = () => { closeJets(true); travel(id, jetDest); };
       list.appendChild(b);
+    }
+    if (!flying) {
+      const note = document.createElement('div');
+      note.className = 'card static';
+      note.innerHTML = `<div class="maker">Nowhere to fly</div><div class="model">It is all one city</div>
+        <div class="spec">Every town a jet used to go to is part of Driving City, joined to the rest by road.<br>Drive to the test centre you want and take your test there.</div>`;
+      list.appendChild(note);
+      return;
     }
     // or take the motorway: a marked drive, the way a real test would have you on the road
     const rb = roadBetween(from, jetDest);

@@ -388,6 +388,8 @@ h1 { font-family: var(--font-display); font-size: clamp(40px, 9vw, 112px); lette
 }
 .card:hover { border-color: var(--gold); background: rgba(255, 255, 255, 0.06); transform: translateY(-2px); }
 .card:active { transform: translateY(0); }
+/* a card that is there to read, not to press: no lift, no gold edge, no pointer */
+.card.static, .card.static:hover, .card.static:active { transform: none; border-color: var(--hairline); background: rgba(255, 255, 255, 0.02); cursor: default; }
 .card .maker { font-size: var(--fs-xs); letter-spacing: 0.24em; text-transform: uppercase; color: var(--gold); font-weight: 600; }
 .card .model { font-size: var(--fs-xl); font-weight: 700; margin: var(--sp-1) 0 var(--sp-3); letter-spacing: -0.01em; }
 .card .spec { font-size: var(--fs-sm); color: var(--text-2); line-height: 1.7; }
@@ -464,6 +466,7 @@ h1 { font-family: var(--font-display); font-size: clamp(40px, 9vw, 112px); lette
   font: inherit; font-size: var(--fs-sm); font-weight: 500; cursor: pointer; transition: color var(--dur-1) ease, background-color var(--dur-1) ease; }
 .dest-tabs button:hover { color: var(--text); }
 .dest-tabs button.on { background: var(--gold); color: var(--ink); font-weight: 600; }
+.dest-tabs:empty { display: none; } /* no destinations: an empty pill is a speck under the title */
 .card .stop { color: var(--amber); }
 
 /* Test questions: a calm glass card, the answers a full-width stack */
