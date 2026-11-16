@@ -11,7 +11,7 @@
 // (kentEvent, kentPosition and the Kent careful driver, carefulKent).
 import * as THREE from 'three';
 import { buildRoute, MPH, LANE, LW, LOT, BAYS, inLot } from './worlds/uk.js';
-import { buildKentRoute, KENT_ROUTES, idxAtS, shiftSpec } from './kent/lesson-routes.js';
+import { buildKentRoute, KENT_ROUTES, idxAtS, shiftSpec, CENTRES } from './kent/lesson-routes.js';
 import { pedalsManual, pedalsAuto, gearFor } from './pedals.js';
 import { seeded } from './kent/test-routes.js';
 import { scoreSheet, debrief } from './dl25.js';
@@ -218,9 +218,12 @@ export class LessonRun {
     this.hooks = hooks;
     this.kent = !!world.net; // the real Kent roads; else Whitmore
     if (this.kent) {
-      // a generated test (def.spec) rebuilds exactly from its seed; the lessons use their fixed routes
-      // (a Kent lesson in Driving City: its route's points moved to where Herne Bay is in the city)
-      const spec = def.spec || (world.kentAt ? shiftSpec(KENT_ROUTES[def.route], world.kentAt) : KENT_ROUTES[def.route]);
+      // a generated test (def.spec) rebuilds exactly from its seed; the lessons use their fixed routes.
+      // In Driving City a hand-made route moves to where its own area sits: Herne Bay's lessons by the
+      // Kent area's offset, the Canterbury mock by Canterbury's. In the Kent world there are no areas
+      // and the route is already in its own metres.
+      const home = world.areas?.find((a) => a.id === CENTRES[KENT_ROUTES[def.route]?.centre]?.area);
+      const spec = def.spec || (home ? shiftSpec(KENT_ROUTES[def.route], [home.x, home.z]) : KENT_ROUTES[def.route]);
       this.route = buildKentRoute(world.net, { ...spec, id: def.id }, def.seed != null ? { rnd: seeded(def.seed) } : undefined);
       this.spec = this.route.spec; // with the manoeuvre picked for this run
       this.viaS = viaPositions(this.route);

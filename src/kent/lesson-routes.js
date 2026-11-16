@@ -17,10 +17,16 @@ const LW = 3.65;
 // ---------- the test centres ----------
 /** which test centre a lesson starts from */
 export const CENTRES = {
-  herne: { name: 'Herne Bay', match: /herne/i },
-  canterbury: { name: 'Canterbury', match: /canterbury/i },
-  kent: { name: 'Herne Bay', match: /herne/i }, // Driving City's Kent area is Herne Bay
+  herne: { name: 'Herne Bay', match: /herne/i, area: 'kent' },
+  canterbury: { name: 'Canterbury', match: /canterbury/i, area: 'canterbury' },
+  kent: { name: 'Herne Bay', match: /herne/i, area: 'kent' }, // Driving City's Kent area is Herne Bay
 };
+/**
+ * The two Driving City areas cut from the Kent sheet, and the hand-made key each keeps: their routes
+ * and pools are written out by hand against Kent's own nodes rather than read off the map, so they are
+ * moved to where their area sits in the city (shiftSpec / shiftedPool) instead of generated.
+ */
+export const KENT_AREAS = { kent: 'herne', canterbury: 'canterbury' };
 /** the test centre for a key: Kent's two by name, anything else (a city region's auto pool) the region's one */
 export function centreOf(net, key) { const c = CENTRES[key]; return (c && net.testCentres.find((t) => c.match.test(t.name))) || net.testCentres[0]; }
 

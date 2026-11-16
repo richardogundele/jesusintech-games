@@ -21,7 +21,7 @@ import { LESSONS, LessonRun, carefulDriver, TELL_ME, randomPlate, plateOptions, 
 import { FreeExam } from './freedrive.js';
 import { ClaudeCoach } from './claudeCoach.js';
 import { SignTeacher } from './signTeach.js';
-import { KENT_ROUTES } from './kent/lesson-routes.js';
+import { KENT_ROUTES, KENT_AREAS, CENTRES } from './kent/lesson-routes.js';
 import { generateTest, signsOnRoute, shiftedPool } from './kent/test-routes.js';
 import { autoPool, wholeCityPool } from './kent/auto-pool.js';
 import { signQuestion } from './sign-quiz.js';
@@ -1282,8 +1282,9 @@ async function startTest(centre = 'any', seed = null, kind = 'mock') {
     return startLesson(testDef(gen, 'mock'));
   }
   const tc = w.net.testCentres.find((t) => t.area === centre), area = w.areas.find((a) => a.id === centre);
-  // Herne Bay keeps its hand-made pool (moved to where it sits in the city); the rest are read off the map
-  const pool = centre === 'kent' && w.kentAt ? shiftedPool('herne', w.kentAt, { key: 'kent', world: 'city', tc })
+  // The two areas off the Kent sheet keep their hand-made, measured pools (moved to where they sit in
+  // the city); the rest are read off the map
+  const pool = KENT_AREAS[centre] ? shiftedPool(KENT_AREAS[centre], [area.x, area.z], { key: centre, world: 'city', tc })
     : autoPool(w.net, tc, { key: centre, world: 'city', bounds: area.box, timeK: REGIONS[centre]?.timeK });
   pool.name = area.name;
   const gen = planTest(w, pool, seed);
@@ -1308,9 +1309,10 @@ async function startLesson(id) {
   let def = typeof id === 'object' ? id : LESSONS.find((l) => l.id === id); // (let: the parking practice resolves its route where the car is, below)
   // Kent lessons start at their test centre; the Whitmore ones are practice in the made-up town; a
   // city's test starts at that city's centre
-  // Kent's lessons are Herne Bay's, which is in Driving City now; only the Canterbury mock still needs Kent
+  // Kent's lessons are Herne Bay's and the Canterbury mock's, and both towns are areas of Driving City
+  // now, so every one of them runs there: nothing is left that needs the Kent world.
   const kentLesson = def.world === 'kent';
-  const where = kentLesson ? (def.route === 'mock-canterbury' ? 'kent' : 'city') : REGION_WORLDS.includes(def.world) ? def.world : 'uk';
+  const where = kentLesson ? 'city' : REGION_WORLDS.includes(def.world) ? def.world : 'uk';
   if (world.id !== where) await (where === 'kent' ? goKent() : where === 'uk' ? goUK() : goCity(where));
   if (world.id !== where) return; // the trip was called off (its map wouldn't download): don't start the lesson in the wrong world
   const tiled = where !== 'uk'; // Kent and the cities stream tiles: warm them behind a fade
@@ -1326,7 +1328,11 @@ async function startLesson(id) {
   drive.indicator = null;
   for (const k in autoState) delete autoState[k];
   const kent = where === 'kent', inCity = where === 'city';
-  const centre = kent ? def.centre || KENT_ROUTES[def.route].centre : inCity ? (kentLesson ? 'kent' : def.generated?.area || def.generated?.centre) : null;
+  // in the city a Kent lesson's centre is the area it now sits in: Herne Bay's routes are the Kent area,
+  // the Canterbury mock is Canterbury
+  const centre = kent ? def.centre || KENT_ROUTES[def.route].centre
+    : inCity ? (kentLesson ? CENTRES[def.centre || KENT_ROUTES[def.route]?.centre]?.area || 'kent' : def.generated?.area || def.generated?.centre)
+    : null;
   // the gearbox you're learning in (the clutch and gears lessons are always in the manual)
   learner.setTrans(def.trans || state.uk.trans);
   if (learner.autoBadge) learner.autoBadge.visible = learner.trans === 'auto';

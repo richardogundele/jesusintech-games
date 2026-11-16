@@ -12,6 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { RoadNet } from '../src/kent/net.js';
 import { autoPool } from '../src/kent/auto-pool.js';
 import { generateTest, shiftedPool } from '../src/kent/test-routes.js';
+import { KENT_AREAS } from '../src/kent/lesson-routes.js';
 import { REGIONS } from './regions.mjs';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -21,7 +22,7 @@ const net = new RoadNet(JSON.parse(fs.readFileSync(path.join(REPO, 'public/asset
 let bad = 0;
 for (const a of net.data.areas) {
   const tc = net.testCentres.find((t) => t.area === a.id);
-  const pool = a.id === 'kent' ? shiftedPool('herne', [a.x, a.z], { key: 'kent', world: 'city', tc }) : autoPool(net, tc, { key: a.id, world: 'city', bounds: a.box, timeK: REGIONS[a.id]?.timeK });
+  const pool = KENT_AREAS[a.id] ? shiftedPool(KENT_AREAS[a.id], [a.x, a.z], { key: a.id, world: 'city', tc }) : autoPool(net, tc, { key: a.id, world: 'city', bounds: a.box, timeK: REGIONS[a.id]?.timeK });
   const out = [];
   for (let s = s0; s <= (s1 || s0); s++) {
     let gen; try { gen = generateTest(net, pool, s); } catch (e) { out.push(`#${s} no route`); continue; }

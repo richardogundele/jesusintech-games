@@ -20,7 +20,8 @@
 //                               to a neighbour's over the link road between them (tools/whole-city-check.mjs
 //                               plans every pair; this drives one). --centre whole:guildford:kent for a
 //                               given pair. Judged against its own window, not the 13-17 of a town's test.
-//   --city                      Kent's lessons in Driving City's Herne Bay (all but mock-canterbury)
+//   --city                      Kent's lessons in Driving City: Herne Bay's, and mock-canterbury in the
+//                               Canterbury area
 //   --colliders builds the Kent tiles along the route (scenery, roads, signs) and adds their colliders,
 //   so the car can hit buildings, posts and barriers as in the browser (slower: tiles take a while)
 //   ids: lesson ids (moveoff, junctions, ... mock, mock-canterbury, wm-moveoff ...), 'kent', 'whitmore' or 'all'
@@ -73,7 +74,7 @@ export { makeSceneryBuilder } from './src/kent/scenery.js';
 export { makeRoadBuilder, makeRoadMaterials } from './src/kent/roads.js';
 export { makeSignBuilder } from './src/kent/signs-place.js';
 export * as uk from './src/worlds/uk.js';
-export { CENTRES, centreOf, testCentreLayout } from './src/kent/lesson-routes.js';
+export { CENTRES, centreOf, testCentreLayout, KENT_AREAS } from './src/kent/lesson-routes.js';
 export * as THREE from 'three';
 export * as testRoutes from './src/kent/test-routes.js';
 export { autoPool, wholeCityPool } from './src/kent/auto-pool.js';
@@ -297,12 +298,14 @@ const WANT = { noSignals: /^Signals: necessary/, noMirrors: /^Mirrors|^Move off:
   stall: /stalled/, wrongGear: /^Control: gears/, coast: /coasting/, handbrake: /parking brake/ };
 async function runLesson(def, s0, bad = null, maxSec = 3600) {
   seed = s0;
-  // --city: Kent's lessons in Driving City's Herne Bay, as the game now runs them (its routes moved by world.kentAt)
-  const inCity = flag('city') && def.world === 'kent' && def.route !== 'mock-canterbury';
+  // --city: Kent's lessons in Driving City, as the game now runs them. Both its Kent towns are areas of
+  // the city -- Herne Bay and, since Canterbury joined it, the Canterbury mock -- and each route moves
+  // to the area its own centre is in, which is what world.areas is for (src/lessons.js).
+  const inCity = flag('city') && def.world === 'kent';
   const regionId = inCity ? 'city' : def.world && hasRegion(def.world) ? def.world : !def.world && !def.stops ? 'kent' : null;
   const kent = !!regionId; // a real baked map (Kent or a city), not the stand-in Whitmore
   const world = kent ? makeRegion(regionId) : makeWhitmore();
-  if (inCity) { const k = regionData('city').areas.find((a) => a.id === 'kent'); world.kentAt = [k.x, k.z]; }
+  if (inCity) world.areas = regionData('city').areas;
   const trans = def.trans || (TRANS === 'none' ? null : TRANS);
   const car = new Car('learner', world.learnerAt || { x: 0, z: 0, heading: 0 }, trans ? { ...LEARNER, trans } : LEARNER);
   world.cars.push(car);
@@ -448,6 +451,13 @@ for (const id of ids.length ? ids : ['all']) {
 }
 // a lesson for the other gearbox (clutch control in an automatic) is skipped
 if (TRANS !== 'none') list = list.filter((l) => !l.trans || l.trans === TRANS);
+// Parking practice has no fixed route: the game resolves a space near the car and writes the spec at
+// the time (main.js), so there is nothing here to drive. It used to throw partway through a run of
+// everything, which took the lessons after it with it.
+if (list.some((l) => l.park)) {
+  if (ids.includes('park')) console.log('skip park: parking practice has no fixed route (the game writes its spec from the space nearest the car), so there is nothing for this tool to drive');
+  list = list.filter((l) => !l.park);
+}
 const range = (t) => t.split(',').flatMap((x) => { const [a, b] = x.split('-').map(Number); return b ? Array.from({ length: b - a + 1 }, (_, i) => a + i) : [a]; });
 const seeds = range(opt('seeds', '1'));
 // generated tests: one def per route seed
@@ -469,8 +479,9 @@ if (opt('gen')) {
   };
   const autoFor = (tc) => {
     const a = (genNet.data.areas || []).find((x) => x.id === tc.area);
-    // the city's Herne Bay keeps its hand-made pool, as the game does (main.js startTest)
-    if (a?.id === 'kent') return G.testRoutes.shiftedPool('herne', [a.x, a.z], { key: 'kent', world: REG, tc });
+    // the city's two Kent towns keep their hand-made pools, as the game does (main.js startTest), so a
+    // run here drives the routes a player is actually given
+    if (a && G.KENT_AREAS[a.id]) return G.testRoutes.shiftedPool(G.KENT_AREAS[a.id], [a.x, a.z], { key: a.id, world: REG, tc });
     return G.autoPool(genNet, tc, a ? { key: a.id, world: REG, bounds: a.box, timeK: G.REGIONS[a.id]?.timeK } : { key: REG, world: REG });
   };
   // --centre whole[:<from>:<to>]: the whole-city mock, two towns' pools in one (auto-pool.js wholeCityPool)

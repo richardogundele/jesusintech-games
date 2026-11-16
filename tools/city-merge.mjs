@@ -87,8 +87,13 @@ function rejoin(d, fixes = []) {
 function prepare(area, d, k) {
   rejoin(d, area.rejoin);
   const B = d.bounds, C = area.crop || B;
-  const base = area.id === 'kent' ? 0 : (k + 1) * 1_000_000;
+  // Kent's node ids pass through unshifted because its hand-made routes (lesson-routes.js vias) name
+  // them: `base` is keyed on the source file, so Canterbury, cropped from the same Kent map, keeps
+  // them too. Its crop shares no node with Herne Bay's, but both would number their cut-edge nodes
+  // from the same maxNode, so an area sharing a source moves its run clear with `nodeShift`.
+  const base = (area.src || area.id) === 'kent' ? 0 : (k + 1) * 1_000_000;
   let maxNode = 0; for (const id of Object.keys(d.nodes)) maxNode = Math.max(maxNode, +id);
+  maxNode += area.nodeShift || 0;
   const nodes = new Map(); // new id -> record
   const nid = (old) => (old ? base + old : 0);
   const ways = [], pieces = new Map(); // source way id -> [{id, nodes}]
@@ -159,7 +164,10 @@ function prepare(area, d, k) {
     levelCrossings: (d.levelCrossings || []).filter(onNode).map((c) => ({ ...c, node: nid(c.node), way: pieceAt(c.way, nid(c.node)) })).filter((c) => c.way),
     railways: (d.railways || []).flatMap((r) => clipLine(r.pts, C).map((p) => ({ ...r, pts: p.pts }))),
     rivers: (d.rivers || []).flatMap((r) => clipLine(r.pts, C).map((p) => ({ ...r, pts: p.pts }))),
-    coastline: d.coastline || [], sea: d.sea || [],
+    // The sea is the one layer that isn't cropped: Herne Bay needs it past its edge or the horizon
+    // ends. An inland area cut from a coastal map (Canterbury) would carry the same sea to wherever
+    // it is placed, so `coast: false` leaves it behind.
+    coastline: area.coast === false ? [] : d.coastline || [], sea: area.coast === false ? [] : d.sea || [],
     buildings: (d.buildings || []).filter((b) => inBox(...centroid(b.pts), C)),
     landuse: (d.landuse || []).filter((l) => inBox(...centroid(l.pts), C)),
     landmarks: (d.landmarks || []).filter((l) => inBox(l.x, l.z, C)),
@@ -694,7 +702,7 @@ function estateRoads(E, ways, nodes, avoid) {
 // ---------- bake ----------
 const areas = new Map();
 CITY.areas.forEach((area, k) => {
-  const d = read(area.id);
+  const d = read(area.src || area.id);
   const A = prepare(area, d, k);
   A.name = area.name; A.id = area.id; A.origin = d.origin; A.attribution = d.attribution;
   shift(A, area.at[0], area.at[1]);

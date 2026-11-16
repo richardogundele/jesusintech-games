@@ -56,6 +56,16 @@ export const CITY = {
     { id: 'miltonkeynes', name: 'Milton Keynes', at: [16420, 0], crop: SQUARE(2480) },
     { id: 'london', name: 'London', at: [-11000, 8000], crop: SQUARE(2480) },
     { id: 'burgesshill', name: 'Burgess Hill', at: [11500, 9000], crop: SQUARE(2480) },
+    // Canterbury (Nov 2026), the thirteenth and the only area cut from another area's map: it is on the
+    // Kent sheet with Herne Bay, which keeps Canterbury's test centre and the hand-made mock that drives
+    // from it (lesson-routes.js mock-canterbury) in one city instead of a map of their own. `src` reads
+    // that sheet, so its node ids pass through and the mock's vias still name real nodes; `coast: false`
+    // leaves Herne Bay's sea behind, and `nodeShift` moves its cut-edge node run clear of Herne Bay's.
+    // The crop is what the Kent sheet actually holds round the centre: 2.4 km west and 1.6 km south of
+    // it is where the fetch stops, so the box is set by the data, not centred on the centre. The mock
+    // runs x -2572..191, z 3403..6417, inside it. It sits below Birmingham, whose south side was the
+    // one free side left, 1.5 km clear of Birmingham, Coventry and London like every other area.
+    { id: 'canterbury', name: 'Canterbury', src: 'kent', coast: false, nodeShift: 100_000, at: [-3800, 8940], crop: { minX: -3200, maxX: 1800, minZ: 2000, maxZ: 6600 } },
   ],
   links: [
     // from home to every area
@@ -77,5 +87,8 @@ export const CITY = {
     { a: 'miltonkeynes', side: 'W', b: 'manchester', bSide: 'E' },
     { a: 'london', side: 'E', b: 'birmingham', bSide: 'W' },
     { a: 'burgesshill', side: 'W', b: 'coventry', bSide: 'E' },
+    // Canterbury under Birmingham. Not to Herne Bay, its real neighbour: Herne Bay's north edge is the
+    // sea, with no road to join, and its other three sides are taken.
+    { a: 'birmingham', side: 'S', b: 'canterbury', bSide: 'N' },
   ],
 };
