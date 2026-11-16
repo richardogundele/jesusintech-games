@@ -4,7 +4,7 @@
 const KEY = 'dreamlife.v1';
 const DEFAULTS = () => ({
   balance: 50_000_000,
-  world: 'kent',
+  world: 'city',
   log: [],
   reached: 0,
   owned: { cars: [], jets: [] },       // bought after launch; the starting fleet is always yours

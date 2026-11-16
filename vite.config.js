@@ -1,6 +1,8 @@
 import { defineConfig } from 'vite';
 import fs from 'node:fs';
 import path from 'node:path';
+import { CITY } from './tools/driving-city.mjs';
+import { REGIONS } from './tools/regions.mjs';
 
 // dev only: POST a JPEG data URL to /__shot?name=foo and it is saved to shots/foo.jpg
 // (lets automated checks capture frames even when no window is visible)
@@ -58,10 +60,34 @@ const stripPrivate = {
   },
 };
 
+// build only: a town's own region.json is what city-merge.mjs reads to bake Driving City. It has to sit
+// in public/ for the lab pages and the tools, but nothing the game ships ever fetches one: the game
+// downloads the merged assets/city/region.json instead. Vite copies public/ wholesale, so without this
+// the deploy carried every source map as well as the city made out of them -- 124 MB nobody asks for.
+// A town is kept only if some builder can still load it on its own (REGION_WORLDS in main.js).
+// ATTRIBUTION.txt stays either way: that is the OpenStreetMap credit, not data.
+const RUNTIME_REGIONS = new Set(['city', 'driveuk', ...Object.keys(REGIONS).filter((id) => REGIONS[id].ready)]);
+const stripSourceMaps = {
+  name: 'strip-source-region-maps',
+  apply: 'build',
+  closeBundle() {
+    const dir = path.join(OUT, 'assets');
+    let n = 0, bytes = 0;
+    for (const id of ['kent', ...CITY.areas.map((a) => a.src || a.id)]) {
+      if (RUNTIME_REGIONS.has(id)) continue;
+      const f = path.join(dir, id, 'region.json');
+      if (!fs.existsSync(f)) continue;
+      bytes += fs.statSync(f).size; n++;
+      fs.rmSync(f, { force: true });
+    }
+    if (n) console.log(`  strip-source-region-maps: ${n} town maps left out of the deploy (${(bytes / 1048576).toFixed(0)} MB); the city they bake into still ships`);
+  },
+};
+
 export default defineConfig(({ command, isPreview }) => ({
   // production is served from the root of games.jesusintech.com
   base: '/',
-  plugins: [shotSaver, fileInbox, stripPrivate],
+  plugins: [shotSaver, fileInbox, stripPrivate, stripSourceMaps],
   build: {
     outDir: OUT,
     emptyOutDir: true,

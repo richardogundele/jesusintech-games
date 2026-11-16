@@ -9,7 +9,6 @@ import { state, save, recordDrive, careerRating } from './state.js';
 import { JETS, CITIES, otherCities, fuelStop, flightTime, roadBetween, LEARNER, CARS } from './catalog.js';
 import { REGIONS } from '../tools/regions.mjs';
 import { CITY } from '../tools/driving-city.mjs';
-import { buildKent, setKentHooks } from './worlds/kent.js';
 import { buildCity, setCityHooks } from './worlds/city.js';
 import * as P from './progress.js';
 import { Phone } from './phone.js';
@@ -113,7 +112,7 @@ const $ = (id) => document.getElementById(id);
 const cityBuilder = (id, name, extra = {}) => (r) => buildRegion(r, { id, name, data: misc(`${id}Region`), ...extra });
 const CITY_IDS = Object.keys(REGIONS).filter((id) => REGIONS[id].ready); // only cities whose map is baked and checked
 const builders = {
-  kent: buildKent, driveuk: cityBuilder('driveuk', 'Drive UK'), motorway: buildMotorway, uk: buildUK,
+  driveuk: cityBuilder('driveuk', 'Drive UK'), motorway: buildMotorway, uk: buildUK,
   city: (r) => buildCity(r, { data: misc('cityRegion') }), // Driving City: the areas joined into one map (tools/city-merge.mjs), home included
   ...Object.fromEntries(CITY_IDS.map((id) => [id, cityBuilder(id, REGIONS[id].name)])),
 };
@@ -588,7 +587,6 @@ async function land() {
   hud.show(true);
   await fade(0);
   hud.toast(dest.id === 'city' ? 'Home to Driving City. Your cars are in the garage by the house.'
-    : dest.id === 'kent' ? 'Chauffeured home to Beltinge. The sea is at the bottom of the garden.'
     : `Welcome to ${CITIES[dest.id]?.name || dest.name}. Your cars are in the car park by the terminal.`, 5200);
 }
 
@@ -626,7 +624,7 @@ const phone = new Phone({
     if (car?.id === carId) car.setCondition?.(100);
     for (const c of world.cars) if (c.id === carId) c.setCondition?.(100);
   },
-  onJetBought(jetId) { for (const id of ['city', 'kent', ...CITY_IDS]) worlds[id]?.addJet?.(jetId); },
+  onJetBought(jetId) { for (const id of ['city', ...CITY_IDS]) worlds[id]?.addJet?.(jetId); },
   setLook: (l) => { player.mesh.userData.setLook?.(l); save(); },
   startLesson: (id) => startLesson(id),
   startTest: (centre, seed, kind) => startTest(centre, seed, kind),
@@ -637,7 +635,6 @@ const phone = new Phone({
   setPaint: (hex) => setPaint(hex),
   setPlate: (text) => setPlate(text),
   myPlate: () => myPlate(),
-  inKent: () => world.id === 'kent',
   goHome: () => goHome(),
   toast: (t, ms) => hud.toast(t, ms),
   save,
@@ -1217,19 +1214,6 @@ async function warmTiles(x, z, ms = 1500, radius = 0) {
     await wait(0);
   }
 }
-async function goKent() {
-  // the map comes down BEFORE the screen fades: a failed download then costs a message, not a
-  // black screen you can't get out of (Kent's map is fetched on the way there now, not at boot)
-  try { await loadRegion('kent'); } catch { hud.toast('Couldn\'t download the Kent map. Check your connection and try again.', 4000); return; }
-  mode = 'cutscene';
-  if (car) { car.park(); car = null; }
-  hud.show(false);
-  await fade(1);
-  enterWorld('kent');
-  renderer.compile(world.scene, camera);
-  hud.show(true);
-  await fade(0);
-}
 /**
  * A test from a pool, or { route: null, why }. A seed now and then has no fair route from a centre
  * (Manchester's estates are thin): a new test just takes the next seed rather than telling the player
@@ -1292,9 +1276,9 @@ async function startTest(centre = 'any', seed = null, kind = 'mock') {
   gen.signs = signsOnRoute(w.net, gen.route);
   return startLesson(testDef(gen, kind));
 }
-/** to a city for its test: like goKent, with the region's map loaded first */
+/** to a city for its test, with the region's map loaded first */
 async function goCity(id) {
-  // same as goKent: the area's map first, so a dropped download never strands you behind the fade
+  // the area's map first, so a dropped download never strands you behind the fade
   try { await ensureWorldData(id); } catch { hud.toast('Couldn\'t download that area\'s map. Check your connection and try again.', 4000); return; }
   mode = 'cutscene';
   if (car) { car.park(); car = null; }
@@ -1313,7 +1297,7 @@ async function startLesson(id) {
   // now, so every one of them runs there: nothing is left that needs the Kent world.
   const kentLesson = def.world === 'kent';
   const where = kentLesson ? 'city' : REGION_WORLDS.includes(def.world) ? def.world : 'uk';
-  if (world.id !== where) await (where === 'kent' ? goKent() : where === 'uk' ? goUK() : goCity(where));
+  if (world.id !== where) await (where === 'uk' ? goUK() : goCity(where));
   if (world.id !== where) return; // the trip was called off (its map wouldn't download): don't start the lesson in the wrong world
   const tiled = where !== 'uk'; // Kent and the cities stream tiles: warm them behind a fade
   if (lesson) lesson.cancel();
@@ -1327,18 +1311,18 @@ async function startLesson(id) {
   eyeShot = null; // a cancelled or restarted lesson must not inherit the eyesight shot
   drive.indicator = null;
   for (const k in autoState) delete autoState[k];
-  const kent = where === 'kent', inCity = where === 'city';
-  // in the city a Kent lesson's centre is the area it now sits in: Herne Bay's routes are the Kent area,
-  // the Canterbury mock is Canterbury
-  const centre = kent ? def.centre || KENT_ROUTES[def.route].centre
-    : inCity ? (kentLesson ? CENTRES[def.centre || KENT_ROUTES[def.route]?.centre]?.area || 'kent' : def.generated?.area || def.generated?.centre)
+  const inCity = where === 'city';
+  // a Kent lesson's centre is the city area it now sits in: Herne Bay's routes are the Kent area, the
+  // Canterbury mock is Canterbury
+  const centre = inCity
+    ? (kentLesson ? CENTRES[def.centre || KENT_ROUTES[def.route]?.centre]?.area || 'kent' : def.generated?.area || def.generated?.centre)
     : null;
   // the gearbox you're learning in (the clutch and gears lessons are always in the manual)
   learner.setTrans(def.trans || state.uk.trans);
   if (learner.autoBadge) learner.autoBadge.visible = learner.trans === 'auto';
   if (tiled && !window.__game?.autoQuiz) { hud.show(false); await fade(1); }
   const pre = [];
-  if (def.checks && (kent || (inCity && world.eyesight?.some((e) => e.centre === centre)))) { // an eyesight car is parked at Kent's centres and at every Driving City centre
+  if (def.checks && inCity && world.eyesight?.some((e) => e.centre === centre)) { // an eyesight car is parked at every Driving City centre
     // the real test opens with an eyesight check (read a number plate about 20 m away) and a tell me question
     const spot = world.eyesight?.find((e) => e.centre === centre) ?? { x: world.parked.x, z: world.parked.z, heading: 0 };
     world.setPlate?.(randomPlate(), centre);
@@ -1486,8 +1470,7 @@ function updateSoundscape() {
   if (key !== musicKey) { musicKey = key; audio.music.play(track, level); }
   const p = car ? car.pos : player.pos;
   const kind = world.id === 'cabin' ? 'indoor'
-    : world.id === 'kent' ? (world.indoors?.(p.x, p.z) ? 'indoor' : p.z < -5500 ? 'coast' : 'city')
-    // Driving City: the sea along Herne Bay's front, as in Kent (its own z, moved by where it sits)
+    // Driving City: the sea along Herne Bay's front (Kent's own z, moved by where the area sits)
     : world.id === 'city' ? (world.indoors?.(p.x, p.z) ? 'indoor' : world.kentAt && p.z - world.kentAt[1] < -5500 && world.areaAt(p.x, p.z)?.id === 'kent' ? 'coast' : 'city')
     : ['uk', 'motorway', ...CITY_IDS].includes(world.id) ? 'city' : 'none';
   audio.ambience.set(kind, mode === 'car');
@@ -1774,7 +1757,6 @@ const houseHooks = {
   quiz: (item) => quiz(item),
   sfx: (k) => audio.sfx(k),
 };
-setKentHooks(houseHooks);
 setCityHooks(houseHooks);
 // Driving City (Nov 2026): home moved from Herne Bay into the city, and the cars bought there went with it
 if (!HOMES.includes(state.world)) state.world = 'city';
