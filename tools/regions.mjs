@@ -14,6 +14,12 @@
 // region.json is baked and has passed lanes-check and testgen-check. Without the gate, adding a
 // region here would put a destination in the jet picker that loads a file that does not exist yet.
 //
+// No entry is `ready` any more (Nov 2026). Every town below is an area of Driving City, which you
+// drive to, so none of them is a world of its own or a place a jet flies to; London, Birmingham and
+// Manchester were the last three still built standalone, and nothing had routed to them since the
+// city absorbed them. The gate stays for whatever is added next: a map that is fetched and baked but
+// not yet checked still must not appear in the game.
+//
 // `timeK` is how long a route really takes against auto-pool.js's estimate, measured over the
 // completed runs of `node tools/lesson-check.mjs --gen auto --region <id>`. It defaults to 1; a city
 // without a measured one plans slightly the wrong length of test, which is a reason to measure it
@@ -21,19 +27,19 @@
 
 export const REGIONS = {
   london: {
-    id: 'london', ready: true, timeK: 1.05, name: 'London', place: 'Mill Hill',
+    id: 'london', timeK: 1.05, name: 'London', place: 'Mill Hill',
     centre: { lat: 51.6101, lon: -0.2472 }, half: 2500,
     testCentre: { name: 'Mill Hill (London)', lat: 51.6101, lon: -0.2472, address: 'Unit 9, Grannard Business Centre, Bunns Lane, Mill Hill, London NW7 2DQ' },
     far: [['Birmingham', -160000, -125000], ['Manchester', -200000, -250000], ['Kent', 95000, 60000], ['Central London', 7000, 13000], ['Watford', -15000, -5000], ['Barnet', 4500, -2500], ['Edgware', -2500, 1500], ['Hendon', 1500, 3500], ['Finchley', 5500, 2500]],
   },
   birmingham: {
-    id: 'birmingham', ready: true, timeK: 0.94, name: 'Birmingham', place: 'Kings Heath',
+    id: 'birmingham', timeK: 0.94, name: 'Birmingham', place: 'Kings Heath',
     centre: { lat: 52.4063, lon: -1.8880 }, half: 2500,
     testCentre: { name: 'Birmingham (Kings Heath)', lat: 52.4063, lon: -1.8880, address: '955 Alcester Road South, Kings Heath, Birmingham B14 5JA' },
     far: [['London', 160000, 125000], ['Manchester', -40000, -120000], ['City Centre', 1500, -7500], ['Solihull', 8000, -3000], ['Kings Heath', 500, -2500], ['Redditch', -2000, 15000], ['Stirchley', -2500, -3500], ['Hall Green', 3500, -2500]],
   },
   manchester: {
-    id: 'manchester', ready: true, name: 'Manchester', place: 'West Didsbury',
+    id: 'manchester', name: 'Manchester', place: 'West Didsbury',
     // 4 km out, not 2.5: its two multi-lane roundabouts are 2.3 km from the centre, and on the
     // smaller square their approaches were clipped, so every seed drove the same single route.
     centre: { lat: 53.4252, lon: -2.2584 }, half: 4000,
