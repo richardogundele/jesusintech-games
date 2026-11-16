@@ -112,12 +112,12 @@ const $ = (id) => document.getElementById(id);
 const cityBuilder = (id, name, extra = {}) => (r) => buildRegion(r, { id, name, data: misc(`${id}Region`), ...extra });
 const CITY_IDS = Object.keys(REGIONS).filter((id) => REGIONS[id].ready); // only cities whose map is baked and checked
 const builders = {
-  driveuk: cityBuilder('driveuk', 'Drive UK'), motorway: buildMotorway, uk: buildUK,
+  motorway: buildMotorway, uk: buildUK,
   city: (r) => buildCity(r, { data: misc('cityRegion') }), // Driving City: the areas joined into one map (tools/city-merge.mjs), home included
   ...Object.fromEntries(CITY_IDS.map((id) => [id, cityBuilder(id, REGIONS[id].name)])),
 };
-// driveuk is the authored teaching city (tools/city-build.mjs); the rest are the real map
-const REGION_WORLDS = ['driveuk', 'city', ...CITY_IDS];
+// the worlds built from a region.json: Driving City, and any town still built on its own
+const REGION_WORLDS = ['city', ...CITY_IDS];
 const ensureWorldData = (id) => (REGION_WORLDS.includes(id) && !worlds[id] ? loadRegion(id) : Promise.resolve());
 const HOMES = ['city']; // the world you live in: the save remembers it (Driving City; Kent was home before it)
 const worlds = {};

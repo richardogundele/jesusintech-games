@@ -23,7 +23,7 @@ const BEACH_W = 25, SEA_WALL_H = 1.5;
 const LAMP_EVERY = 34, HEDGE_LEN = 7, PAVE = 2.0;
 
 /**
- * How a tagged street is dressed (way.dress, set by tools/city-build.mjs). The models are the ones
+ * How a tagged street is dressed (way.dress, set by net.js #dressWays). The models are the ones
  * every world already loads, so a dressed street costs instances, not downloads.
  */
 // The scanned shrubs are 16-23k triangles each - hero props, not street dressing. shrub2_lo is the

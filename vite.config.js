@@ -66,7 +66,7 @@ const stripPrivate = {
 // the deploy carried every source map as well as the city made out of them -- 124 MB nobody asks for.
 // A town is kept only if some builder can still load it on its own (REGION_WORLDS in main.js).
 // ATTRIBUTION.txt stays either way: that is the OpenStreetMap credit, not data.
-const RUNTIME_REGIONS = new Set(['city', 'driveuk', ...Object.keys(REGIONS).filter((id) => REGIONS[id].ready)]);
+const RUNTIME_REGIONS = new Set(['city', ...Object.keys(REGIONS).filter((id) => REGIONS[id].ready)]);
 const stripSourceMaps = {
   name: 'strip-source-region-maps',
   apply: 'build',

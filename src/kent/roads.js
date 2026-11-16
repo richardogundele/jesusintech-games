@@ -676,7 +676,7 @@ export function makeRoadMaterials({ pbr, decal = null, planting = null } = {}) {
     // a UK footway is grey tarmac or grey slabs. The paving set is brown brick, which made every
     // pavement in Kent look like a muddy driveway.
     paving: tex('clean_asphalt', 0xb4b0a8),
-    // the dressed streets of the authored city get block paving, as a high street does
+    // a street dressed as a high street gets block paving footways, not grey tarmac
     pavingBlock: tex('rectangular_paving', 0xd6cbb8),
     grass: tex('leafy_grass', 0x8fab74),
     white: flat(0xf2f2ee),

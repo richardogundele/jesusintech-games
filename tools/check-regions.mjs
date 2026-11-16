@@ -6,8 +6,7 @@
 //
 //   node tools/check-regions.mjs [--verbose]
 //
-// Exits 1 if any map fails. driveuk is the authored teaching city (tools/city-build.mjs), not a
-// real-map region, and is not checked here.
+// Exits 1 if any map fails.
 
 import fs from 'node:fs';
 import path from 'node:path';
