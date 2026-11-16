@@ -1398,6 +1398,8 @@ function carefulKent(run, car, st, bad) {
       }
       case 'rb': {
         const toLine = e.entryS - s - half;
+        // (lesson-check's hurried driver: onto the ring and round it at 18 mph without waiting for a gap)
+        if (bad.rbRush) { if (toLine < 40 && s < e.exitS) want = Math.min(want, 18 / MPH); break; }
         // moving over to the right-hand lane for the ring (the approach flares to two): not into a car
         // alongside in it -- on the Kent mock test the learner moved across into one (seed 1)
         if (e.approachLane > 1 && s > e.laneChangeS - 5 && s < e.entryS && run.carLane(run.route.pts[run.idx]) < e.approachLane) want = Math.min(want, laneGap(run, car, { dir: 'right' }, want));

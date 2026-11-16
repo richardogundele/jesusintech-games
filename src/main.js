@@ -1629,7 +1629,7 @@ function step(dt) {
   updateSoundscape();
   if (lesson && mode !== 'car') lesson.cancel('Lesson stopped: you got out of the car');
   if (mode !== 'car') { drive.indicator = null; hud.indicators(false); hud.mirror(false); hud.limit(null); }
-  const obstacle = mode === 'car' ? { x: car.pos.x, z: car.pos.z, r: car.model.radius * 0.6, heading: car.heading, L: car.model.length, W: car.model.width }
+  const obstacle = mode === 'car' ? { x: car.pos.x, z: car.pos.z, r: car.model.radius * 0.6, heading: car.heading, L: car.model.length, W: car.model.width, indicator: drive.indicator }
     : mode === 'foot' ? { x: player.pos.x, z: player.pos.z, r: 0.5 } : null;
   world.traffic?.update(dt, obstacle, camera.position);
   world.player = obstacle;
