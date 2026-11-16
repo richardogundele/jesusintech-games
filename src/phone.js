@@ -175,7 +175,7 @@ export class Phone {
     // Every town a jet used to fly to is an area of Driving City now, so there is no route to quote:
     // the listing is the aircraft itself, and the note says plainly that it is somewhere to walk, not
     // somewhere to leave from.
-    return `<p class="note">New jets are parked in the second row at your jet park, over the lane from the house. Every town a jet used to fly to is part of Driving City now, so there is nowhere left to fly to: they are yours to own and walk around.</p>` +
+    return `<p class="note">New jets are parked in the second row at your jet park, out past the edge of Guildford. The house is in the town now, so the jet park is a drive away: 6.6 km, about eight minutes. Every town a jet used to fly to is part of Driving City now, so there is nowhere left to fly to: they are yours to own and walk around.</p>` +
       Object.entries(JETS).sort((a, b) => (a[1].price || 0) - (b[1].price || 0)).map(([id, j]) => {
         const owned = P.ownsJet(id);
         const btn = owned ? '<span class="owned">Yours</span>'

@@ -637,14 +637,24 @@ function estate(cfg, areas) {
     { minX: airfield.x - 40, maxX: airfield.x + 40, minZ: airfield.z - 1320, maxZ: airfield.z - 920 },
   ];
   const rectDist = (r, x, z) => Math.hypot(Math.max(r.minX - x, 0, x - r.maxX), Math.max(r.minZ - z, 0, z - r.maxZ));
-  const zones = [
-    { dist: (x, z) => hypot(x - home.x, z - home.z) - 120 }, // the house, its garden and the garage court
-    ...rects.map((r) => ({ dist: (x, z) => rectDist(r, x, z) - 40 })),
-  ];
+  const grow = (r, m) => ({ minX: r.minX - m, maxX: r.maxX + m, minZ: r.minZ - m, maxZ: r.maxZ + m });
+  // the plot house.js builds: x -31..31, z -32..+44 of the origin (hedges, lawn, motor court, drive)
+  const plot = { minX: home.x - 31, maxX: home.x + 31, minZ: home.z - 32, maxZ: home.z + 44 };
+  // Two jobs, two shapes, because the house stands in a street now rather than in a field.
+  //  `cull` is what the house replaces, and is its own plot and nothing more: a 120 m circle used to be
+  //    harmless on open land, but on a street it would have taken a neighbourhood down with it.
+  //  `zones` is what gets levelled, and has to be bigger than the plot however small the plot is.
+  //    terrain() works on a 100 m grid and reads the ground under the plot from the grid points around
+  //    it, so holding only the points that land inside a 62 x 76 m plot can hold none at all and leave
+  //    the house buried or afloat. Grown past the step, every point its own cells are read from is held
+  //    at 0. It only levels: nothing is removed for being inside it.
+  const jetZones = rects.map((r) => ({ dist: (x, z) => rectDist(r, x, z) - 40 }));
+  const zones = [{ dist: (x, z) => rectDist(grow(plot, 110), x, z) }, ...jetZones];
+  const cull = [{ dist: (x, z) => rectDist(plot, x, z) }, ...jetZones];
   // the house faces south: its drive leaves the gate 42 m south of it (house.js driveEnd), and the jet
-  // park's gate is at its origin + (-120, 50); `junction` is where the two private roads meet
+  // park's gate is at its origin + (-120, 50); `junction` is where the jet park's road turns for the street
   const junction = cfg.junction ? [A.ox + cfg.junction[0], A.oz + cfg.junction[1]] : null;
-  return { home, airfield, zones, junction, homeGate: [home.x, home.z + 42], jetGate: [airfield.x - 120, airfield.z + 50] };
+  return { home, airfield, plot, zones, cull, junction, homeGate: [home.x, home.z + 42], jetGate: [airfield.x - 120, airfield.z + 50] };
 }
 let nextNodeId = 50_000_000; // nodes the bake adds itself (drive gates and joins), clear of every area's range
 const newNode = (nodes, x, z) => { const id = nextNodeId++; nodes.set(id, { x: +x.toFixed(2), z: +z.toFixed(2), ways: [], signals: false, crossing: null, giveWay: false, stop: false, mini: false, levelCrossing: false }); return id; };
@@ -684,19 +694,26 @@ function addDrive(name, at, from, ways, nodes, avoid) {
   return { drive: privateRoad(name, [at, q], [from, join], nodes), to: w.name || w.cls, m: Math.round(best.d) };
 }
 /**
- * The estate's roads: the Home Drive straight south out of the house's gate (it faces that way: a drive
- * leaving the gate at a slant ran back past the house, through the garden), the Jet Centre Road from the
- * jet park's gate to it at the junction, and from there one road on to the nearest quiet street.
+ * The two private roads: the Home Drive, south out of the house's gate to the street the house stands on
+ * (it faces that way -- a drive leaving the gate at a slant ran back past the house, through the garden),
+ * and the Jet Centre Road, south out of the jet park's gate, along the fence to the junction and on from
+ * there to the nearest quiet street. They were one chain of roads while the house stood beside the jet
+ * park; now the house is in a town and they share nothing but the rule that each leaves its gate heading south.
  */
 function estateRoads(E, ways, nodes, avoid) {
-  const J = E.junction || [E.homeGate[0], E.homeGate[1] + 300];
+  const J = E.junction || [E.jetGate[0], E.jetGate[1] + 300];
   const g1 = newNode(nodes, ...E.homeGate), g2 = newNode(nodes, ...E.jetGate), j = newNode(nodes, ...J);
-  // each gate is in its site's south fence: both roads leave it heading south, the jet park's turning across
-  // to the junction once it is level with it (run straight along the fence, it was a wall for 100 m)
+  // Each gate is in its site's south fence, so each road leaves it heading south. The house is in a street
+  // now, so its drive is the few metres from the gate to that street's kerb and nothing more. The jet park
+  // is still out on its own: its road runs south along the fence (a wall for 100 m), turns at the junction,
+  // and goes on to the nearest quiet street -- the road the Home Drive used to reach it by, half a
+  // kilometre from a house that is no longer there.
   const bend = [E.jetGate[0], J[1]];
-  const roads = [privateRoad('Home Drive', [E.homeGate, J], [g1, j], nodes), privateRoad('Jet Centre Road', [E.jetGate, bend, J], [g2, 0, j], nodes)];
-  const out = addDrive('Home Drive', J, j, ways, nodes, avoid);
-  return { roads: [...roads, out.drive], note: `Home Drive ${Math.round(hypot(J[0] - E.homeGate[0], J[1] - E.homeGate[1]))} m south from the gate, Jet Centre Road ${Math.round(lengthOf(roads[1].pts))} m to it, then ${out.m} m on to ${out.to}` };
+  const jetRoad = privateRoad('Jet Centre Road', [E.jetGate, bend, J], [g2, 0, j], nodes);
+  const home = addDrive('Home Drive', E.homeGate, g1, ways, nodes, avoid);
+  const jets = addDrive('Jet Centre Road', J, j, ways, nodes, avoid);
+  return { roads: [jetRoad, home.drive, jets.drive],
+    note: `Home Drive ${home.m} m from the gate on to ${home.to}, Jet Centre Road ${Math.round(lengthOf(jetRoad.pts))} m from the jet park's gate, then ${jets.m} m on to ${jets.to}` };
 }
 
 // ---------- bake ----------
@@ -721,9 +738,10 @@ const home = areas.get(CITY.home.area);
 const ways = [...all('ways'), ...links.flatMap((l) => l.ways)];
 const outer = [...areas.values()].map((A) => ({ A, ...outerRoads(A, A.ways, nodes, links.flatMap((l) => l.ways)) }));
 ways.push(...outer.flatMap((o) => o.ways));
-const inEstate = (x, z) => !!E && E.zones.some((f) => f.dist(x, z) <= 0);
+// what the house and the jet park stand on -- their own ground, not the wider patch that gets levelled
+const inEstate = (x, z) => !!E && E.cull.some((f) => f.dist(x, z) <= 0);
 // (the private roads may not cross a link road or a ring road, nor run through the house or the jet park themselves)
-const estateAvoid = { lines: [...linkCtx.built, ...outer.flatMap((o) => o.ways.map((w) => w.pts))], inside: (x, z) => !!E && hypot(x - E.home.x, z - E.home.z) < 100 };
+const estateAvoid = { lines: [...linkCtx.built, ...outer.flatMap((o) => o.ways.map((w) => w.pts))], inside: (x, z) => !!E && inBox(x, z, E.plot) };
 const estateNet = E ? estateRoads(E, ways, nodes, estateAvoid) : null;
 if (estateNet) ways.push(...estateNet.roads);
 for (const A of areas.values()) A.buildings = A.buildings.filter((b) => !b.pts.some((p) => inEstate(p[0], p[1])));

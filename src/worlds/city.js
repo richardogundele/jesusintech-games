@@ -1,9 +1,10 @@
 // Driving City: the real streets round several driving test centres set side by side in one map and
 // joined by link roads (tools/driving-city.mjs, baked by tools/city-merge.mjs into
-// public/assets/city/region.json, ODbL). One world: Herne Bay and its coast across the top, home on its
-// own estate beside Guildford with the jet park and the garage, and every area's test centre with its
-// eyesight car. It streams in 500 m tiles like Kent and the cities (roads, scenery, signs, parked cars),
-// with one set of lights and one stream of traffic for the whole map. Left-hand traffic, mph. x = east, z = south.
+// public/assets/city/region.json, ODbL). One world: Herne Bay and its coast across the top, home on a
+// street in Guildford with the garage, the jet park out on open land past the edge of the town, and every
+// area's test centre with its eyesight car. It streams in 500 m tiles like Kent and the cities (roads,
+// scenery, signs, parked cars), with one set of lights and one stream of traffic for the whole map.
+// Left-hand traffic, mph. x = east, z = south.
 import * as THREE from 'three';
 import { setupSky, UK_GOLDEN, Colliders } from './common.js';
 import { makeTerrain } from './terrain.js';
@@ -71,7 +72,7 @@ export function buildCity(renderer, { data }) {
   const signals = new SignalSystem({ net, signsBuilder: signs });
   const traffic = new KentTraffic({ net, scene, signals, bodies: TRAFFIC, buildCar, buildPedestrian, maxCars: 80, maxPeds: 55, groundY: heightAt, gradeAt });
 
-  // home: the house and its garage, and the private jet park beside it
+  // home: the house and its garage, on School Close in Guildford; the jet park is out of town, a drive away
   const house = buildKentHouse({ scene, colliders, tickers, origin: data.home, interactions, hooks, materials: { pbr }, driveEnd: 44 });
   const bought = state.owned.jets.filter((id) => !STARTER_JETS.includes(id));
   const air = buildAirfield({ scene, colliders, tickers, origin: data.airfield, JETS, STARTER_JETS, buildJet, ownedJets: bought, materials: { pbr } });
@@ -126,7 +127,7 @@ export function buildCity(renderer, { data }) {
     terminal: air.terminal, jetPark: air.jetPark, runway: air.runway, addJet: air.addJet,
     landmarks,
     place(x, z, y = 0) {
-      const h = house.place(x, z, y) || air.place(x, z)?.replace('Kent Jet Centre', 'Home Jet Park');
+      const h = house.place(x, z, y) || air.place(x, z)?.replace('Kent Jet Centre', 'Guildford Jet Park');
       if (h) return h;
       const c = centres.find((k) => Math.hypot(x - k.tc.x, z - k.tc.z) < 60);
       if (c) return `${centreName(c.tc)} test centre`;

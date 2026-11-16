@@ -11,17 +11,23 @@
 // cuts runs on out to a ring road round its area (city-merge.mjs outerRoads): no road in the city ends.
 //
 // Guildford, home, is in the middle: Herne Bay above it, Leeds and Manchester either side, Birmingham and
-// Coventry below. The house and its jet park are on open land just past Guildford's north-east corner,
-// beyond Send Barns Lane, clear of the A3, which carries on east to Manchester as a dual carriageway.
+// Coventry below. The house is in the town, on School Close in Bellfields. The jet park is still out on
+// open land past Guildford's north-east corner, beyond Send Barns Lane, clear of the A3, which carries on
+// east to Manchester as a dual carriageway.
 
 const SQUARE = (h) => ({ minX: -h, maxX: h, minZ: -h, maxZ: h }); // a fetched square, without the jet-centre land region-data.mjs adds south of it
 
 export const CITY = {
   id: 'city', name: 'Driving City',
-  // home: the house and the jet park beside it, in the area's own metres (city-merge.mjs flattens their
-  // ground and joins each gate to the nearest street)
-  // (`junction`: where the Home Drive, straight south from the gate, meets the jet park's road)
-  home: { area: 'guildford', house: [3150, -2650], jets: [3600, -2250], junction: [3150, -2130] },
+  // home: the house, and the jet park, in the area's own metres (city-merge.mjs levels the ground under
+  // each and runs a private road from its gate to the nearest quiet street).
+  // The house is on School Close, off Woking Road in Bellfields: a street in Guildford like any other,
+  // with the primary school over the way and the town round it. It stood in a field past the town's
+  // north-east corner until Nov 2026, with 478 m of private drive and another 110 m of lane before it
+  // reached a road anyone else used. The jet park could not follow it in -- a runway wants 1.3 km of
+  // clear land -- so it stays where it was and you drive out to it.
+  // (`junction`: where the Jet Centre Road, out along the site's south fence, turns for that street)
+  home: { area: 'guildford', house: [-480, 520], jets: [3600, -2250], junction: [3150, -2130] },
   areas: [
     // The old Woking Road meets the A320 in a V just north of the Slyfield roundabout, drawn 3-6 m from it for
     // 40 m: the two carriageways overlapped and cars met head on there, locking the roundabout below. It now

@@ -180,7 +180,7 @@ export const talkFee = (reached, crowd) => 250_000 + fameLevel(reached).level * 
 // from tools/regions.mjs, the same table the map was fetched with, and the distances are worked out
 // from them. Kent has its own older pipeline and is not in REGIONS; its flights are measured from
 // Manston, the airfield the jet centre stands on.
-// Driving City (home, with the jet park at the house) is measured from Guildford.
+// Driving City (home: the house in Guildford, the jet park out past the edge of it) is measured from Guildford.
 const WHERE = {
   city: { name: 'Driving City', lat: 51.2593, lon: -0.5654 },
   kent: { name: 'Kent', lat: 51.342, lon: 1.346 },

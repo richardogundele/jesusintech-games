@@ -90,7 +90,7 @@ export function buyJet(id) {
   if (!j?.price || ownsJet(id) || !spend(j.price, `Bought ${j.maker} ${j.model}`)) return false;
   state.owned.jets.push(id);
   save();
-  notify({ kind: 'buy', title: `${j.maker} ${j.model} is waiting at your Kent jet park`, amount: -j.price });
+  notify({ kind: 'buy', title: `${j.maker} ${j.model} is waiting at your jet park`, amount: -j.price });
   return true;
 }
 export function recordFlight() {

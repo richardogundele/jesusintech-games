@@ -381,7 +381,7 @@ function openJets() {
       b.disabled = !flying;
       b.innerHTML = `<div class="maker">${j.maker}</div><div class="model">${j.model}</div>
         <div class="spec">Range ${j.range} · Mach ${j.mach}<br>Up to ${j.seats} passengers${j.note ? `<br>${j.note}` : ''}</div>
-        <div class="dest">${flying ? `${CITIES[from].name} → ${CITIES[jetDest].name} · ${flightTime(j, from, jetDest)}${stop ? `<br><span class="stop">Fuel stop in ${stop}</span>` : ' · nonstop'}` : 'Parked at home'}</div>`;
+        <div class="dest">${flying ? `${CITIES[from].name} → ${CITIES[jetDest].name} · ${flightTime(j, from, jetDest)}${stop ? `<br><span class="stop">Fuel stop in ${stop}</span>` : ' · nonstop'}` : 'Parked at your jet park'}</div>`;
       if (flying) b.onclick = () => { closeJets(true); travel(id, jetDest); };
       list.appendChild(b);
     }
