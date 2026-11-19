@@ -405,8 +405,8 @@ async function runLesson(def, s0, bad = null, maxSec = 3600) {
     if (Math.abs(run.s - prog.s) > 3) prog = { s: run.s, t: elapsed };
     else if (elapsed - prog.t > 120) {
       const d = autoState.dbg || {}, fx = Math.sin(car.heading), fz = Math.cos(car.heading);
-      const near = world.traffic.cars.map((c) => ({ c, d: Math.hypot(c.x - car.pos.x, c.z - car.pos.z) })).filter((q) => q.d < 30).sort((a, b) => a.d - b.d).slice(0, 6)
-        .map(({ c, d: dd }) => `#${c.id} ${dd.toFixed(1)}m ahead ${((c.x - car.pos.x) * fx + (c.z - car.pos.z) * fz).toFixed(1)} v${c.v.toFixed(1)} h${Math.round(c.heading * 57.3)} held ${c.held} block ${c.blockId}${c.blockedByMe ? ' byMe' : ''} stopT ${c.stopT.toFixed(0)} ev ${c.ev[c.evI]?.kind}@${((c.ev[c.evI]?.s ?? 0) - c.s).toFixed(0)}`);
+      const near = world.traffic.cars.map((c) => ({ c, d: Math.hypot(c.x - car.pos.x, c.z - car.pos.z) })).filter((q) => q.d < 30).sort((a, b) => a.d - b.d).slice(0, 12)
+        .map(({ c, d: dd }) => `#${c.id} ${dd.toFixed(1)}m ahead ${((c.x - car.pos.x) * fx + (c.z - car.pos.z) * fz).toFixed(1)} v${c.v.toFixed(1)} h${Math.round(c.heading * 57.3)} held ${c.held}${c.busyBy ? ' for ' + c.busyBy : ''} block ${c.blockId}${c.bumpId ? ' bump ' + c.bumpId : ''}${c.blockedByMe ? ' byMe' : ''} stopT ${c.stopT.toFixed(0)} ev ${c.ev[c.evI]?.kind}@${((c.ev[c.evI]?.s ?? 0) - c.s).toFixed(0)}`);
       const evs = run.events.filter((e) => (e.lineS ?? e.entryS ?? e.s) > run.s - 30 && (e.lineS ?? e.entryS ?? e.s) < run.s + 60).map((e) => `${e.kind}@${((e.lineS ?? e.entryS ?? e.s) - run.s).toFixed(0)}${e.group ? ' ' + e.group + ':' + world.signals?.stateFor(e.group, car.heading) : ''}${e.phase ? ' ' + e.phase : ''}${e.botGo ? ' go' : ''}`);
       // follow the queue ahead to whatever it is waiting for
       const byId = new Map(world.traffic.cars.map((c) => [c.id, c])), chain = [];
