@@ -33,12 +33,21 @@ const setSpeed = (car, v) => { car.vel.set(0, v); car.vF = v; };
 let failed = 0;
 const check = (name, ok, detail) => { console.log(`${ok ? 'ok  ' : 'FAIL'} ${name}${detail ? ` · ${detail}` : ''}`); if (!ok) failed++; };
 
-// 1. release the clutch in first with no throttle: it stalls
+// 1. release the clutch in first with no throttle. The bite was made forgiving on purpose (a553298:
+// wider band, slower through it, stall at 380 rpm), so on the flat with the brakes off a clumsy
+// move-off creeps away on the idle control. It still stalls against the parking brake, which is
+// what the stall drill does.
 {
   const c = make('manual');
   run(c, 0.3, { clutch: true }); run(c, dt, { clutch: true, shift: 1 });
   run(c, 3);
-  check('manual: clutch up in 1st without gas stalls', c.stalled && !c.engineOn, `stalled ${c.stalled}, ${(c.vF * MPH).toFixed(1)} mph, rpm ${c.rpm.toFixed(0)}`);
+  check('manual: clutch up in 1st without gas on the flat creeps, no stall', !c.stalled && c.engineOn && c.vF > 0.3, `stalled ${c.stalled}, ${(c.vF * MPH).toFixed(1)} mph, rpm ${c.rpm.toFixed(0)}`);
+}
+{
+  const c = make('manual'); c.drive.parkingBrake = true;
+  run(c, 0.3, { clutch: true }); run(c, dt, { clutch: true, shift: 1 });
+  run(c, 3);
+  check('manual: clutch up in 1st against the parking brake stalls', c.stalled && !c.engineOn, `stalled ${c.stalled}, ${(c.vF * MPH).toFixed(1)} mph, rpm ${c.rpm.toFixed(0)}`);
 }
 // 2. the same with the gas held as the clutch comes up: no stall, it pulls away
 {
@@ -98,7 +107,8 @@ for (const clutch of [false, true]) {
 }
 // 8. restart rules: not in gear with the clutch up
 {
-  const c = make('manual'); run(c, 0.3, { clutch: true }); run(c, dt, { clutch: true, shift: 1 }); run(c, 3);
+  const c = make('manual'); c.drive.parkingBrake = true; // stalled against the brake, as in check 1
+  run(c, 0.3, { clutch: true }); run(c, dt, { clutch: true, shift: 1 }); run(c, 3);
   run(c, dt, { ignition: true }); run(c, 1);
   const refused = !c.engineOn;
   run(c, 0.2, { clutch: true }); run(c, dt, { clutch: true, ignition: true }); run(c, 1, { clutch: true });

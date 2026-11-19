@@ -60,6 +60,7 @@ export function rowOf(cat, man = null) {
   if (c.startsWith('control: creep')) return r('control', 'footbrake');
   if (c.startsWith('control: steering')) return r('control', 'steering');
   if (c.startsWith('control: collision')) return r('clearance');
+  if (c.startsWith('clearance')) return r('clearance'); // passing parked cars too close
   if (c.startsWith('control: pulling up')) return r('stops');
   if (c.startsWith('mirrors')) return r('mirrors', /signalling|pulling up/.test(c) ? 'signalling' : /speed/.test(c) ? 'change speed' : 'change direction');
   if (c.startsWith('signals')) return r('signals', /correctly/.test(c) ? 'correctly' : /timed/.test(c) ? 'timed' : 'necessary');
