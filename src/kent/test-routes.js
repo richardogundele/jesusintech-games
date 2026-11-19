@@ -56,7 +56,7 @@ const POOLS = {
   // westbound: collisions merging); left out: Herne village (its mini roundabout locks solid), Reculver
   // Drive (a junction beside the Reculver Road zebra), Hillborough, Braid Drive
   herne: {
-    name: 'Herne Bay', start: HB_EAST, timeK: 0.925, avoid: ['Spenser Road', 'King Edward Avenue', 'Dence Park', 'Mill View Road', 176864792], first: [{ x: 3300, z: -4746 }], last: [], pullUpAt: { x: 3420, z: -4743.5 }, bay: true, quick: [0.874, 0.0381, 1.552], window: [14.3, 15.7],
+    name: 'Herne Bay', start: HB_EAST, timeK: 0.925, cityTimeK: 1.01, avoid: ['Spenser Road', 'King Edward Avenue', 'Dence Park', 'Mill View Road', 176864792], first: [{ x: 3300, z: -4746 }], last: [], pullUpAt: { x: 3420, z: -4743.5 }, bay: true, quick: [0.874, 0.0381, 1.552], window: [14.3, 15.7],
     mains: {
       a299home: { name: 'Eddington Junction and the A299 at 70 home', vias: [469, 1723], at: 'last' },
       greenhillW: { name: 'the A2990 to the Greenhill roundabout', vias: [4214, 4217] },
@@ -118,7 +118,10 @@ export const TEST_CENTRES = Object.fromEntries(Object.entries(POOLS).map(([k, p]
  */
 export function shiftedPool(key, [dx, dz], extra = {}) {
   const p = POOLS[key], P = (q) => (q && typeof q === 'object' ? { ...q, x: q.x + dx, z: q.z + dz } : q);
-  return { ...p, start: P(p.start), first: p.first.map(P), last: (p.last || []).map(P), pullUpAt: P(p.pullUpAt), ...extra };
+  // cityTimeK: in Driving City, with the city's traffic round it, Herne Bay's routes take 1.08 of an
+  // estimate that 0.925 was right for on its own map -- six seeds came in at 15.6 to 16.9 minutes, three
+  // of them within twelve seconds of the limit. At 1.01 the same six are 14.4 to 15.4.
+  return { ...p, start: P(p.start), first: p.first.map(P), last: (p.last || []).map(P), pullUpAt: P(p.pullUpAt), ...(extra.world === 'city' && p.cityTimeK ? { timeK: p.cityTimeK } : {}), ...extra };
 }
 
 const MPH = 2.23694;
@@ -168,6 +171,18 @@ export function validateRoute(net, route, { minMin = 14, maxMin = 16, timeK = 1,
     const a = Math.atan2(pts[i].x - pts[i - 4].x, pts[i].z - pts[i - 4].z), b = Math.atan2(pts[i + 4].x - pts[i].x, pts[i + 4].z - pts[i].z);
     let d = Math.abs(a - b); if (d > Math.PI) d = 2 * Math.PI - d;
     if (d > 2.6) { bad.push(`doubles back at ${Math.round(pts[i].s)} m`); break; }
+  }
+  // A turn too tight to drive: over 100 degrees inside 6 m of path is a radius under 3.5 m, and a car
+  // turns in 5. Over seeds 1-6 of every area the sharpest 6 m of a route was 93 degrees or less on 73
+  // routes of 78; the other five were 106 to 136, four of them the same place -- round the end of the
+  // central reservation on Winwick Road, Warrington, which is a U-turn the two tests above miss because
+  // it is spread across the gap. The learner could not make it, ran wide on to the footway, and came
+  // off it into someone walking there (Warrington seed 6).
+  if (!bad.length) for (let i = 2; i < pts.length - 2; i++) {
+    if (pts[i - 2].rb || pts[i - 1].rb || pts[i].rb || pts[i + 1].rb || pts[i + 2].rb || pts[i].park || pts[i].man) continue;
+    const a = Math.atan2(pts[i].x - pts[i - 2].x, pts[i].z - pts[i - 2].z), b = Math.atan2(pts[i + 2].x - pts[i].x, pts[i + 2].z - pts[i].z);
+    let d = Math.abs(a - b); if (d > Math.PI) d = 2 * Math.PI - d;
+    if (d > 1.75) { bad.push(`too tight a turn at ${Math.round(pts[i].s)} m`); break; }
   }
   // turning round in a cul-de-sac's turning circle: the same reversal, spread over a few car lengths
   if (!bad.length) for (let i = 1, j = 0, k = 0; i < pts.length - 1; i += 2) {

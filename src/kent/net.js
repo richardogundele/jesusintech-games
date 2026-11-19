@@ -1595,7 +1595,7 @@ export class RoadNet {
       const end = r.idx === 0 ? 0 : r.idx === w.pts.length - 1 ? 1 : -1; if (end < 0 || (end === 0) === out) continue; // it must run the other way through the node
       const k = r.idx === 0 ? 1 : r.idx - 1;
       const b = end === 0 ? bearingOf(w.pts[k][0] - w.pts[r.idx][0], w.pts[k][1] - w.pts[r.idx][1]) : bearingOf(w.pts[r.idx][0] - w.pts[k][0], w.pts[r.idx][1] - w.pts[k][1]);
-      if (Math.abs(norm180(b - myB)) > 140) return w;
+      if (Math.abs(norm180(b - myB)) > 100) return w; // (100, not 140: a short island splits wide. At 140, 287 of the city's 916 splits were missed, and on The Broadway, Mill Hill the two lanes met on the centre line at the node -- London seed 2 clipped the car coming the other way)
     }
     return null;
   }
