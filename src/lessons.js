@@ -1436,7 +1436,10 @@ function carefulKent(run, car, st, bad) {
         break;
       }
       case 'laneChange': {
-        if (ahead < 40 && ahead > -15) want = Math.min(want, laneGap(run, car, e, want));
+        // ...and for as long as the car is still not in that lane: the check used to end 15 m past the
+        // point, and a bot still held out by a car alongside then steered across into it (Stoke seed 4:
+        // moving left for a slip road, it side-swiped the car it had been waiting for)
+        if (ahead < 40 && (ahead > -15 || (ahead > -90 && run.carLane(run.route.pts[run.idx]) !== e.toLane))) want = Math.min(want, laneGap(run, car, e, want));
         break;
       }
       case 'stop': {
