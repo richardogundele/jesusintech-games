@@ -7,7 +7,7 @@
     "dev": "node tools/city-merge.mjs && vite",
     "build": "rm -rf dist && node tools/city-merge.mjs && vite build",
     "preview": "vite preview",
-    "check": "node tools/check-regions.mjs && node tools/net-check.mjs",
+    "check": "node tools/check-regions.mjs && node tools/net-check.mjs && node tools/dl25-check.mjs && node tools/trans-check.mjs && node tools/parking-check.mjs",
     "city": "node tools/city-merge.mjs"
   },
   "dependencies": {

@@ -13,7 +13,9 @@ import { PARKED_W, PARKED_L, SPACE_L } from './parked.js';
 const lineGeo = new THREE.BoxGeometry(1, 0.02, 1);
 const lineMat = new THREE.MeshStandardMaterial({ color: 0xf2f2ee, roughness: 0.7, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 });
 
-export function makeParkedBuilder({ net, buildCar, bodies, groundY = null, colliders: world = null }) {
+/** offStreet(tile) -> [{ x, z, yaw, way }]: cars on drives and in car parks (scenery.js), drawn and
+ *  made solid here with the rest. They are not in the catalogue: nothing on the road steers round them. */
+export function makeParkedBuilder({ net, buildCar, bodies, groundY = null, colliders: world = null, offStreet = null }) {
   const protos = new Map(); // key -> [{ geometry, material }]
   const specs = [];
   for (const b of bodies) for (const color of b.colors || [0x888888]) specs.push({ ...b, color });
@@ -68,8 +70,9 @@ export function makeParkedBuilder({ net, buildCar, bodies, groundY = null, colli
   return {
     name: 'parked',
     build(tile, lod) {
-      if (lod !== 'near' || !net.parked) return null;
-      const cars = net.parked.inRect(tile.x0, tile.z0, tile.x1, tile.z1);
+      if (lod !== 'near') return null;
+      const kerbside = net.parked ? net.parked.inRect(tile.x0, tile.z0, tile.x1, tile.z1) : [];
+      const cars = offStreet ? kerbside.concat(offStreet(tile)) : kerbside;
       if (!cars.length) return null;
       const group = new THREE.Group();
       const colliders = [];
@@ -84,7 +87,7 @@ export function makeParkedBuilder({ net, buildCar, bodies, groundY = null, colli
       // the marked spaces: a white outline on the road, a car and a half by a car's width
       const spaces = [];
       const seenWays = new Set();
-      for (const c of cars) { if (seenWays.has(c.way)) continue; seenWays.add(c.way); for (const sp of net.parked.spacesOn(net.ways.get(c.way))) if (sp.x >= tile.x0 && sp.x < tile.x1 && sp.z >= tile.z0 && sp.z < tile.z1) spaces.push(sp); }
+      for (const c of kerbside) { if (seenWays.has(c.way)) continue; seenWays.add(c.way); for (const sp of net.parked.spacesOn(net.ways.get(c.way))) if (sp.x >= tile.x0 && sp.x < tile.x1 && sp.z >= tile.z0 && sp.z < tile.z1) spaces.push(sp); }
       if (spaces.length) {
         const lines = new THREE.InstancedMesh(lineGeo, lineMat, spaces.length * 4);
         spaces.forEach((sp, i) => {

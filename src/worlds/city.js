@@ -67,7 +67,7 @@ export function buildCity(renderer, { data }) {
   const roads = makeRoadBuilder({ net, colliders, mats, groundY });
   const signs = makeSignBuilder({ net, colliders, groundY });
   tickers.push((t) => signs.tick(t)); // Belisha beacons blink
-  const parked = makeParkedBuilder({ net, buildCar, bodies: TRAFFIC, colliders, groundY });
+  const parked = makeParkedBuilder({ net, buildCar, bodies: TRAFFIC, colliders, groundY, offStreet: scenery.offstreet.carsFor });
   const tiles = new TileManager({ net, scene, builders: [roads, scenery, signs, parked], near: 1000, far: 2500, dropAt: 3200, budgetMs: 4 });
   const signals = new SignalSystem({ net, signsBuilder: signs });
   const traffic = new KentTraffic({ net, scene, signals, bodies: TRAFFIC, buildCar, buildPedestrian, maxCars: 80, maxPeds: 55, groundY: heightAt, gradeAt });

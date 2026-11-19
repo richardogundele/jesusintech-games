@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { facadeMaterial, waterMaterial, worldMappedMaterial } from '../materials.js';
 import { drapeGeometry } from '../worlds/terrain.js';
 import { PAVE_W, KERB_W } from './markings.js';
+import { PARKED_L } from './parked.js';
 
 // Kent scenery: everything in a tile that is not road, sign or traffic. Buildings from OSM
 // footprints, fields, hedges, trees, lamps, railways, the sea and cliffs, and a few landmarks.
@@ -65,6 +66,8 @@ function mulberry32(seed) {
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
 }
+// the share of houses with room for a drive that get one; see "off-street parking" in makeSceneryBuilder
+const DRIVE_SHARE = 0.87;
 const tileSeed = (tx, tz) => ((tx * 73856093) ^ (tz * 19349663) ^ 0x9e3779b9) >>> 0;
 const tileKey = (tx, tz) => `${tx},${tz}`;
 const hash2 = (x, z) => { const h = Math.sin(x * 12.9898 + z * 78.233) * 43758.5453; return h - Math.floor(h); };
@@ -588,7 +591,7 @@ const FIELD = {
  * `builder.statics` yourself), `fieldY` (fields sit this far above the ground plane), `lampModel`
  * (a MODEL_NAMES entry to instance instead of the cheap procedural lamp).
  */
-export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene = null, fieldY = 0.004, lampModel = null, ground = false, groundY = null } = {}) {
+export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene = null, fieldY = 0.004, lampModel = null, ground = false, groundY = null, driveShare = DRIVE_SHARE } = {}) {
   const data = net?.data || {};
   // ground-hugging sheets (landuse fields, railway ballast) are laid onto the hill like the roads;
   // they are big flat polygons, so unlike the 6 m road ribbons they must be split first
@@ -604,10 +607,11 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
   // off the whole footprint so nothing overhangs the circulating lanes (a repeated complaint).
   const rbClear = (net?.roundabouts instanceof Map ? [...net.roundabouts.values()] : []).map((rb) => ({ x: rb.x, z: rb.z, r2: (rb.r + 6) ** 2 }));
   const inRoundabout = (x, z) => { for (const rb of rbClear) if ((x - rb.x) ** 2 + (z - rb.z) ** 2 < rb.r2) return true; return false; };
+  let inCarPark = () => false; // set once the car parks are laid out (off-street parking, below)
   const excluded = (x, z) => Math.hypot(x - home.x, z - home.z) < 70
     || (x >= af.x - 230 && x <= af.x + 45 && z >= af.z - 920 && z <= af.z + 50)
     || (x >= af.x - 40 && x <= af.x + 40 && z >= af.z - 1320 && z < af.z - 920)
-    || inRoundabout(x, z);
+    || inRoundabout(x, z) || inCarPark(x, z);
   const halfW = (w) => w.halfW ?? (w.width ?? (w.cls === 'residential' || w.cls === 'living_street' ? 6 : 7.3)) / 2;
   const nearestRoad = (x, z, d) => { try { return net?.nearest?.(x, z, d) || null; } catch { return null; } };
   /** does a collider box (w across, d along yaw) cover any part of a carriageway? */
@@ -696,6 +700,7 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
 
   // ---- landmarks: decide what gets a bespoke model, and clear OSM footprints it replaces ----
   const landmarks = [];
+  const supers = []; // every supermarket, with the footprint it took or none: the car parks are laid out from these
   const KEEP = []; // keep-clear circles round bespoke landmarks (procedural houses stay out too)
   const clear = (x, z, r) => { KEEP.push({ x, z, r }); for (const b of nearBuildings(x, z, r)) b.skip = true; };
   const addLm = (lm) => { landmarks.push(lm); put(idx.landmarks, Math.floor(lm.x / TILE), Math.floor(lm.z / TILE), lm); };
@@ -714,6 +719,7 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
       const brand = lm.brand || name || 'Supermarket';
       if (b) { b.sign = brand; b.kind = 'shop'; b.pitched = false; if (b.h < 6) b.h = 6.5; KEEP.push({ x: b.cx, z: b.cz, r: b.rad + 10 }); }
       else { KEEP.push({ x: lm.x, z: lm.z, r: 40 }); addLm({ type: 'supermarket', x: lm.x, z: lm.z, name: brand }); }
+      supers.push({ x: lm.x, z: lm.z, brand, b: b || null, park: null });
     }
   }
 
@@ -1186,6 +1192,190 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
         tagged.length = 0;
       },
     };
+  }
+
+  // ---- off-street parking: a drive at half the houses, a car park beside every supermarket ----
+  // OSM gives a house a footprint and nothing else, and the supermarkets got a fascia and bare
+  // grass, so nowhere in the city had anywhere to leave a car. Both are worked out from the
+  // footprints and the roads alone (a hash of the position decides, so a tile builds the same
+  // however it is reached); kent/parked-build.js stands the cars on them.
+  const corridorOf = (w) => w.halfW + (w.pave && w.cls !== 'service' && !w.link && (w.limit || 30) < 50 ? KERB_W + PAVE_W : 0);
+  // a rectangle on the ground: centre, unit vector (nx, nz) along its depth, w across, d along
+  const rectYaw = (R) => Math.atan2(R.nx, R.nz);
+  const inRect = (R, x, z, pad = 0) => { const dx = x - R.cx, dz = z - R.cz; return Math.abs(dz * R.nx - dx * R.nz) <= R.w / 2 + pad && Math.abs(dx * R.nx + dz * R.nz) <= R.d / 2 + pad; };
+  const rectPts = (R, step) => {
+    const pts = [], ux = -R.nz, uz = R.nx, nw = Math.max(1, Math.ceil(R.w / step)), nd = Math.max(1, Math.ceil(R.d / step));
+    for (let i = 0; i <= nw; i++) for (let j = 0; j <= nd; j++) { const a = (i / nw - 0.5) * R.w, b = (j / nd - 0.5) * R.d; pts.push([R.cx + ux * a + R.nx * b, R.cz + uz * a + R.nz * b]); }
+    return pts;
+  };
+  /** nothing in the way of R: no building, no keep-clear site, no sea, and (roads) no carriageway or footway */
+  const rectFree = (R, step, roads = true) => {
+    const rad = Math.hypot(R.w, R.d) / 2, close = (b) => !b.skip && Math.hypot(b.cx - R.cx, b.cz - R.cz) < b.rad + rad;
+    const near = nearBuildings(R.cx, R.cz, rad + 45).filter(close);
+    for (const b of osmBig) if (close(b) && !near.includes(b)) near.push(b);
+    for (const b of near) for (const p of b.poly) if (inRect(R, p[0], p[1])) return false;
+    for (const [x, z] of rectPts(R, step)) {
+      if (excluded(x, z) || inSea(x, z)) return false;
+      for (const b of near) if (pointInPoly(b.poly, x, z)) return false;
+      if (roads) { const h = nearestRoad(x, z, 14); if (h && h.dist < corridorOf(h.way)) return false; }
+    }
+    return true;
+  };
+
+  // drives. Measured over Driving City with every house trying (tools/parking-check.mjs): 58.8% of the
+  // OSM houses have the room, so DRIVE_SHARE of those is what leaves half of all houses with one.
+  const CAR_ON_DRIVE = 0.45; // of the drives: the rest of the cars are out at work
+  const DRIVE_COLS = [0xb7b2aa, 0x8f8c86, 0x5c5e61, 0xa8957f];
+  const driveCache = new Map();
+  function driveFor(b) { return b.drive !== undefined ? b.drive : (b.drive = layDrive(b)); }
+  function layDrive(b) {
+    if (hash2(b.cx * 0.731 + 11.3, b.cz * 1.37 - 4.1) >= driveShare) return null;
+    const hit = nearestRoad(b.cx, b.cz, 45);
+    if (!hit || hit.dist < 2) return null;
+    const w = hit.way;
+    if (w.cls === 'service' || w.link || w.rb || w.bridge || w.tunnel || (w.limit || 30) >= 50) return null;
+    const nx = (b.cx - hit.px) / hit.dist, nz = (b.cz - hit.pz) / hit.dist, ux = -nz, uz = nx;
+    let f = Infinity, u0 = Infinity, u1 = -Infinity;
+    for (const p of b.poly) { const dx = p[0] - hit.px, dz = p[1] - hit.pz, u = dx * ux + dz * uz; f = Math.min(f, dx * nx + dz * nz); if (u < u0) u0 = u; if (u > u1) u1 = u; }
+    const d0 = corridorOf(w), room = f - d0;
+    const mk = (lat, a, e) => ({ cx: hit.px + ux * lat + nx * (a + e) / 2, cz: hit.pz + uz * lat + nz * (a + e) / 2, nx, nz, w: 2.8, d: e - a });
+    const sides = hash2(b.cz * 0.37, b.cx * 0.91) < 0.5 ? [0, 1] : [1, 0];
+    const tries = [];
+    // across the front garden to the wall, the car nose-in in front of the house
+    if (room >= 5.3 && room <= 22 && u1 - u0 >= 3.4) for (const s of sides) tries.push({ R: mk(s ? u1 - 1.7 : u0 + 1.7, d0, f - 0.15), car: f - 0.6 - PARKED_L / 2 });
+    // or down the side of the house, the car beside it
+    // (always the same side as seen from the road, so two neighbours never both take the gap between them)
+    if (room >= 0.5 && room <= 14) tries.push({ R: mk(u1 + 1.9, d0, f + 5.6), car: f + 5.1 - PARKED_L / 2 });
+    for (const t of tries) {
+      // tested from just behind the footway, which the drive is meant to touch
+      if (!rectFree({ ...t.R, cx: t.R.cx + nx * 0.25, cz: t.R.cz + nz * 0.25, d: t.R.d - 0.5 }, 1.4)) continue;
+      const lat = (t.R.cx - hit.px) * ux + (t.R.cz - hit.pz) * uz;
+      const yaw = Math.atan2(nx, nz) + (hash2(b.cx * 0.11, b.cz * 0.77) < 0.3 ? Math.PI : 0); // three in ten reversed in
+      const car = hash2(b.cx * 1.91, b.cz * 0.53) < CAR_ON_DRIVE ? { x: hit.px + ux * lat + nx * t.car, z: hit.pz + uz * lat + nz * t.car, yaw, way: b.i } : null;
+      return { R: t.R, car, col: DRIVE_COLS[Math.floor(hash2(b.cx * 0.29, b.cz * 0.61) * DRIVE_COLS.length)] };
+    }
+    return null;
+  }
+  // a home: tagged as one, or untagged and the size of one. Guildford and London tag four homes in
+  // five as a plain building (8,831 home-sized against 2,245 houses in Guildford), and those are the
+  // ones the roofs are already pitched for; under 35 m2 is a garage or a shed.
+  const isHouse = (b) => !b.skip && !b.proc && (b.kind === 'house' || b.kind === 'terrace' || (b.kind === 'other' && b.pitched && b.area >= 35));
+  function drivesForTile(tx, tz) {
+    const key = tileKey(tx, tz);
+    let out = driveCache.get(key);
+    if (out) return out;
+    out = [];
+    for (const b of idx.buildings.get(key) || []) {
+      if (!isHouse(b)) continue;
+      const d = driveFor(b);
+      if (!d) continue;
+      // staggered houses can still lay two drives across each other: the house that comes first in
+      // the data keeps its car there, and the other one's is out
+      let car = d.car;
+      if (car) for (const o of nearBuildings(car.x, car.z, 40)) {
+        if (o.i >= b.i || !isHouse(o)) continue;
+        const od = driveFor(o);
+        if (od && od.car && Math.hypot(od.car.x - car.x, od.car.z - car.z) < PARKED_L + 0.4) { car = null; break; }
+      }
+      out.push(car === d.car ? d : { ...d, car });
+    }
+    driveCache.set(key, out);
+    return out;
+  }
+
+  // car parks: against the wall that faces the road if there is room there, else whichever wall has
+  // it; four rows of bays if they fit, else two, else one. A store hemmed in on every side (a town
+  // centre Express) gets none, as it has none.
+  const BAY_W = 2.5, BAY_D = 4.8, AISLE = 6, WALK = 2, CAR_IN_BAY = 0.42;
+  const ROWS = { 1: [WALK + BAY_D / 2], 2: [WALK + BAY_D / 2, WALK + BAY_D + AISLE + BAY_D / 2] };
+  ROWS[4] = [...ROWS[2], ROWS[2][1] + BAY_D, ROWS[2][1] + 2 * BAY_D + AISLE];
+  const carParks = [];
+  idx.parks = new Map();
+  inCarPark = (x, z) => carParks.some((P) => inRect(P.R, x, z, 2)); // while they are laid out, so no two share ground
+  for (const S of supers) {
+    let o = S.b ? S.b.obb : null;
+    const hit = nearestRoad(S.b ? S.b.cx : S.x, S.b ? S.b.cz : S.z, 200);
+    if (!o) o = { cx: S.x, cz: S.z, w: 44, d: 30, yaw: hit ? Math.atan2(hit.dir[0], hit.dir[1]) : 0 }; // buildLandmarks' own box
+    const tx = hit ? hit.px - o.cx : 0, tz = hit ? hit.pz - o.cz : 1;
+    const c = Math.cos(o.yaw), s = Math.sin(o.yaw);
+    const faces = [[c, -s, o.d, o.w / 2], [-c, s, o.d, o.w / 2], [s, c, o.w, o.d / 2], [-s, -c, o.w, o.d / 2]].sort((a, b) => (b[0] * tx + b[1] * tz) - (a[0] * tx + a[1] * tz));
+    let P = null;
+    find: for (const rows of [4, 2, 1]) for (const [nx, nz, len, hd] of faces) for (const k of [1, 0.6]) {
+      const W = clamp(len, 20, 70) * k, D = ROWS[rows][rows - 1] + BAY_D / 2 + 0.2;
+      const R = { cx: o.cx + nx * (hd + 0.6 + D / 2), cz: o.cz + nz * (hd + 0.6 + D / 2), nx, nz, w: W, d: D };
+      if (rectFree(R, 2.5)) { P = { R, rows, brand: S.brand, bays: [], lines: [], cars: [], access: null, totem: null }; break find; }
+    }
+    S.park = P;
+    if (!P) continue;
+    const R = P.R, ux = -R.nz, uz = R.nx, n = Math.floor((R.w - 1) / BAY_W), yaw = rectYaw(R);
+    ROWS[P.rows].forEach((t, row) => {
+      const b = t - R.d / 2, bx = R.cx + R.nx * b, bz = R.cz + R.nz * b;
+      for (let i = 0; i <= n; i++) { const a = (i - n / 2) * BAY_W; P.lines.push({ x: bx + ux * a, z: bz + uz * a, yaw }); }
+      for (let i = 0; i < n; i++) {
+        const a = (i + 0.5 - n / 2) * BAY_W, x = bx + ux * a, z = bz + uz * a;
+        P.bays.push({ x, z });
+        // nose to the building in the rows that back on to an aisle behind them, nose out in the others
+        if (hash2(x * 0.83 + 3.1, z * 1.17 - 7.7) < CAR_IN_BAY) P.cars.push({ x, z, yaw: yaw + (row % 2 ? 0 : Math.PI), way: carParks.length * 131 + P.cars.length });
+      }
+    });
+    // a way in from the nearest road, and the brand on a pole beside it
+    const eh = nearestRoad(R.cx, R.cz, 120);
+    if (eh && eh.dist > 1) {
+      const vx = (R.cx - eh.px) / eh.dist, vz = (R.cz - eh.pz) / eh.dist; // from the road to the car park
+      const edge = Math.min(R.w / 2 / Math.max(1e-6, Math.abs(vz * R.nx - vx * R.nz)), R.d / 2 / Math.max(1e-6, Math.abs(vx * R.nx + vz * R.nz)));
+      const a = corridorOf(eh.way), e = eh.dist - edge + 0.5;
+      if (e - a > 0.5 && e - a <= 70) {
+        const A = { cx: eh.px + vx * (a + e) / 2, cz: eh.pz + vz * (a + e) / 2, nx: vx, nz: vz, w: 6, d: e - a };
+        if (rectFree({ ...A, cx: A.cx + vx * 0.25, cz: A.cz + vz * 0.25, d: A.d - 0.5 }, 2, false)) P.access = A;
+      }
+      P.totem = { x: R.cx - vx * (edge - 1.2) - vz * 4.6, z: R.cz - vz * (edge - 1.2) + vx * 4.6, yaw: Math.atan2(vx, vz) + Math.PI / 2 };
+    }
+    carParks.push(P);
+    KEEP.push({ x: R.cx, z: R.cz, r: Math.hypot(R.w, R.d) / 2 + 2 });
+    put(idx.parks, Math.floor(R.cx / TILE), Math.floor(R.cz / TILE), P);
+  }
+  {
+    const grid = new Map(); // which car parks reach into which tile, for the trees and the procedural houses
+    for (const P of carParks) putBox(grid, bboxOf(rectPts(P.R, Math.max(P.R.w, P.R.d))), P, 3);
+    inCarPark = (x, z) => { for (const P of grid.get(tileKey(Math.floor(x / TILE), Math.floor(z / TILE))) || []) if (inRect(P.R, x, z, 2)) return true; return false; };
+  }
+  /** the cars standing off the street in a tile: on the drives of its houses and in its car parks */
+  function offStreetCars(tile) {
+    const out = [];
+    for (const d of drivesForTile(tile.tx, tile.tz)) if (d.car) out.push(d.car);
+    for (const P of idx.parks.get(tileKey(tile.tx, tile.tz)) || []) out.push(...P.cars);
+    return out;
+  }
+  function buildParking(tile, lod, out, M, cs) {
+    const near = lod === 'near', parks = idx.parks.get(tileKey(tile.tx, tile.tz)) || [], drives = near ? drivesForTile(tile.tx, tile.tz) : [];
+    if (!parks.length && !drives.length) return { carParks: 0, drives: 0 };
+    const g = new GB({ uv: false, color: true }), tar = new THREE.Color(0x4a4c50), white = new THREE.Color(0xf2f2ee), steel = new THREE.Color(0x9aa0a6), col = new THREE.Color();
+    const slab = (R, c, top = 0.06) => g.box(R.cx, 0, R.cz, R.w, top, R.d, rectYaw(R), c);
+    for (const d of drives) slab(d.R, col.set(d.col));
+    for (const P of parks) {
+      slab(P.R, tar);
+      if (P.access) slab(P.access, tar);
+      if (!near) continue;
+      for (const l of P.lines) g.box(l.x, 0.06, l.z, 0.1, 0.012, BAY_D, l.yaw, white);
+      if (P.totem) {
+        const t = P.totem, { bg, ink } = brandColours(P.brand);
+        g.box(t.x, 0, t.z, 0.3, 4.2, 0.3, t.yaw, steel);
+        g.box(t.x, 4.2, t.z, 4.2, 1.5, 0.3, t.yaw, col.set(bg));
+        cs.add(t.x, t.z, 0.5, 0.5, t.yaw);
+        if (hasDOM) for (const side of [1, -1]) {
+          const m = new THREE.Mesh(new THREE.PlaneGeometry(4, 0.75), new THREE.MeshStandardMaterial({ map: fasciaTex(P.brand, bg, ink), roughness: 0.6 }));
+          m.position.set(t.x + Math.sin(t.yaw) * 0.16 * side, (groundY ? groundY(t.x, t.z) : 0) + 4.95, t.z + Math.cos(t.yaw) * 0.16 * side);
+          m.rotation.y = t.yaw + (side > 0 ? 0 : Math.PI);
+          m.geometry.userData.owned = true; m.material.userData.owned = true;
+          out.add(m);
+        }
+      }
+    }
+    const m = new THREE.Mesh(drapeGeo(g.build(), 4), M.field);
+    m.receiveShadow = true; m.castShadow = near;
+    m.geometry.userData.owned = true;
+    out.add(m);
+    return { carParks: parks.length, drives: drives.length };
   }
 
   // ---- building pieces ----
@@ -1924,6 +2114,7 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
     st.gardenHedges = bb.hedges.length;
     Object.assign(st, buildRails(tile, lod, group, M, cs));
     st.landmarks = buildLandmarks(tile, lod, group, M, cs);
+    st.parking = buildParking(tile, lod, group, M, cs);
     if (lod === 'near') st.coast = coastColliders(tile, cs);
     function dispose() {
       group.traverse((o) => {
@@ -1946,6 +2137,8 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
     /** how many buildings, landmarks etc. the index holds (for checks) */
     /** every procedural house generated so far (for checks) */
     _procHouses: () => [...procCache.values()].flat(),
+    /** off-street parking: the cars for kent/parked-build.js, and the layout for tools/parking-check.mjs */
+    offstreet: { carsFor: offStreetCars, drivesForTile, carParks, supers, isHouse, tiles: () => [...idx.buildings.keys()], housesIn: (key) => (idx.buildings.get(key) || []).filter(isHouse) },
     counts: { buildings: buildings.length, skipped: buildings.filter((b) => b.skip).length, landmarks: landmarks.length, ways: WAYS.length, coast: coast.length },
     dispose() {
       statics.traverse((o) => { o.geometry?.dispose?.(); });

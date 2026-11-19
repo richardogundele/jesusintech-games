@@ -74,7 +74,7 @@ if (q.get('scenery')) {
     const { makeSceneryBuilder } = await import('./kent/scenery.js');
     builders.push(makeSceneryBuilder({ net, tickers: [], colliders, scene }));
     const [{ makeParkedBuilder }, { buildCar }, { TRAFFIC }] = await Promise.all([import('./kent/parked-build.js'), import('./models.js'), import('./catalog.js')]);
-    builders.push(makeParkedBuilder({ net, buildCar, bodies: TRAFFIC, colliders }));
+    builders.push(makeParkedBuilder({ net, buildCar, bodies: TRAFFIC, colliders, offStreet: builders[1].offstreet.carsFor }));
   } catch (e) { console.warn('kentlab: no scenery', e); }
 }
 const tiles = new TileManager({ net, scene, builders, near: Number(q.get('near')) || 900, far: Number(q.get('far')) || 1800, dropAt: 2600, budgetMs: 6 });
