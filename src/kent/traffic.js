@@ -530,6 +530,19 @@ export class KentTraffic {
           if (g < v * t + ACCEL * t * t / 2 + 2) { const was = want; want = follow(want, g, 0, v); if (want < was) { byMe = true; if (onRing) this.stats.ringCurve = (this.stats.ringCurve || 0) + 1; } if (g < freeD) freeD = g; if (g < gMe) gMe = g; break; }
         }
       }
+      // Let it in: crawling in a queue, with the player standing at a side road or half out across the
+      // mouth just ahead and facing across me, I hold back a car's length short of it instead of closing
+      // the gap. Nobody did, so a learner turning right into a standing queue for the lights stayed
+      // across the other lane until the two-minute watchdog (Guildford to Herne Bay, seed 3). For 15 s
+      // at a time, then 30 s of not offering: a learner that will not take the gap does not hold the road.
+      if (v < 2.5 && me.v < 1 && A.blockId > 0 && obstacle.heading != null && Math.abs(A.fx * ofx + A.fz * ofz) < 0.7) {
+        const dx = obstacle.x - A.x, dz = obstacle.z - A.z, al = dx * A.fx + dz * A.fz, lat = Math.abs(dx * A.fz - dz * A.fx), now = this.clock || 0;
+        if (al > A.L / 2 + 3 && al < 16 && lat > 1.2 && lat < 7 && now > (A.letInOff || 0)) {
+          if (!A.letInT || now - A.letInT > 20) A.letInT = now;
+          if (now - A.letInT < 15) want = follow(want, Math.max(0, al - A.L / 2 - 5.5), 0, v);
+          else { A.letInOff = now + 30; A.letInT = 0; }
+        }
+      }
       // Neither of us can move for 25 s (someone behind each of us): squeeze past like a gridlock,
       // whichever test it was that stopped me for the player. Not when following it: a queue behind
       // the player at a red light is just a queue. This fallback once lived in the far test alone,

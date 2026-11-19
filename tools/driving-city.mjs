@@ -37,7 +37,11 @@ export const CITY = {
     // test drives through, and each came out as one 14 s phase per approach. Woking Road (the A320) at
     // Moorfield Road: both sides of the A320, and the cars turning off it into Moorfield Road (77), then
     // Moorfield Road, where every Guildford test queued two minutes for 14 s of green in 93.
-    { id: 'guildford', name: 'Guildford', at: [0, 0], crop: SQUARE(2980), rejoin: [{ way: 243351216, at: [-541, -153], onto: 905183472 }], signals: { 'j-1257': [[9, -172, 77], [-109]] } },
+    // Woking Road again, one roundabout south (j-2140, where the A3 slips join): the two carriageways
+    // had a stage each and the slips a third, 14 s in 72, and the southbound queue stood back through the
+    // roundabout and across the side roads north of it -- a car at a give-way there never got out, and
+    // the Guildford to Herne Bay drive (seed 3) stood behind it for the two-minute watchdog.
+    { id: 'guildford', name: 'Guildford', at: [0, 0], crop: SQUARE(2980), rejoin: [{ way: 243351216, at: [-541, -153], onto: 905183472 }], signals: { 'j-1257': [[9, -172, 77], [-109]], 'j-2140': [[0, -178], [-79]] } },
     // Herne Bay and its coast, Swalecliffe to Reculver; Canterbury, Maypole and the cliff-top house left out.
     // Its 40 generated test routes keep inside x 594..3469, z -5901..-3363, so this has 760 m to spare.
     { id: 'kent', name: 'Herne Bay', at: [-2400, -1880], crop: { minX: -3200, maxX: 8000, minZ: -7300, maxZ: -2600 } },
