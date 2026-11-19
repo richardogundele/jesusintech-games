@@ -89,7 +89,7 @@ export function buildKentRoute(net, spec, { rnd = Math.random, legs = null } = {
     const lane = layout.roadDist - 17.5; // road centreline n offset from the lot centre
     to = layout.at(spec.bayFrom ?? 38, lane); // bayFrom: + is up the road on the side we come from
   }
-  const route = net.route({ x: spec.start.x, z: spec.start.z, maxD: 30 }, to, { via: spec.vias || [], noUturn: !!spec.noUturn, avoid: [...(spec.avoid || []), ...outerWays(net)], legs }); // legs: test-routes.js remembers legs across its tries
+  const route = net.route({ x: spec.start.x, z: spec.start.z, maxD: 30, ...(spec.start.fx != null ? { fx: spec.start.fx, fz: spec.start.fz } : {}) }, to, { via: spec.vias || [], noUturn: !!spec.noUturn, avoid: [...(spec.avoid || []), ...outerWays(net)], legs }); // legs: test-routes.js remembers legs across its tries
   if (!route) throw new Error(`no route for ${spec.id || 'lesson'}`);
   const lp = net.lanePath(route, { end: spec.end === 'baypark' || spec.end === 'parallel' ? 'pullup' : spec.end || 'pullup' });
   const pts = lp.pts;

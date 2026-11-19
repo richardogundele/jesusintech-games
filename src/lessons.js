@@ -13,7 +13,7 @@ import * as THREE from 'three';
 import { buildRoute, MPH, LANE, LW, LOT, BAYS, inLot } from './worlds/uk.js';
 import { buildKentRoute, KENT_ROUTES, idxAtS, shiftSpec, CENTRES } from './kent/lesson-routes.js';
 import { pedalsManual, pedalsAuto, gearFor } from './pedals.js';
-import { seeded } from './kent/test-routes.js';
+import { seeded, estimateMinutes } from './kent/test-routes.js';
 import { scoreSheet, debrief } from './dl25.js';
 
 const BAY_X = BAYS[8].x;
@@ -588,7 +588,46 @@ export class LessonRun {
       }
     }
     if (this.kent) this.satnavUpdate(car);
+    if (this.kent && this.def.generated) this.watchClock(car);
     this.hooks.hud({ text: this.text, coach: this.coachText, faults: this.counts(), mock: !!this.def.mock, title: this.independent ? 'Independent driving · follow the sat nav' : this.def.title });
+  }
+  /**
+   * A test that is running late is brought back by a shorter way, as an examiner does: the stretches
+   * still to come are dropped and the route goes straight to where it ends. A route is planned to
+   * about a quarter of an hour, but what it takes on the day moves a minute or more either way with
+   * the lights and the queues, and nothing else can pull a slow one back.
+   * Only once: when what is left would end the test after LATE minutes, when the short way saves half
+   * a minute or more and still ends it after EARLY, with every pull-up and the manoeuvre done, on the
+   * route, and on a stretch with nothing just said and nothing about to be.
+   */
+  watchClock(car) {
+    const g = this.def.generated;
+    if (this.cut || g.wholeCity || !this.moved || this.t < (this.clockT ?? 240)) return;
+    this.clockT = this.t + 3;
+    const s = this.s, K = g.timeK || 1, LATE = 16.4, EARLY = 14;
+    if (this.dist > 6 || !(this.spec.vias || []).some((v, i) => this.viaS[i] > s + 10)) return;
+    if (this.estop?.state === 'braking') return;
+    if (this.events.some((e) => (e.kind === 'stop' || e.kind === 'pullright') && endOf(e) > s)) return;
+    if (this.events.some((e) => (e.exitS ?? e.s) > s - 20 && (e.entryS ?? e.s) < s + 90)) return;
+    const left = estimateMinutes(this.route, s) * K;
+    if (this.t / 60 + left <= LATE) return;
+    this.clockT = this.t + 12; // it is late; trying the short way costs a route search, so not every look
+    let r = null;
+    // (from where the car is, facing the way it faces: the short way may not begin by turning round)
+    try { r = buildKentRoute(this.world.net, { ...this.spec, start: { x: car.pos.x, z: car.pos.z, fx: Math.sin(car.heading), fz: Math.cos(car.heading) }, vias: [], stops: 0, angled: false, pullRight: false }, { rnd: seeded((this.def.seed ?? 1) + 7) }); } catch { r = null; }
+    if (!r || r.pts.length < 4) return;
+    const short = estimateMinutes(r) * K;
+    if (left - short < 0.5 || this.t / 60 + short < EARLY) return;
+    // and it has to begin along the line the car is on: the same lane for its first 30 m. A route from
+    // "the road nearest here" can be the other carriageway, or the road across the junction the car is
+    // standing in, and the car then swings for a line two metres to one side of it (Coventry seed 4
+    // went over the kerb doing it). Not now, then: the next look may be from a better place.
+    for (let k = 0; k < r.pts.length && r.pts[k].s <= 30; k += 2) {
+      const p = r.pts[k], q = this.route.pts[Math.min(this.route.pts.length - 1, idxAtS(this.route.pts, s + p.s))];
+      if (Math.hypot(p.x - q.x, p.z - q.z) > 1) return;
+    }
+    this.cut = { t: this.t, s, saved: +(left - short).toFixed(1) };
+    this.reroute(car, true);
   }
 
   // ---------- the learner gearbox: drills, control faults, coaching ----------
@@ -878,12 +917,27 @@ export class LessonRun {
     // e.node2: a second junction this one give-way line answers for, where there is no room to wait
     // between the two (net.js lanePath) - both main roads have to be clear
     // out: a Set to collect every car that makes it busy (which ones, not just whether)
-    if (out) { this.#majorBusyAt(e.node, car, secs, r, out); if (e.node2) this.#majorBusyAt(e.node2, car, secs, r, out); return out.size > 0; }
-    return this.#majorBusyAt(e.node, car, secs, r) || (!!e.node2 && this.#majorBusyAt(e.node2, car, secs, r));
+    // Turning left out of a side road is into the near lane, and the traffic in the far lane, going
+    // the other way, is not coming at all: it passes, or turns right into the road being left.
+    // Counted, a busy road never gave a gap in both lanes at once, and the learner stood at the end
+    // of Church Green Road in Bletchley, wanting only the near lane, for the whole two-minute
+    // watchdog; the examiner, counting the same cars, called a clean left turn "pulled out in front
+    // of traffic". joinYaw: the way the route runs once round the corner, when it is a plain left
+    // turn at one junction; null when every car approaching counts.
+    if (e.joinYaw === undefined) e.joinYaw = this.#joinYaw(e);
+    const yaw = e.joinYaw;
+    if (out) { this.#majorBusyAt(e.node, car, secs, r, out, yaw); if (e.node2) this.#majorBusyAt(e.node2, car, secs, r, out, yaw); return out.size > 0; }
+    return this.#majorBusyAt(e.node, car, secs, r, null, yaw) || (!!e.node2 && this.#majorBusyAt(e.node2, car, secs, r, null, yaw));
   }
-  #majorBusyAt(id, car, secs, r, out = null) {
+  #joinYaw(e) {
+    if (e.kind !== 'emerge' || e.dir !== 'left' || e.node2 || !this.route?.pts?.length) return null;
+    const hin = headingAtS(this, (e.lineS ?? e.s) - 6), hout = headingAtS(this, e.s + 14);
+    const dh = Math.atan2(Math.sin(hout - hin), Math.cos(hout - hin)); // + is to the left
+    return dh > 0.9 && dh < 2.3 ? hout : null; // 50 to 130 degrees round to the left, and still that way 14 m on
+  }
+  #majorBusyAt(id, car, secs, r, out = null, yaw = null) {
     const node = this.world.net.nodes.get(id); if (!node) return false;
-    const fx = Math.sin(car.heading), fz = Math.cos(car.heading);
+    const fx = Math.sin(car.heading), fz = Math.cos(car.heading), jx = yaw == null ? 0 : Math.sin(yaw), jz = yaw == null ? 0 : Math.cos(yaw);
     for (const c of this.world.traffic?.cars || []) {
       const dx = node.x - c.x, dz = node.z - c.z, d = Math.hypot(dx, dz);
       let v = c.v;
@@ -892,11 +946,17 @@ export class LessonRun {
         // turned green for it -- it will be here in a moment. Counted as not coming, the learner
         // emerged into it as it moved off (Leeds seed 2). Still red: it stays, and does not count.
         const e = c.ev?.[c.evI];
-        if (!(c.held && e && e.kind === 'lights' && e.s - c.s < 15 && d < 25 && this.world.signals?.stateFor(e.group, c.heading) !== 'red')) continue;
+        const atGreen = c.held && e && e.kind === 'lights' && e.s - c.s < 15 && d < 25 && this.world.signals?.stateFor(e.group, c.heading) !== 'red';
+        // Nor is the next car in a queue that has just started to move: the one in front of it has
+        // gone, and it follows. Standing across the mouth at a red, a queue set off on green as the
+        // learner pulled out behind its first car and in front of its second (Coventry seed 6).
+        const lead = !atGreen && d < 25 && c.blockId > 0 ? (this.world.traffic?.cars || []).find((q) => q.id === c.blockId) : null;
+        if (!atGreen && !(lead && lead.v > 1)) continue;
         v = 3;
       }
       if (d > Math.max(r, v * secs) || d < 1) continue;
       if ((dx * c.fx + dz * c.fz) / d < 0.3) continue; // not heading for the junction
+      if (yaw != null && c.fx * jx + c.fz * jz < -0.3) continue; // going the other way to the lane I am turning left into: the far lane
       if (c.fx * fx + c.fz * fz > 0.8 && (c.x - car.pos.x) * fx + (c.z - car.pos.z) * fz < 0) continue; // behind me, same way
       if (d / v < secs) { if (!out) return true; out.add(c); }
     }
@@ -935,23 +995,31 @@ export class LessonRun {
    * end. Its arc lengths carry on from where we are, so the signal and mirror history still lines up;
    * events already passed are gone with the old path and never marked again.
    */
-  reroute(car) {
+  reroute(car, home = false) { // home: straight to the end, the stretches still to come dropped (watchClock)
     const sNow = this.goodS ?? this.s, net = this.world.net, oldLen = this.route.length;
-    const vias = (this.spec.vias || []).filter((v, i) => this.viaS[i] > sNow + 10);
+    const vias = home ? [] : (this.spec.vias || []).filter((v, i) => this.viaS[i] > sNow + 10);
     let r = null;
-    try { r = buildKentRoute(net, { ...this.spec, start: { x: car.pos.x, z: car.pos.z }, vias, stops: 0, angled: false, pullRight: false }); } catch { r = null; }
+    // (the seed: a bay park picks its bay with it, and the same test has to come out the same every time)
+    try { r = buildKentRoute(net, { ...this.spec, start: { x: car.pos.x, z: car.pos.z, ...(home ? { fx: Math.sin(car.heading), fz: Math.cos(car.heading) } : {}) }, vias, stops: 0, angled: false, pullRight: false }, this.def.seed != null ? { rnd: seeded(this.def.seed + 7) } : undefined); } catch { r = null; }
     if (!r || r.pts.length < 4) { this.say(this.def.mock ? "We've gone off the route. Turn round when it's safe and I'll take you back." : "We've gone off the route. Turn round when it's safe."); return; }
     for (const p of r.pts) p.s += sNow;
     for (const e of r.events) for (const k of ['s', 'lineS', 'entryS', 'exitS', 'signalLeftS', 'stopS', 'endS']) if (e[k] != null) e[k] += sNow;
     r.length += sNow;
+    // Following the signs for somewhere, and brought back a shorter way: the short way is not the way
+    // the signs lead, so that is where the independent driving ends, and the examiner directs from here
+    const signsEnd = home && this.independent && this.indepMode === 'signs';
     if (this.indep) { // keep the independent stretch ending as far from the end as it did
       const tail = oldLen - this.indep[1];
       this.indep = [this.independent ? sNow : Math.max(sNow, r.length - (oldLen - this.indep[0])), r.length - tail];
+      if (signsEnd) { this.indep = [sNow, sNow]; this.indepEnded = true; }
     }
     if (this.estop?.state === 'armed') this.estop = null; // the road it was planned on may not be on the new route
     for (const e of this.events) if (e.parkedH && !e.done) { this.hooks.removeParked?.(e.parkedH); e.parkedH = null; } // a pull-up we'll never reach
     this.route = { ...r, layout: this.route.layout };
     this.events = r.events.map((e) => ({ ...e, text: dt1Text(e, !!this.def.mock) }));
+    // the end is the new route's end: left pointing at the old one's pull-up, which lay further on than
+    // the new route goes, the test never saw the car arrive and never finished
+    this.endEv = this.events.find((e) => e.kind === 'pullup' || e.kind === 'baypark' || e.kind === 'parallel') || this.endEv;
     let prevEnd = sNow;
     for (const e of this.events) { e.prevEnd = prevEnd; if (MANOEUVRES.includes(e.kind)) prevEnd = endOf(e); }
     this.viaS = viaPositions(this.route);
@@ -960,7 +1028,8 @@ export class LessonRun {
     this.track(car);
     if (this.guide) { this.world.scene.remove(this.guide); this.guide.geometry.dispose(); this.guide = guideLine(this.route.pts, this.world.heightAt); this.world.scene.add(this.guide); }
     this.satnav = { next: null, called: {} };
-    this.say(this.independent ? (this.indepMode === 'signs' ? `That's fine. Follow the signs for ${this.signsTarget} again when you can.` : 'Sat nav: route recalculated.') : "That's fine, I'll take you back on to the route. Follow the road and I'll direct you.");
+    if (home) this.say(signsEnd ? "Thank you, that's the end of the independent driving. We're a little behind time, so I'll direct you back a shorter way. Follow the road ahead unless I ask you to turn." : this.independent ? "We're a little behind time, so the sat nav will take us back a shorter way." : "We're a little behind time, so I'll take you back a shorter way. Follow the road ahead unless I ask you to turn.");
+    else this.say(this.independent ? (this.indepMode === 'signs' ? `That's fine. Follow the signs for ${this.signsTarget} again when you can.` : 'Sat nav: route recalculated.') : "That's fine, I'll take you back on to the route. Follow the road and I'll direct you.");
   }
   /**
    * The sat nav card during independent driving: the next manoeuvre, its arrow (a roundabout exit
@@ -1357,8 +1426,13 @@ function carefulKent(run, car, st, bad) {
           want = Math.min(want, Math.max(4 / MPH, stopIn(toLine - 0.5) * 0.9), toLine < 12 ? 5 / MPH : Infinity);
           // wait for a gap, and for room on the far side: never stop with the nose out in the main road
           const room = boxClear(run, car, e.lineS, e.lineS + 22);
-          if (!bad.noStops && toLine < 14 && (run.majorBusy(e, car, 6, 50) || !room)) want = Math.min(want, stopIn(toLine - 1.2)); // the front a car's nose short of the line
-          if (toLine < 1.6 && room && !run.majorBusy(e, car, 6, 50)) e.botGo = true;
+          // The gap it waits for: six seconds, then four once it has stood at the line half a minute and
+          // three after a minute. A learner who never takes a safe gap is marked for undue hesitation, and
+          // three seconds is still more than the 2.5 the examiner calls pulling out in front of someone.
+          if (toLine < 3 && Math.abs(v) < 0.2 && e.botLineT == null) e.botLineT = st.t;
+          const stood = e.botLineT == null ? 0 : st.t - e.botLineT, gap = stood > 60 ? 3.2 : stood > 30 ? 4.2 : 6;
+          if (!bad.noStops && toLine < 14 && (run.majorBusy(e, car, gap, 50) || !room)) want = Math.min(want, stopIn(toLine - 1.2)); // the front a car's nose short of the line
+          if (toLine < 1.6 && room && !run.majorBusy(e, car, gap, 50)) e.botGo = true;
           if (bad.noStops) e.botGo = toLine < 0.8;
         }
         // gone, but then held up at the mouth (a car crossing in front) before the car is clear of
@@ -1368,7 +1442,10 @@ function carefulKent(run, car, st, bad) {
         // for a gap no busy road ever offers (Driveuk seed 1).
         if (e.botGo && !bad.noStops && toLine > -4 && toLine < 1.6) {
           if (Math.abs(v) > 0.3) e.botStillT = null; else if (e.botStillT == null) e.botStillT = st.t;
-          if (e.botStillT != null && st.t - e.botStillT > 1.5 && run.majorBusy(e, car, 3.5, 35)) want = 0;
+          // (three quarters of a minute of looking again and it settles for a little less: 2.7 s
+          // at the nose is still outside the 2.5 the examiner calls pulling out in front of someone)
+          const again = e.botAgainT == null ? 0 : st.t - e.botAgainT, ak = again > 45 ? 0.9 : 1, was = want;
+          if (e.botStillT != null && st.t - e.botStillT > 1.5 && run.majorBusy(e, car, 3.5 * ak, 35)) want = 0;
           // and keep looking until the nose is at the line, where the examiner looks: a car coming off
           // the mini roundabout next door (not yet heading for this junction when the gap was judged)
           // met the nose 0.3 s away (Milton Keynes seed 4; Manchester seed 6 in Driving City). Wait for
@@ -1376,8 +1453,9 @@ function carefulKent(run, car, st, bad) {
           // Driveuk's busy crossroads.
           if (toLine > 0.05) {
             const tNose = (Math.sqrt(v * v + 3 * toLine) - Math.max(0, v)) / 1.5; // moving off at ~1.5 m/s/s
-            if (run.majorBusy(e, car, 3 + tNose, 45)) want = 0;
+            if (run.majorBusy(e, car, 3 * ak + tNose, 45)) want = 0;
           }
+          if (want === 0 && was > 0 && e.botAgainT == null) e.botAgainT = st.t;
         }
         if (bad.noStops && toLine < 30 && toLine > -2) want = Math.max(want, 16 / MPH);
         break;
@@ -1394,6 +1472,13 @@ function carefulKent(run, car, st, bad) {
           if (busy) want = Math.min(want, stopIn(ahead - 6 - half));
           else if (ahead < 8) e.botGo = true;
         }
+        // Gone, and then stopped again before it is across: the gap it went for was a standing queue,
+        // which counts for nothing once the queue moves. So it looks again, and stays where it is
+        // while anything is still coming. Having decided once, it used to set off into whatever was
+        // there: stopped with its nose in the oncoming lane, it let two cars round it and drove into
+        // the third (Mill Hill seed 2). The oncoming cars are judged against the way the road ran
+        // up to the turn, not the way the car points now, which is part of the way round.
+        else if (e.dir === 'right' && e.botGo && ahead > -8 && Math.abs(v) < 0.5 && oncoming(run, car, e, 4, 60, headingAtS(run, e.s - 15))) want = 0;
         break;
       }
       case 'rb': {
@@ -1410,6 +1495,11 @@ function carefulKent(run, car, st, bad) {
           if (run.rbConflict({ pos: p }, 32, e.rb) || ringEntering(run, e, car, toLine - 0.3 > (v * v) / 8)) want = Math.min(want, stopIn(toLine - 2.5)); // the front well short of the ring lane (the approach comes in at a slant)
           else if (toLine < -1) e.botGo = true;
         }
+        // Gone, then stopped again with only the nose on the ring (for a car crossing in front): the gap
+        // it went for has closed by now, so it looks right again before moving. Without this it let one
+        // car by and drove on into the next, doing 30 mph four lengths behind it (Coventry seed 6, the
+        // Exhall interchange).
+        else if (e.botGo && toLine > -5 && Math.abs(v) < 1 && run.rbConflict({ pos: posAtS(run, e.entryS + 1.7) }, 32, e.rb)) want = 0;
         if (e.exit >= 2 && s > e.signalLeftS - 10 && s < e.exitS && !e.botExitMirror) { e.botExitMirror = true; out.mirror = true; }
         break;
       }
@@ -1431,7 +1521,12 @@ function carefulKent(run, car, st, bad) {
       case 'zebra': {
         if (bad.runReds) break;
         const toLine = e.lineS - s - half;
-        if (toLine > -0.5 && toLine < 40 && w.trafficSystem.crossingBusy(e.key)) want = Math.min(want, stopIn(toLine - 0.5));
+        // Someone on it or waiting: stop at the line -- while there is still room to, by the same
+        // measure the examiner uses (LessonRun: braking at 4 m/s/s). For someone who reaches the
+        // kerb as the nose reaches the line there is not, and braking then only stops the car on the
+        // stripes, in their way, which is worse than having gone: so it goes, as a driver would, and
+        // they cross behind it.
+        if (toLine > -0.5 && toLine < 40 && w.trafficSystem.crossingBusy(e.key) && (e.botZebra || toLine - (v * v) / 8 > -0.5)) { e.botZebra = true; want = Math.min(want, stopIn(toLine - 0.5)); }
         break;
       }
       case 'merge': {
@@ -1536,6 +1631,11 @@ function carefulKent(run, car, st, bad) {
   }
   // traffic and people on my path ahead
   const free = want;
+  // The path moving a lane's width sideways with nothing to announce it: where a carriageway gains a
+  // lane, lane 1 of two becomes lane 2 of three and the line simply steps across. A lane change the
+  // route asks for (the 'laneChange' and ring cases above) looks at the lane beside it first; this did
+  // not, and the learner stepped right into a car overtaking it there (Coventry seed 1, Pickards Way).
+  { const side = laneStep(run, car); if (side) want = Math.min(want, laneGap(run, car, { dir: side }, want)); }
   want = Math.min(want, pathClear(run, car, want, meetOff));
   const pathWant = want; // pathClear alone, for st.dbg below: the creep stop is not its doing
   // creeping or moving off: never with a car right across or on my nose (one turning in past the front of me)
@@ -1659,14 +1759,29 @@ function reverseKent(run, car, out) {
   return out;
 }
 /** oncoming traffic (heading towards me) within `secs` s or `r` m of the junction or point */
-function oncoming(run, car, e, secs, r = 60) {
+function oncoming(run, car, e, secs, r = 60, yaw = car.heading) {
   const node = e.node ? run.world.net.nodes.get(e.node) : null, P = node || posAtS(run, e.s);
-  const fx = Math.sin(car.heading), fz = Math.cos(car.heading);
+  const fx = Math.sin(yaw), fz = Math.cos(yaw);
   return (run.world.traffic?.cars || []).some((c) => {
     if (c.fx * fx + c.fz * fz > -0.5 || c.v < 0.5) return false;
     const d = Math.hypot(c.x - P.x, c.z - P.z), toward = (P.x - c.x) * c.fx + (P.z - c.z) * c.fz;
     return toward > -3 && (d < 25 || (d < r + 40 && d / Math.max(c.v, 1) < secs));
   });
+}
+/**
+ * Is the path about to step sideways into the next lane (not turn)? 'left' | 'right' | null: over the
+ * next 20 m it ends up more than 1.4 m to one side of straight on from the car, on a carriageway of
+ * two lanes or more, still pointing within 12 degrees of the way the car points.
+ */
+function laneStep(run, car) {
+  const pts = run.route.pts, here = pts[run.idx];
+  if (!here || here.rb || here.man || here.park || !((here.road?.lanes || 1) >= 2 || (pts[Math.min(pts.length - 1, idxAtS(pts, run.s + 20))].road?.lanes || 1) >= 2)) return null;
+  const i = Math.min(pts.length - 2, idxAtS(pts, run.s + 20)), p = pts[i], q = pts[i + 1];
+  if (p.rb || p.man || p.s - run.s < 12) return null;
+  const fx = Math.sin(car.heading), fz = Math.cos(car.heading), tl = Math.hypot(q.x - p.x, q.z - p.z) || 1;
+  if (((q.x - p.x) * fx + (q.z - p.z) * fz) / tl < 0.978) return null; // a bend or a turn, not a step
+  const lat = (p.x - car.pos.x) * fz - (p.z - car.pos.z) * fx + run.lat; // + = left of straight on (run.lat: the car is not exactly on the line, and that is not a step)
+  return Math.abs(lat) > 1.4 ? (lat > 0 ? 'left' : 'right') : null;
 }
 /** a car standing in the lane a pull-up on the right crosses into, facing me, anywhere from where I cross to a queue's length past where I would stop */
 function facingQueue(run, car, e) {
@@ -1829,7 +1944,10 @@ function pathClear(run, car, want, ease = 0) {
     test(p.x, p.z, 1, 0, 0.6, 0.6, 0, 'ped');
     // and where someone walking will be in a moment (a pavement walker turning across the mouth of a side road)
     // (the learner gearbox only: the arcade car's runs are kept exactly as they were)
-    if (car.drive && p.speed > 0.3 && p.heading != null) for (const t of [0.7, 1.4]) test(p.x + Math.sin(p.heading) * p.speed * t, p.z + Math.cos(p.heading) * p.speed * t, 1, 0, 0.6, 0.6, 0, 'ped');
+    // As far ahead as it takes to stop: at 22 mph that is over two seconds, and looking 1.4 s ahead the
+    // learner saw someone about to cross a side road's mouth with ten metres to go and reached them
+    // still doing 8 mph (the Guildford to Herne Bay drive, seed 3).
+    if (car.drive && p.speed > 0.3 && p.heading != null) for (let t = 0.7, T = Math.min(3.5, Math.max(1.4, car.vF / BRAKE + 1)); t <= T + 1e-6; t += 0.7) test(p.x + Math.sin(p.heading) * p.speed * t, p.z + Math.cos(p.heading) * p.speed * t, 1, 0, 0.6, 0.6, 0, 'ped');
   }
   return w;
 }
@@ -1852,6 +1970,11 @@ function behindRight(run, car, secs) {
     const dx = c.x - car.pos.x, dz = c.z - car.pos.z, al = dx * fx + dz * fz, lat = dx * fz - dz * fx; // lat < 0: on my right
     return al < 1 && al > -80 && lat < 2.5 && lat > -6.5 && -al / Math.max(0.5, c.v - v * 0.5) < secs;
   });
+}
+/** the way the route runs at s, as a heading */
+function headingAtS(run, s) {
+  const pts = run.route.pts, i = Math.max(1, Math.min(pts.length - 2, idxAtS(pts, Math.max(0, s))));
+  return Math.atan2(pts[i + 1].x - pts[i - 1].x, pts[i + 1].z - pts[i - 1].z);
 }
 function posAtS(run, s) {
   const p = run.route.pts.find((q) => q.s >= s) || run.route.pts[run.route.pts.length - 1];

@@ -27,6 +27,7 @@ const WALK = 7; // all-red pedestrian stage at a one-phase junction
 const PED_RED = 9, PED_MAX_RED = 30, MIN_GREEN = 12; // crossing timings (s)
 const LINK = 40; // m: a crossing this close to a signal junction's node is run by the junction
 const SPLIT = 45 * DEG; // approaches further apart than this are different phases
+const OPPOSITE = 30 * DEG; // approaches this close to head-on are the two directions of one road
 const STOP_DECEL = 4.5; // m/s2: on amber, a driver who can stop within this stops
 const SIGNAL_CROSSINGS = new Set(['pelican', 'puffin', 'toucan', 'signals']);
 
@@ -99,6 +100,28 @@ export class SignalSystem {
         const stages = plan.map((ds) => ({ yaw: wrapYaw(ds[0] * DEG), yaws: ds.map((d) => wrapYaw(d * DEG)), n: 0, state: 'red' }));
         const rest = phases.filter((p) => { const s = stages.find((q) => q.yaws.some((y) => angDiff(y, p.yaw) <= 20 * DEG)); if (s) s.n += p.n; return !s; });
         phases.splice(0, phases.length, ...stages.filter((s) => s.n), ...rest);
+      } else if (phases.length > 1) {
+        // With no plan, the two directions of each road run together, as they do at every ordinary
+        // crossroads in the country: an approach and the one facing it (within 30 degrees of head-on)
+        // share a stage, closest pairs first, and what is left over keeps a stage of its own.
+        // Each approach used to get one to itself, so a crossroads ran four stages -- 14 s of green in
+        // 84, or in 93 with a pedestrian stage -- and 272 junctions in Driving City had three or more.
+        // A test met a few of them and stood up to 80 s at each: it is most of why the same route could
+        // take 15 minutes or 17. Every plan written by hand so far (driving-city.mjs) did exactly this
+        // pairing, one junction at a time. Traffic turning right gives way to what comes the other way
+        // (traffic.js, the 'right' and 'emerge' cases), as it must now that both have the green.
+        const pairs = [];
+        for (let i = 0; i < phases.length; i++) for (let j = i + 1; j < phases.length; j++) { const d = angDiff(phases[i].yaw + Math.PI, phases[j].yaw); if (d <= OPPOSITE) pairs.push([d, i, j]); }
+        pairs.sort((a, b) => a[0] - b[0]);
+        const mate = new Map();
+        for (const [, i, j] of pairs) if (!mate.has(i) && !mate.has(j)) { mate.set(i, j); mate.set(j, i); }
+        const stages = [];
+        for (let i = 0; i < phases.length; i++) {
+          const j = mate.get(i);
+          if (j == null) stages.push(phases[i]);
+          else if (j > i) stages.push({ yaw: phases[i].yaw, yaws: [phases[i].yaw, phases[j].yaw], n: phases[i].n + phases[j].n, state: 'red' });
+        }
+        phases.splice(0, phases.length, ...stages);
       }
       const cycle = phases.length * SLOT + (phases.length === 1 ? WALK : 0);
       const g = { id, kind: 'junction', nodes: nodes.map((n) => n.id), x: nodes[0].x, z: nodes[0].z, phases, cycle, t: this.rnd() * cycle };

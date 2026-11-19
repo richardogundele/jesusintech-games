@@ -29,12 +29,16 @@
 // longer ones a lower multiplier chose in 1.05 of it), and one route's time moves about a minute
 // either way with the traffic. So each value here is the one, of those tried either side of the
 // measured ratio, whose six gate seeds all finish inside 13-17 minutes with the most room to spare:
-// London 0.985, Manchester 0.96, Liverpool 0.91, Stoke 0.91, Leeds 1.0, Warrington 0.95, Coventry
-// 0.98, Burgess Hill 0.94 (0.89 measured once its London Road lights were given a plan).
+// London 0.95, Manchester 0.96, Liverpool 0.91, Stoke 0.91, Leeds 1.015, Warrington 0.95, Coventry
+// 0.98, Burgess Hill 0.97, Guildford 1.02. London, Leeds, Burgess Hill and Guildford were set again
+// later the same day, once every set of lights ran in two stages and the examiner began bringing a
+// late test back by a shorter way: quicker lights, give-way lines where a side road joins by a
+// dogleg and crossing lines in their right places moved every town's times, and those four no
+// longer fitted (Guildford's is also the whole-city drive's, which starts there).
 
 export const REGIONS = {
   london: {
-    id: 'london', timeK: 0.985, name: 'London', place: 'Mill Hill',
+    id: 'london', timeK: 0.95, name: 'London', place: 'Mill Hill',
     centre: { lat: 51.6101, lon: -0.2472 }, half: 2500,
     testCentre: { name: 'Mill Hill (London)', lat: 51.6101, lon: -0.2472, address: 'Unit 9, Grannard Business Centre, Bunns Lane, Mill Hill, London NW7 2DQ' },
     far: [['Birmingham', -160000, -125000], ['Manchester', -200000, -250000], ['Kent', 95000, 60000], ['Central London', 7000, 13000], ['Watford', -15000, -5000], ['Barnet', 4500, -2500], ['Edgware', -2500, 1500], ['Hendon', 1500, 3500], ['Finchley', 5500, 2500]],
@@ -62,7 +66,7 @@ export const REGIONS = {
     // Brighton and for Wilson Avenue. A Brighton candidate tests here, which is the only sense in
     // which this is Brighton. What its roads are actually like is what the variety report says after
     // the bake, not what anyone knows about Sussex.
-    id: 'burgesshill', timeK: 0.94, name: 'Burgess Hill', place: 'Burgess Hill',
+    id: 'burgesshill', timeK: 0.97, name: 'Burgess Hill', place: 'Burgess Hill',
     centre: { lat: 50.951335, lon: -0.152148 }, half: 4000,
     testCentre: { name: 'Burgess Hill', lat: 50.951335, lon: -0.152148, address: 'Off Charles Avenue, Victoria Industrial Estate, Burgess Hill RH15 9AG' },
   },
@@ -90,7 +94,7 @@ export const REGIONS = {
   leeds: {
     // Horsforth of the three Leeds centres (the others are the Old Fire Station and Colton Mill);
     // which gives the better test routes is a question for the variety report, not for reputation
-    id: 'leeds', timeK: 1.0, name: 'Leeds', place: 'Horsforth',
+    id: 'leeds', timeK: 1.015, name: 'Leeds', place: 'Horsforth',
     centre: { lat: 53.839962, lon: -1.621766 }, half: 4000,
     testCentre: { name: 'Horsforth', lat: 53.839962, lon: -1.621766, address: 'Room 013 Woodside House, 261 Low Lane, Horsforth, Leeds LS18 5NY' },
   },
@@ -103,7 +107,7 @@ export const REGIONS = {
     // home in Driving City. gov.uk's finder for GU1 4AA, 2026-11-03: car, lorry and bus, ADI parts 2 and 3;
     // the coordinates are that result's own map link. Not `ready`: it is part of the city, not a world of its own.
     // 3 km out, not 4: the public Overpass servers timed out on the 8 km square all afternoon (2026-11-03)
-    id: 'guildford', name: 'Guildford', place: 'Slyfield',
+    id: 'guildford', timeK: 1.02, name: 'Guildford', place: 'Slyfield',
     centre: { lat: 51.2593018, lon: -0.56542965 }, half: 3000,
     testCentre: { name: 'Guildford', lat: 51.2593018, lon: -0.56542965, address: 'Slyfield Industrial Estate, Off Moorfield Road, Guildford GU1 1SA' },
   },

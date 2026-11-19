@@ -126,7 +126,7 @@ export function shiftedPool(key, [dx, dz], extra = {}) {
 
 const MPH = 2.23694;
 /** minutes a careful driver takes (limit less 3 mph, slower round bends and rings, plus waits), calibrated on the full mocks */
-export function estimateMinutes(route) {
+export function estimateMinutes(route, from = 0) { // from: only the part of the route past this arc length (lessons.js watchClock)
   const pts = route.pts, n = pts.length, v = new Float64Array(n);
   for (let i = 0; i < n; i++) {
     const p = pts[i]; let w = ((p.park ? 6 : p.road?.limit ?? 30) - 3) / MPH;
@@ -154,9 +154,9 @@ export function estimateMinutes(route) {
   for (let i = n - 2; i >= 0; i--) v[i] = Math.min(v[i], Math.sqrt(v[i + 1] ** 2 + 2 * 1.6 * (pts[i + 1].s - pts[i].s)));
   for (let i = 1; i < n; i++) v[i] = Math.min(v[i], Math.sqrt(v[i - 1] ** 2 + 2 * 1.5 * (pts[i].s - pts[i - 1].s)));
   let t = 0;
-  for (let i = 1; i < n; i++) t += (pts[i].s - pts[i - 1].s) / Math.max(1, (v[i] + v[i - 1]) / 2);
-  const ev = route.events, count = (k) => ev.filter((e) => e.kind === k).length;
-  t += 9 * count('stop') + 40 * count('pullright') + 35 * count('baypark') + 4 * (count('emerge') + count('cross') + count('rb') + count('mini')) + 8 * count('lights') + 20;
+  for (let i = 1; i < n; i++) if (pts[i].s > from) t += (pts[i].s - pts[i - 1].s) / Math.max(1, (v[i] + v[i - 1]) / 2);
+  const ev = route.events, count = (k) => ev.filter((e) => e.kind === k && (e.s ?? 0) >= from).length;
+  t += 9 * count('stop') + 40 * count('pullright') + 35 * count('baypark') + 4 * (count('emerge') + count('cross') + count('rb') + count('mini')) + 8 * count('lights') + (from > 0 ? 10 : 20);
   return (t / 60) * 1.12;
 }
 
@@ -463,7 +463,7 @@ export function generateTest(net, centreKey, seed, opts = {}) {
     // DVSA uses traffic signs on roughly one test in five; where the route has no signed stretch, the sat nav
     const signs = rnd() < (opts.signsRate ?? 0.3) ? signsStretch(net, route, s0, s1, pool.name) : null;
     const indep = signs ? { mode: 'signs', target: signs.target, s0, s1: signs.s1 } : { mode: 'satnav', s0, s1 };
-    return { spec, route, meta: { seed, centre: centreKey, centreName: pool.name, world: pool.world || 'kent', stretches: parts.map((c) => c.part.name), manoeuvre: man, stops, indep, minutes: +mins.toFixed(1), attempts: attempt + 1, length: Math.round(route.length) } };
+    return { spec, route, meta: { seed, timeK: pool.timeK, wholeCity: !!pool.wholeCity, centre: centreKey, centreName: pool.name, world: pool.world || 'kent', stretches: parts.map((c) => c.part.name), manoeuvre: man, stops, indep, minutes: +mins.toFixed(1), attempts: attempt + 1, length: Math.round(route.length) } };
   }
   throw new Error(`no fair test route from ${pool.name} for seed ${seed} (last: ${last})`);
 }

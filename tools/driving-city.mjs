@@ -37,11 +37,9 @@ export const CITY = {
     // test drives through, and each came out as one 14 s phase per approach. Woking Road (the A320) at
     // Moorfield Road: both sides of the A320, and the cars turning off it into Moorfield Road (77), then
     // Moorfield Road, where every Guildford test queued two minutes for 14 s of green in 93.
-    // Woking Road again, one roundabout south (j-2140, where the A3 slips join): the two carriageways
-    // had a stage each and the slips a third, 14 s in 72, and the southbound queue stood back through the
-    // roundabout and across the side roads north of it -- a car at a give-way there never got out, and
-    // the Guildford to Herne Bay drive (seed 3) stood behind it for the two-minute watchdog.
-    { id: 'guildford', name: 'Guildford', at: [0, 0], crop: SQUARE(2980), rejoin: [{ way: 243351216, at: [-541, -153], onto: 905183472 }], signals: { 'j-1257': [[9, -172, 77], [-109]], 'j-2140': [[0, -178], [-79]] } },
+    // (signals.js now runs the two directions of a road together by itself, at every junction, so a
+    // plan is only for one that needs more than that: here, the turn into Moorfield Road in the A320's stage.)
+    { id: 'guildford', name: 'Guildford', at: [0, 0], crop: SQUARE(2980), rejoin: [{ way: 243351216, at: [-541, -153], onto: 905183472 }], signals: { 'j-1257': [[9, -172, 77], [-109]] } },
     // Herne Bay and its coast, Swalecliffe to Reculver; Canterbury, Maypole and the cliff-top house left out.
     // Its 40 generated test routes keep inside x 594..3469, z -5901..-3363, so this has 760 m to spare.
     { id: 'kent', name: 'Herne Bay', at: [-2400, -1880], crop: { minX: -3200, maxX: 8000, minZ: -7300, maxZ: -2600 } },
@@ -65,11 +63,7 @@ export const CITY = {
     { id: 'stoke', name: 'Stoke', at: [-16420, 0], crop: SQUARE(2480) },
     { id: 'miltonkeynes', name: 'Milton Keynes', at: [16420, 0], crop: SQUARE(2480) },
     { id: 'london', name: 'London', at: [-11000, 8000], crop: SQUARE(2480) },
-    // London Road at Lower Church Road and Royal George Road (j-17): four approaches, a stage each, 14 s
-    // of green in 93. A queue of three on London Road took two cycles to clear, and seed 1 -- planned
-    // at 14.9 minutes -- stood 40 s and then 81 s there and came in at 17.3. London Road runs together,
-    // then the two side roads.
-    { id: 'burgesshill', name: 'Burgess Hill', at: [11500, 9000], crop: SQUARE(2480), signals: { 'j-17': [[-5, 174], [-82, 99]] } },
+    { id: 'burgesshill', name: 'Burgess Hill', at: [11500, 9000], crop: SQUARE(2480) },
     // Canterbury (Nov 2026), the thirteenth and the only area cut from another area's map: it is on the
     // Kent sheet with Herne Bay, which keeps Canterbury's test centre and the hand-made mock that drives
     // from it (lesson-routes.js mock-canterbury) in one city instead of a map of their own. `src` reads
@@ -79,13 +73,7 @@ export const CITY = {
     // it is where the fetch stops, so the box is set by the data, not centred on the centre. The mock
     // runs x -2572..191, z 3403..6417, inside it. It sits below Birmingham, whose south side was the
     // one free side left, 1.5 km clear of Birmingham, Coventry and London like every other area.
-    // Three crossroads on the way round Canterbury's test routes, each of which gave every approach a
-    // stage of its own (14 s of green in 84, or in 93 with the pedestrian stage): New Dover Road at the
-    // Chantry Lanes (j-321), Old Dover Road at Nunnery Fields and Oaten Hill (j-460) and at St Lawrence
-    // Road and The Drive (j-4348). Seed 1 stood 44 s, 64 s and 44 s at them with nobody in front and came
-    // in at 17.2 minutes against an estimate of 14.7. The two sides of each road run together, as they do.
-    { id: 'canterbury', name: 'Canterbury', src: 'kent', coast: false, nodeShift: 100_000, at: [-3800, 8940], crop: { minX: -3200, maxX: 1800, minZ: 2000, maxZ: 6600 },
-      signals: { 'j-321': [[-133, 51], [-37, 162]], 'j-460': [[-148, 48], [136, -28]], 'j-4348': [[-135, 46], [-46, 139]] } },
+    { id: 'canterbury', name: 'Canterbury', src: 'kent', coast: false, nodeShift: 100_000, at: [-3800, 8940], crop: { minX: -3200, maxX: 1800, minZ: 2000, maxZ: 6600 } },
   ],
   links: [
     // from home to every area

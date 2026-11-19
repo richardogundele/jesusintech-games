@@ -272,7 +272,10 @@ export class KentTraffic {
           break;
         }
         case 'emerge': case 'cross': case 'mini': {
-          if (e.signalled) break; // the lights decide
+          if (e.signalled) { // the lights decide -- except a right turn, which they leave to the driver
+            if (e.kind === 'emerge' && e.dir === 'right' && d < 25) { A.minorNode = e.node; if (!e.go) { if (this.#busyAt(A, e, e.nx, e.nz, e.node, 30, e.yaw, true)) stop = true; else if (d < 1 && v > 0.5) e.go = true; } }
+            break;
+          }
           want = Math.min(want, Math.sqrt(16 + 4 * Math.max(0, d))); // creep up to the line
           if (d < 30) {
             A.minorNode = e.node; A.minorNode2 = e.node2 || 0;
@@ -284,7 +287,13 @@ export class KentTraffic {
           break;
         }
         case 'right': { // wait in the junction for a gap in the oncoming traffic (Highway Code 180)
-          if (e.signalled) break;
+          // At lights too: the road coming the other way has the same green (signals.js runs the two
+          // directions of a road together), so the turn is across live traffic. Not across a car
+          // standing at its own red, which is not coming.
+          if (e.signalled) {
+            if (d < 25) { want = Math.min(want, Math.sqrt(25 + 4 * Math.max(0, d))); A.minorNode = e.node; if (!e.go) { if (this.#busyAt(A, e, e.nx, e.nz, e.node, 30, e.yaw, true)) stop = true; else if (d < 1 && v > 0.5) e.go = true; } }
+            break;
+          }
           if (d < 25) {
             want = Math.min(want, Math.sqrt(25 + 4 * Math.max(0, d)));
             A.minorNode = e.node; A.minorNode2 = e.node2 || 0;
@@ -565,6 +574,8 @@ export class KentTraffic {
     if (A.stun > 0) want = 0;
     if (A.ghost > 0) want = Math.min(want, 3); // squeezing past: walking pace
     A.held = held; A.freeD = freeD; A.blockId = blockId; A.nudgeT = nudge; A.blockedByMe = byMe;
+    // how long it has stood giving way (for #busyAt's patience): from the first stop at the line until it is away
+    if (v > 1.5 || !A.minorNode) A.giveT = null; else if (held && A.giveT == null) A.giveT = this.clock || 0;
     return want;
   }
 
@@ -738,12 +749,19 @@ export class KentTraffic {
    */
   #waitsOn(B, A) {
     if (B.blockedByMe && this.#meWaitsFor(A)) return true; // ...or for the player, who is waiting for A
-    for (let k = 0, id = B.blockId || B.bumpId; id > 0 && k < 30; k++) {
+    // The next car along the chain: the one it is standing at a give-way line FOR, or else the one it
+    // is queued behind or pushing into. A car held at its line is waiting on the car it gives way to
+    // as surely as a queued car waits on the one in front, and until that link was followed two cars
+    // crossing a big junction from opposite corners, each standing on the node the other had to give
+    // way at, waited on each other for good with a queue up every arm (Liverpool seed 3, the East
+    // Lancashire Road at Stopgate Lane: neither had a car in front of it, so neither chain led anywhere).
+    const next = (C) => (C.held && C.busyBy > 0 ? C.busyBy : C.blockId || C.bumpId);
+    for (let k = 0, id = next(B); id > 0 && k < 30; k++) {
       if (id === A.id) return true;
       const C = this.byId?.get(id) ?? this.cars.find((c) => c.id === id);
       if (!C || C.v >= 0.3) return false;
       if (C.blockedByMe && this.#meWaitsFor(A)) return true;
-      id = C.blockId || C.bumpId;
+      id = next(C);
     }
     return false;
   }
@@ -834,15 +852,23 @@ export class KentTraffic {
     if (!EXIT_CLEAR) return false;
     return A.freeD < d + 14 + across + A.L && A.blockId > 0 && (this.cars.find((c) => c.id === A.blockId)?.v ?? 9) < 2;
   }
-  #busyAt(A, e, nx, nz, nodeId, r, yaw) {
+  #busyAt(A, e, nx, nz, nodeId, r, yaw, atLights = false) {
     const ox = yaw == null ? 0 : Math.sin(yaw), oz = yaw == null ? 0 : Math.cos(yaw);
-    const cars = this.cars, r2 = r * r;
+    // Patience runs out. A driver who has stood at the line for 20 s takes a smaller gap than the
+    // 5.5 s they wanted at first, and after 40 s a smaller one still; the stream then eases off for
+    // them, as #yieldTo makes it. Held to the full gap for ever, a car at a mini roundabout whose
+    // other arm fed it a car every four seconds never moved at all, and the learner stood behind it
+    // for the two-minute watchdog (Birmingham seed 4, Wheelers Lane). Not for the player's car:
+    // nobody pulls out on the learner because they are tired of waiting.
+    const waited = A.giveT != null ? (this.clock || 0) - A.giveT : 0, k = waited > 40 ? 0.35 : waited > 20 ? 0.6 : 1;
+    const cars = this.cars, r2 = r * r * k * k;
     for (let b = 0; b < cars.length; b++) {
       const B = cars[b];
       if (B === A || B.minorNode === nodeId || B.minorNode2 === nodeId) continue; // itself giving way here, at this node or at the one its own line answers for
       if (B.v < 0.3 && this.#waitsOn(B, A)) continue; // it's waiting for me to get my nose out of its way, or queued behind someone who is
       if (yaw != null && B.fx * ox + B.fz * oz > -0.5) continue; // not oncoming
-      const dx = nx - B.x, dz = nz - B.z, d2 = dx * dx + dz * dz, rr = B.v * 5.5; // or within 5.5 s
+      if (atLights && B.held && B.ev[B.evI]?.kind === 'lights') continue; // standing at its own red light
+      const dx = nx - B.x, dz = nz - B.z, d2 = dx * dx + dz * dz, rr = B.v * 5.5 * k; // or within 5.5 s (less, once patience has gone)
       if (d2 > r2 && d2 > rr * rr) continue;
       if ((B.v < 1.5 || B.held) && d2 > 144) continue; // stopped or held away from the mouth: not coming
       if (B.v < 0.3 && B.stopT > 3 && d2 > 16) continue; // standing in a queue on the main road, not coming (else a queue across the mouth never lets anyone out)
@@ -862,7 +888,7 @@ export class KentTraffic {
     const me = this.me;
     if (me.x != null && me.v > 1.5 && A.fx * me.fx + A.fz * me.fz < 0.7 && (yaw == null || me.fx * ox + me.fz * oz <= -0.5)) {
       const dx = nx - me.x, dz = nz - me.z, d2 = dx * dx + dz * dz, rr = me.v * 5.5;
-      if ((d2 <= r2 || d2 <= rr * rr) && dx * me.fx + dz * me.fz > -2) { A.busyBy = 'me'; return true; }
+      if ((d2 <= r * r || d2 <= rr * rr) && dx * me.fx + dz * me.fz > -2) { A.busyBy = 'me'; return true; }
     }
     return false;
   }
@@ -996,12 +1022,14 @@ export class KentTraffic {
   /** am I in a ring of stopped cars each waiting for the next? (a queue ends at someone waiting at a line: not a gridlock) */
   #gridlocked(A) {
     let B = A;
-    for (let k = 0; k < 12; k++) {
-      B = B.blockId > 0 ? this.#byId(B.blockId) : null;
+    for (let k = 0; k < 16; k++) {
+      // on to the car it is giving way to, when it is standing at a give-way line for one (see #waitsOn)
+      const id = B.held && B.busyBy > 0 ? B.busyBy : B.blockId > 0 ? B.blockId : 0;
+      B = id ? this.#byId(id) : null;
       if (!B || B.v > 0.3) return false;
       if (B === A) return true;
       if (B.blockedByMe && this.#meWaitsFor(A)) return true; // the ring runs through the player (see #meWaitsFor)
-      if (B.held) return false;
+      if (B.held && !(B.busyBy > 0)) return false; // at a light or a crossing: that changes by itself
     }
     return false;
   }
@@ -1164,7 +1192,7 @@ export class KentTraffic {
         // node2: a road we cross on the way in, too close to this one to wait between the two, so the
         // one line answers for both junctions and both have to be clear before we go
         const n2 = e.node2 ? net.nodes.get(e.node2) : null;
-        ev.push({ kind: e.kind, s: e.kind === 'mini' ? e.s : (e.lineS ?? e.s - 4), node: e.node, nx: node.x, nz: node.z, node2: n2 ? e.node2 : 0, nx2: n2 ? n2.x : 0, nz2: n2 ? n2.z : 0, signalled: lightNodes.has(e.node) || node.signals, go: false });
+        ev.push({ kind: e.kind, dir: e.dir, yaw: yawAt(e.kind === 'mini' ? e.s : (e.lineS ?? e.s - 4)), s: e.kind === 'mini' ? e.s : (e.lineS ?? e.s - 4), node: e.node, nx: node.x, nz: node.z, node2: n2 ? e.node2 : 0, nx2: n2 ? n2.x : 0, nz2: n2 ? n2.z : 0, signalled: lightNodes.has(e.node) || node.signals, go: false });
       } else if (e.kind === 'turn' && e.dir === 'right') { // turning right across the oncoming lane
         const node = net.nodes.get(e.node); if (!node) continue;
         const line = Math.max(0, e.s - 4);
@@ -1315,16 +1343,33 @@ export class KentTraffic {
   #corner(p) {
     const w = p.way, atEnd = p.s > w.len, nid = w.nodes[atEnd ? w.nodes.length - 1 : 0];
     const node = nid ? this.net.nodes.get(nid) : null;
-    let pick = null;
+    let pick = null, pdir = 1;
     if (node) {
-      let count = 0;
-      for (const r of node.ways) if (r.way !== w && paveOk(r.way)) count++;
-      if (count) { let k = Math.floor(this.rnd() * count); for (const r of node.ways) if (r.way !== w && paveOk(r.way) && k-- === 0) { pick = r; break; } }
+      // Round the corner on their own side of the road, or straight on: not into a road that leaves
+      // from the far side. The pavement they would be making for is across the carriageway they are
+      // walking beside, and they made for it in a straight line at twice walking pace, without a
+      // look: off the kerb of the A660 Otley Road in Leeds, making for Otley Old Road on the other
+      // side of it, three metres in front of the learner at 36 mph (Leeds seed 2). People cross at
+      // crossings (#walk); a corner is not one.
+      const f0 = wayFrame(w, Math.max(0, Math.min(w.len, p.s)), p.i), sx = f0.dz * p.side, sz = -f0.dx * p.side; // from the centre line out to the walker
+      const cands = [];
+      for (const r of node.ways) if (r.way !== w && paveOk(r.way)) cands.push(r);
+      if (cands.length) {
+        const k0 = Math.floor(this.rnd() * cands.length), flip = this.rnd() < 0.5 ? 1 : -1;
+        for (let j = 0; j < cands.length && !pick; j++) {
+          const r = cands[(k0 + j) % cands.length], q = r.way.pts, last = q.length - 1;
+          for (const d of r.idx === 0 ? [1] : r.idx === last ? [-1] : [flip, -flip]) {
+            const a = q[r.idx], b = q[r.idx + d], ax = b[0] - a[0], az = b[1] - a[1], al = len(ax, az) || 1;
+            if ((ax * sx + az * sz) / al < -0.35) continue; // that arm leaves from the other side of this road
+            pick = r; pdir = d; break;
+          }
+        }
+      }
     }
-    if (!pick) { p.dir = -p.dir; p.s = Math.max(0, Math.min(w.len, p.s)); return; } // a dead end: turn round
+    if (!pick) { p.dir = -p.dir; p.s = Math.max(0, Math.min(w.len, p.s)); return; } // a dead end, or nowhere to go on this side: turn round
     const walkSide = p.side * p.dir, nw = pick.way;
     p.way = nw; p.i = Math.max(0, Math.min(pick.idx, nw.pts.length - 2)); p.s = nw.cum[pick.idx];
-    p.dir = pick.idx === 0 ? 1 : pick.idx === nw.nodes.length - 1 ? -1 : this.rnd() < 0.5 ? 1 : -1;
+    p.dir = pdir;
     p.side = walkSide * p.dir; // stay on the same side of the walker
     p.off = nw.halfW + PAVE_OFF;
     p.lastRec = null;
@@ -1370,6 +1415,17 @@ export class KentTraffic {
       if (lat < 4 && Math.abs(along) < B.L / 2 + 1.6) return false; // its body is over the stripes
       if (along <= 0) continue; // going away
       if (B.v > 0.5 && (B.v * B.v) / 10 > along - B.L / 2 - 5) return false; // coming, and too fast to stop
+    }
+    // And the player's car, which is not one of this.cars and so was never looked at: someone who
+    // reached the kerb as the learner reached the line stepped out 0.8 s later whatever the learner
+    // did, into the side of the car if it had stopped across the stripes (the Kent mock test, on
+    // Central Parade). The same two questions as for any car, on this road only.
+    const me = this.me;
+    if (me.x != null) {
+      const dx = rec.x - me.x, dz = rec.z - me.z, L = me.L || 4.3, hx = me.hx ?? me.fx, hz = me.hz ?? me.fz; // (the way it points, for where its body is; the way it moves, for where it is going)
+      if (Math.abs(dx * hz - dz * hx) < 4 && Math.abs(dx * hx + dz * hz) < L / 2 + 1.6) return false;
+      const along = dx * me.fx + dz * me.fz;
+      if (Math.abs(dx * me.fz - dz * me.fx) < 8 && along > 0 && along < 60 && me.v > 0.5 && (me.v * me.v) / 10 > along - L / 2 - 5) return false;
     }
     return true;
   }

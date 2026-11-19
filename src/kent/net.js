@@ -230,7 +230,7 @@ export class RoadNet {
         }
       }
       if (clear < NEED) continue;
-      w.lanesF = LANES; w.width = LANES * LW; w.halfW = w.width / 2;
+      w.lanesF = LANES; w.width = LANES * LW; w.halfW = w.width / 2; w.widened = true; // (#partnerAt compares it as it was)
     }
   }
   /**
@@ -961,10 +961,14 @@ export class RoadNet {
     const push = (link, dir, cost, from) => { const k = key(link, dir); if (best.has(k) && best.get(k) <= cost) return; best.set(k, cost); prev.set(k, from); heap.push(cost, { link, dir }); };
     let bestEnd = null; // { cost, key, s }
     const endLink = B.link, endS = B.s;
+    // A start that says which way it faces ({ fx, fz }: a car already moving, lessons.js reroute) sets
+    // off that way along its road and no other: without it a route from the middle of a road is free
+    // to begin by going back the way the car came, which for a car doing 25 mph is a U-turn on the spot.
+    const facing = (dir) => { if (A.node || from.fx == null) return true; const d = this.dirAt(A.link.way, A.s); return (d[0] * from.fx + d[1] * from.fz) * dir > 0; };
     // same link, forward reach: direct
     if (A.link && B.link && A.link === B.link) {
       const w = A.link.way;
-      if (B.s >= A.s || !w.oneway) {
+      if ((B.s >= A.s || !w.oneway) && facing(B.s >= A.s ? 1 : -1)) {
         const dir = B.s >= A.s ? 1 : -1;
         return { nodes: [], ways: [{ way: w, dir, s0: A.s, s1: B.s }], length: Math.abs(B.s - A.s) };
       }
@@ -985,8 +989,8 @@ export class RoadNet {
       if (B.node && A.node === B.node) return { nodes: [A.node.id], ways: [], length: 0 };
     } else {
       const w = A.link.way, L = A.link;
-      push(L, 1, (w.cum[L.i1] - A.s) / this.#speed(w), null);
-      if (!w.oneway) push(L, -1, (A.s - w.cum[L.i0]) / this.#speed(w), null);
+      if (facing(1)) push(L, 1, (w.cum[L.i1] - A.s) / this.#speed(w), null);
+      if (!w.oneway && facing(-1)) push(L, -1, (A.s - w.cum[L.i0]) / this.#speed(w), null);
     }
     let found = null, capped = false;
     while (heap.size) {
@@ -1175,6 +1179,17 @@ export class RoadNet {
         rbInfo.push({ startLeg: i, endLeg: j, rb, entryNode, exitNode, inArm, outArm, decision, inLeg, outLeg });
         // approach lane: the leg before the ring; exit lane on the leg after
         inLeg.wantLane = decision.approachLane; outLeg.lane = Math.min(decision.exitLane, this.laneCount(outLeg.way, outLeg.dir) || 1);
+        // ...but not an exit lane that ends. Where the road beyond has fewer lanes, a long exit is
+        // left in its lane and changed out of 120 m before the end; a short one -- a stub of dual
+        // carriageway that closes up again in a few car lengths -- is left in the lane that carries
+        // on. Its right-hand lane runs straight into the oncoming lane of the two-way road beyond:
+        // off Mill Hill Circus into The Broadway the learner met a car coming the other way at the
+        // point where the two halves join (Mill Hill seed 3).
+        const after = legs[j + 2];
+        if (after && !after.way.rb && outLeg.lane > 1) {
+          const have = this.laneCount(after.way, after.dir) || 1;
+          if (have < outLeg.lane) { if (outLeg.len >= 125) outLeg.wantLane = have; else { outLeg.lane = have; decision.exitLane = have; } }
+        }
         for (let k = i; k <= j; k++) legs[k].ringLane = decision.ringLane;
       }
       i = j;
@@ -1591,7 +1606,12 @@ export class RoadNet {
     const j = i === 0 ? 1 : i - 1, out = i === 0; // my direction away from (or into) the node
     const myB = out ? bearingOf(way.pts[j][0] - way.pts[i][0], way.pts[j][1] - way.pts[i][1]) : bearingOf(way.pts[i][0] - way.pts[j][0], way.pts[i][1] - way.pts[j][1]);
     for (const r of node.ways) {
-      const w = r.way; if (w === way || !w.oneway || w.rb || w.width > way.width * 1.6) continue;
+      // (widths as they were before #widenThinDuals or a flare gave one of the two a second lane: it is
+      // still the other half of this split. Compared as widened, the narrow arm of The Broadway, Mill Hill found
+      // no partner while the wide one found it, so only one of the two lanes moved over, and the
+      // learner coming off the narrow one still met the oncoming lane on the centre line.)
+      const w = r.way, wide = (q) => (q.flare || q.widened ? q.width / Math.max(1, q.lanesF) : q.width);
+      if (w === way || !w.oneway || w.rb || wide(w) > wide(way) * 1.6) continue;
       const end = r.idx === 0 ? 0 : r.idx === w.pts.length - 1 ? 1 : -1; if (end < 0 || (end === 0) === out) continue; // it must run the other way through the node
       const k = r.idx === 0 ? 1 : r.idx - 1;
       const b = end === 0 ? bearingOf(w.pts[k][0] - w.pts[r.idx][0], w.pts[k][1] - w.pts[r.idx][1]) : bearingOf(w.pts[r.idx][0] - w.pts[k][0], w.pts[r.idx][1] - w.pts[k][1]);
@@ -1685,8 +1705,17 @@ export class RoadNet {
     else if (arms.length <= 1 && Math.abs(turn) >= 25) e = { kind: 'bend', s, dir: dir(turn), node: node.id, text: `Follow the road round to the ${dir(turn)}.` };
     else if (thruRank || myGiveWay) {
       const major = thruWays.length ? thruWays.reduce((b, w) => (w.halfW > b.halfW ? w : b)) : outW, lineS = s - (major.halfW + 0.6);
+      // The turn as the two roads meet, arm against arm, for a path that turns on to the through road
+      // and straight off it again: over the 18 m either side that 'turn' is measured across, a right
+      // and then a left come to nothing, and a road joining a bigger one with "no turn" was given no
+      // line at all. Albert Road in Mill Hill meets Daws Lane like that, a car's length from the slip
+      // to the A1: the learner, and every car in the traffic, drove out of it across the main road
+      // without a look (Mill Hill seed 2 met a car coming the other way in the mouth of the slip).
+      const inArm = node.arms().find((a) => a.way === inW && a.dir === -m.inPiece.dir), outArm = arms.find((a) => a.way === outW && a.dir === m.outPiece.dir);
+      const armTurn = inArm && outArm ? norm180(outArm.bearing - inArm.bearing - 180) : 0;
+      const joins = Math.abs(turn) < 25 && Math.abs(armTurn) >= 45 && thruWays.includes(outW), t = joins ? armTurn : turn;
       if (thruRank && !thruWays.includes(outW) && Math.abs(turn) < 25) e = { kind: 'cross', s, dir: 'none', lineS, node: node.id, text: 'Go straight on across the main road.' };
-      else if (Math.abs(turn) >= 25 || myGiveWay) e = { kind: 'emerge', s, dir: dir(turn), lineS, node: node.id, text: dir(turn) === 'none' ? 'Give way, then go straight ahead.' : `At the end of the road, turn ${dir(turn)}.` };
+      else if (Math.abs(turn) >= 25 || myGiveWay || joins) e = { kind: 'emerge', s, dir: dir(t), lineS, node: node.id, text: dir(t) === 'none' ? 'Give way, then go straight ahead.' : `At the end of the road, turn ${dir(t)}.`, ...(joins ? { joins: true } : {}) };
     } else if (sameRoad) {
       if (Math.abs(turn) >= 50) e = { kind: 'bend', s, dir: dir(turn), node: node.id, text: `Follow the road round to the ${dir(turn)}.` };
     } else if (Math.abs(turn) >= 25) e = { kind: 'turn', s, dir: dir(turn), node: node.id, text: `Take the next road on the ${dir(turn)}.` };
@@ -1703,7 +1732,25 @@ export class RoadNet {
     let best = null, bestD = Infinity;
     for (const r of raw) { if (r.way !== piece.way || r.sWay == null || (r.dir != null && r.dir !== piece.dir) || r.sWay < lo - 1 || r.sWay > hi + 1) continue; const d = Math.abs(r.sWay - c.s); if (d < bestD) { bestD = d; best = r; } }
     if (best == null || bestD > 40) return;
-    const s = pts[Math.min(ptsIndex.get(best) ?? pts.length - 1, pts.length - 1)].s - (c.s - best.sWay) * piece.dir;
+    // From that point, on along the way to the crossing: further on in the direction of travel when
+    // the crossing's arc length is the greater and the piece runs up the way, and so on. (This took
+    // the distance off instead of adding it, which is nothing for a crossing at a vertex the path
+    // kept, as most are. But a crossing at the end of its way, in the mouth of a junction, has had
+    // its vertex rounded into the corner, and the nearest one left is 10 or 20 m up the road: the
+    // line was drawn that far the other side of the stripes. One line in eleven was 4 m or more out,
+    // some by 70 m. At the zebra where Chaucer Road ends in Canterbury cars gave way a car's length
+    // past it, the next car stood on the stripes behind them, and the people waiting could not step
+    // out: traffic stood there for as long as anybody wanted to cross.)
+    let s = pts[Math.min(ptsIndex.get(best) ?? pts.length - 1, pts.length - 1)].s + (c.s - best.sWay) * piece.dir;
+    // and then to the place the path passes the crossing itself, when that is within 7 m of there:
+    // arc length along a way's centre line is not quite distance along a lane round a bend
+    { const i0 = Math.max(0, Math.min(pts.length - 1, Math.round(s / 1.5)));
+      let bi = -1, bd = 144;
+      for (let i = Math.max(0, i0 - 5); i <= Math.min(pts.length - 1, i0 + 5); i++) { const d = (pts[i].x - c.x) ** 2 + (pts[i].z - c.z) ** 2; if (d < bd) { bd = d; bi = i; } }
+      if (bi >= 0) {
+        const a = pts[Math.max(0, bi - 1)], b = pts[Math.min(pts.length - 1, bi + 1)], L = hypot(b.x - a.x, b.z - a.z) || 1;
+        s = pts[bi].s + Math.max(-0.75, Math.min(0.75, ((c.x - pts[bi].x) * (b.x - a.x) + (c.z - pts[bi].z) * (b.z - a.z)) / L));
+      } }
     if (events.some((e) => e.kind === kind && Math.abs(e.s - (s - 4.5)) < 5)) return;
     const key = String(c.node || Math.round(c.x) + ':' + Math.round(c.z)); // traffic.crossingBusy and the signal group use this name
     events.push({ kind, s: s - 4.5, node: c.node || null, key, x: c.x, z: c.z, group: kind === 'lights' ? `x-${key}` : undefined, crossing: c.type, text: null });
