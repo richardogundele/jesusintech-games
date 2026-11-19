@@ -547,7 +547,13 @@ export class KentTraffic {
       // whichever test it was that stopped me for the player. Not when following it: a queue behind
       // the player at a red light is just a queue. This fallback once lived in the far test alone,
       // and a car the near test had stopped sat for the whole watchdog (Driveuk seed 4).
-      if (byMe && gMe < 8 && v < 0.3 && A.stopT > 25 && me.v < 0.3 && !A.held && obstacle.heading != null && A.fx * Math.sin(obstacle.heading) + A.fz * Math.cos(obstacle.heading) < 0.5) { A.ghost = 5; this.stats.squeezed = (this.stats.squeezed || 0) + 1; this.stats.squeezedMe = (this.stats.squeezedMe || 0) + 1; }
+      // "Following" is by where I am, not only by which way I face: a car that came out of a side road
+      // at the player, stopped with its nose across the player's lane and the player stopped beside
+      // it, was within 60 degrees of the player's heading, so it counted as a queue behind it and the
+      // two stood door to door for the watchdog (London seed 1 on the A1). Behind the player's back
+      // bumper is a queue; alongside it is not.
+      const behindMe = obstacle.heading == null ? 0 : (A.x - obstacle.x) * Math.sin(obstacle.heading) + (A.z - obstacle.z) * Math.cos(obstacle.heading);
+      if (byMe && gMe < 8 && v < 0.3 && A.stopT > 25 && me.v < 0.3 && !A.held && obstacle.heading != null && (A.fx * Math.sin(obstacle.heading) + A.fz * Math.cos(obstacle.heading) < 0.5 || behindMe > -((obstacle.L || 4.2) / 2 + A.L / 2 - 1))) { A.ghost = 5; this.stats.squeezed = (this.stats.squeezed || 0) + 1; this.stats.squeezedMe = (this.stats.squeezedMe || 0) + 1; }
     }
     for (let p = 0; p < this.peds.length; p++) {
       const q = this.peds[p]; if (!q.inRoad) continue;
@@ -731,13 +737,42 @@ export class KentTraffic {
    * at its line gave way for good to a car queued behind one pinned against its own nose (Manchester seed 1).
    */
   #waitsOn(B, A) {
+    if (B.blockedByMe && this.#meWaitsFor(A)) return true; // ...or for the player, who is waiting for A
     for (let k = 0, id = B.blockId || B.bumpId; id > 0 && k < 30; k++) {
       if (id === A.id) return true;
       const C = this.byId?.get(id) ?? this.cars.find((c) => c.id === id);
       if (!C || C.v >= 0.3) return false;
+      if (C.blockedByMe && this.#meWaitsFor(A)) return true;
       id = C.blockId || C.bumpId;
     }
     return false;
+  }
+  /**
+   * Is the player standing waiting for A? Nobody can ask it, so it is read off the road: once the
+   * player has stood a few seconds, it is waiting for any standing car whose body is close in front
+   * of it, and for whoever that car is queued behind.
+   * The two ring-breakers (#waitsOn, #gridlocked) follow a chain of cars each waiting for the next,
+   * and both stopped dead at a car waiting for the player -- so a ring with the player in it was
+   * never seen as one. In Driving City's big signalled junctions that is the ring that forms: the
+   * learner stands behind a car crossing its nose, that car gives way to one queued behind the
+   * learner, and all of them stood for the two-minute watchdog (Liverpool seed 4 at the East
+   * Lancashire Road; the Guildford to Herne Bay drive, seed 1, at Stoke Road and Ladymead).
+   */
+  #meWaitsFor(A) {
+    const me = this.me;
+    if (me.x == null || me.hx == null || me.v >= 0.3 || !(me.stillT > 3)) return false;
+    if (this.meWaitT !== this.clock) { // once a frame
+      this.meWaitT = this.clock;
+      const set = (this.meWait ||= new Set());
+      set.clear();
+      for (const C of this.cars) {
+        if (C.v >= 0.3) continue;
+        const dx = C.x - me.x, dz = C.z - me.z, al = dx * me.hx + dz * me.hz;
+        if (al <= 0 || al > 9 + C.L / 2 || Math.abs(dx * me.hz - dz * me.hx) > 5) continue;
+        for (let k = 0, X = C; X && X.v < 0.3 && !set.has(X.id) && k < 12; k++) { set.add(X.id); const id = X.blockId || X.bumpId; X = id > 0 ? this.#byId(id) : null; }
+      }
+    }
+    return this.meWait.has(A.id);
   }
   /** where (x, z) lies across my path (+ = left of it), at the path's nearest point within d m ahead of s */
   #pathLat(A, x, z, s, d) {
@@ -963,8 +998,10 @@ export class KentTraffic {
     let B = A;
     for (let k = 0; k < 12; k++) {
       B = B.blockId > 0 ? this.#byId(B.blockId) : null;
-      if (!B || B.v > 0.3 || B.held) return false;
+      if (!B || B.v > 0.3) return false;
       if (B === A) return true;
+      if (B.blockedByMe && this.#meWaitsFor(A)) return true; // the ring runs through the player (see #meWaitsFor)
+      if (B.held) return false;
     }
     return false;
   }
@@ -1216,11 +1253,30 @@ export class KentTraffic {
         const rec = list[k];
         if ((s0 - rec.s) * (p.s - rec.s) > 0 || p.lastRec === rec) continue;
         p.lastRec = rec;
-        if (this.rnd() < 0.5) { p.state = 'wait'; p.rec = rec; p.t = 0; p.s = rec.s; p.lat = p.side * p.off; break; }
+        if (this.rnd() < 0.5 && !this.#standsInRoad(w, rec.s, p.side * p.off)) { p.state = 'wait'; p.rec = rec; p.t = 0; p.s = rec.s; p.lat = p.side * p.off; break; }
       }
     }
     const f = wayFrame(p.way, p.s, p.i); p.i = f.i;
     this.#stepTo(p, f.x + f.dz * p.side * p.off, f.z - f.dx * p.side * p.off, dt, true);
+  }
+  /**
+   * Is the place someone would stand to wait at a crossing -- `lat` across from way w at s -- on
+   * another road's carriageway? Where two carriageways run side by side (a gyratory's links, the two
+   * halves of a dual carriageway) the pavement of one is drawn where the other's lane is. Someone
+   * waiting is not in the road as far as any driver is told (inRoad is false, and lessons.js
+   * pathClear leaves a person waiting at the kerb alone), so the learner drove into one standing in
+   * the middle of Ladymead, waiting to cross Woodbridge Road beside it (the Guildford to Herne Bay
+   * drive, seed 1). They walk on instead of waiting there.
+   */
+  #standsInRoad(w, s, lat) {
+    const f = wayFrame(w, s, 0), x = f.x + f.dz * lat, z = f.z - f.dx * lat;
+    for (const { way, i } of this.net.grid.near(x, z, 12)) {
+      if (way === w || way.id === w.id) continue;
+      const a = way.pts[i], b = way.pts[i + 1], dx = b[0] - a[0], dz = b[1] - a[1], L2 = dx * dx + dz * dz || 1;
+      const t = Math.max(0, Math.min(1, ((x - a[0]) * dx + (z - a[1]) * dz) / L2));
+      if (len(x - a[0] - dx * t, z - a[1] - dz * t) < way.halfW + 0.3) return true;
+    }
+    return false;
   }
   /** move towards a target point at no more than a brisk walk (corners are cut, not jumped) */
   #stepTo(p, tx, tz, dt, face) {
