@@ -834,13 +834,24 @@ export function buildRoadTile(net, tile, { lod = 'near', mats, materials, ground
     const cuts = wayCuts(view, p);
     const A = batch(d.mat);
     ribbonRuns(A, frames, (f) => f.hwL, (f) => -f.hwR, Y_ROAD, runsFor(p, cuts.asphalt), uvWorld, inBox);
-    // minimap polyline (tile only, every ~8 m)
+    // minimap polyline (tile only, every ~8 m), carried one frame past each tile edge so the
+    // neighbouring tile's run overlaps this one. Flushing at the edge emitted no point there, and
+    // the samples are 8 m apart, so a road crossing a seam was left short on both sides and a run of
+    // one point was dropped outright. A tile is 500 m and the minimap shows about 400, so most views
+    // hold a seam. Measured either side of x = -500 beside Guildford's Woking Road roundabout: not
+    // one of the 24 polyline ends at that seam reached the next tile (median 14.0 m away, worst
+    // 32.2 m), and the roads there looked like they did not join up. With the carry, 19 of 28 meet
+    // within 0.5 m, median 0.02 m; the rest are real road ends that happen to sit near the seam.
+    // Frames are at most 6 m apart, so the overlap this adds is small.
     let run = [], last = -99;
     const flush = () => { if (run.length > 1) roads.push({ points: run, width: d.width, closed: false }); run = []; };
+    const pt = (f) => new THREE.Vector3(f.x, 0, f.z);
     for (let i = 0; i < frames.length; i++) {
       const f = frames[i];
-      if (!inTile(f.x, f.z)) { flush(); continue; }
-      if (f.s - last >= 8 || i === frames.length - 1) { run.push(new THREE.Vector3(f.x, 0, f.z)); last = f.s; }
+      if (!inTile(f.x, f.z)) { if (run.length) { run.push(pt(f)); flush(); } continue; }
+      const prev = i > 0 ? frames[i - 1] : null;
+      if (!run.length && prev && !inTile(prev.x, prev.z)) { run.push(pt(prev)); last = prev.s; }
+      if (f.s - last >= 8 || i === frames.length - 1) { run.push(pt(f)); last = f.s; }
     }
     flush();
     if (!near) continue;

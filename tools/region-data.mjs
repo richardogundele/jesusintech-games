@@ -145,7 +145,9 @@ if (!bFiles.length) warn.push('no buildings file found (raw/q4*buildings*.json o
 
 // ---------- 1. ways: filter, clip, piece ids ----------
 const WIDTH = (w, limit, lanesF, lanesB) => {
-  if (w.width_m) return w.width_m;
+  // a width over 9 m on a two-lane street is the street wall to wall, not the carriageway (Louise
+  // Street, Stoke: 23 m): fall through to what the class gets
+  if (w.width_m && !(!w.oneway && lanesF + lanesB <= 2 && w.width_m > 9)) return w.width_m;
   if (w.oneway) return Math.max(1, lanesF) * 3.65;
   const total = lanesF + lanesB;
   if (total > 2) return total * 3.65;

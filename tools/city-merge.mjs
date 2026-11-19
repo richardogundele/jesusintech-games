@@ -12,6 +12,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CITY } from './driving-city.mjs';
 import { groundHeight } from '../src/worlds/ground.js';
+import { clearBuildings } from './building-clearance.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = (id) => JSON.parse(fs.readFileSync(path.join(ROOT, `public/assets/${id}/region.json`), 'utf8'));
@@ -765,6 +766,84 @@ for (const A of areas.values()) A.buildings = A.buildings.filter((b) => !b.pts.s
   for (const A of areas.values()) A.buildings = A.buildings.filter((b) => { const hit = inTheWay(b); if (hit) gone++; return !hit; });
   console.log(`  ${gone} buildings at the edge of an area left out: in the way of a ring road or a way out to one`);
 }
+// Touching is not enough: every road has to be drivable TO and FROM every other. The island drop
+// above is undirected, so it keeps one-way fragments a car can drive into and never out of (Milton
+// Keynes' Goslington, Manchester's Broad Oak Lane, Stoke's Bradford Terrace, three Coventry slip
+// nodes) and others nothing can reach at all (1.5 km of Coventry motorway and its slips). A learner
+// or a traffic car that enters one is stuck there for the rest of the test.
+// Drop a way with no node in the main strongly connected component, and trim one whose tip hangs
+// outside it: a stranded node is always at an end, because a node between two mutually reachable
+// ones is itself mutually reachable. Repeat until nothing moves -- dropping a way can strand its
+// neighbour. tools/lanes-check.mjs fails if any of this is left.
+const undrivable = { ways: new Set(), nodes: new Set() };
+{
+  const lenOf = (pts) => { let L = 0; for (let i = 1; i < pts.length; i++) L += hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]); return L; };
+  let dropped = 0, trimmed = 0, metres = 0;
+  for (let pass = 1; pass <= 8; pass++) {
+    const fwd = new Map(), rev = new Map(), seen = new Set();
+    const edge = (a, b) => {
+      if (!fwd.has(a)) fwd.set(a, []); fwd.get(a).push(b);
+      if (!rev.has(b)) rev.set(b, []); rev.get(b).push(a);
+    };
+    for (const w of ways) {
+      const ns = w.nodes.filter(Boolean);
+      for (const n of ns) seen.add(n);
+      for (let i = 1; i < ns.length; i++) { edge(ns[i - 1], ns[i]); if (!w.oneway) edge(ns[i], ns[i - 1]); }
+    }
+    // Kosaraju, iterative: the recursion is 60k deep on this map
+    const order = [], vis = new Set();
+    for (const s of seen) {
+      if (vis.has(s)) continue;
+      const st = [[s, 0]]; vis.add(s);
+      while (st.length) {
+        const t = st[st.length - 1], nb = fwd.get(t[0]) || [];
+        if (t[1] < nb.length) { const n = nb[t[1]++]; if (!vis.has(n)) { vis.add(n); st.push([n, 0]); } }
+        else { order.push(t[0]); st.pop(); }
+      }
+    }
+    const comp = new Map();
+    for (let i = order.length - 1, c = 0; i >= 0; i--) {
+      const s = order[i]; if (comp.has(s)) continue;
+      const st = [s]; comp.set(s, c);
+      while (st.length) { const v = st.pop(); for (const n of rev.get(v) || []) if (!comp.has(n)) { comp.set(n, c); st.push(n); } }
+      c++;
+    }
+    const size = new Map();
+    for (const n of seen) size.set(comp.get(n), (size.get(comp.get(n)) || 0) + 1);
+    let main = null; for (const [k, n] of size) if (main == null || n > size.get(main)) main = k;
+    let moved = 0;
+    for (let i = ways.length - 1; i >= 0; i--) {
+      const w = ways[i], ns = w.nodes;
+      let a = -1, b = -1;
+      for (let j = 0; j < ns.length; j++) if (ns[j] && comp.get(ns[j]) === main) { if (a < 0) a = j; b = j; }
+      if (a >= 0 && a === 0 && b === ns.length - 1) continue;
+      const pts = a < 0 ? [] : w.pts.slice(a, b + 1);
+      if (pts.length < 2) { metres += lenOf(w.pts); undrivable.ways.add(w.id); ways.splice(i, 1); dropped++; moved++; continue; }
+      metres += lenOf(w.pts) - lenOf(pts);
+      w.pts = pts; w.nodes = ns.slice(a, b + 1); trimmed++; moved++;
+    }
+    if (!moved) break;
+  }
+  const used = new Set(ways.flatMap((w) => w.nodes).filter(Boolean));
+  for (const n of [...nodes.keys()]) if (!used.has(n)) { nodes.delete(n); undrivable.nodes.add(n); }
+  const kept = new Set(ways.map((w) => w.id));
+  for (const n of nodes.values()) if (n.ways) n.ways = n.ways.filter((id) => kept.has(id));
+  console.log(`  not drivable both ways: ${dropped} ways dropped, ${trimmed} trimmed (${metres.toFixed(0)} m), ${undrivable.nodes.size} nodes left out`);
+}
+// OSM's width on a street is sometimes the whole street, wall to wall, and region-data.mjs took it as
+// the carriageway: nine Stoke terraces were laid 14 to 23 m wide with one lane each way (Louise Street
+// 23 m). Two lanes are 7.3 m; past 9 m, which leaves room for parking bays, the tag is not the
+// carriageway, and the street gets what its class would have had. region-data.mjs now does the same
+// when a town is baked; this covers the towns already baked.
+{
+  let narrowed = 0;
+  for (const w of ways) {
+    if (w.rb || w.oneway || (w.lanesF || 1) + (w.lanesB || 1) > 2 || !(w.width > 9)) continue;
+    w.width = w.cls === 'residential' ? (w.limit <= 20 ? 6.0 : 6.5) : w.cls === 'living_street' || w.cls === 'service' ? 5.0 : w.cls === 'unclassified' ? 6.0 : w.cls === 'tertiary' ? 6.5 : 7.3;
+    narrowed++;
+  }
+  if (narrowed) console.log(`  ${narrowed} two-lane streets tagged wider than 9 m laid at their class width`);
+}
 const out = {
   attribution: [...new Set([...areas.values()].map((A) => A.attribution))].join(' | '),
   osm_base: 'per area, see each area\'s own region.json',
@@ -787,6 +866,25 @@ const out = {
   home: E ? E.home : home.home || null, airfield: E ? E.airfield : home.airfield,
   terrain: terrain(areas, bounds, E ? E.zones : []),
 };
+// a light, crossing or hump pinned to a node or way the drop above removed would point at nothing
+{
+  let gone = 0;
+  for (const k of ['signals', 'crossings', 'minis', 'levelCrossings']) {
+    const before = out[k].length;
+    out[k] = out[k].filter((r) => !undrivable.nodes.has(r.node) && !(r.way != null && undrivable.ways.has(r.way)));
+    gone += before - out[k].length;
+  }
+  const beforeCalm = out.calming.length;
+  out.calming = out.calming.filter((r) => !undrivable.ways.has(r.way));
+  gone += beforeCalm - out.calming.length;
+  if (gone) console.log(`  ${gone} signals/crossings/minis/level crossings/calming left out with the roads they sat on`);
+}
+// buildings off the roads (tools/building-clearance.mjs), last, so it sees the roads as they ship
+{
+  const { buildings, stat } = clearBuildings(out.ways, out.buildings);
+  console.log(`  buildings in a road: ${stat.cut} cut back to the kerb line, ${stat.through} left out with a road through them, ${stat.sliver} left out as slivers (${stat.m2.toFixed(0)} m2 in all)${stat.left ? `, ${stat.left} still over a line` : ''}`);
+  out.buildings = buildings;
+}
 const file = path.join(ROOT, 'public/assets/city/region.json');
 fs.mkdirSync(path.dirname(file), { recursive: true });
 fs.writeFileSync(file, JSON.stringify(out));

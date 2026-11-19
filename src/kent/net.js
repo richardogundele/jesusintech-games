@@ -35,6 +35,26 @@ const bearingOf = (dx, dz) => ((Math.atan2(dx, -dz) * DEG) % 360 + 360) % 360;
 const hypot = Math.hypot;
 const nz = (v) => (Math.abs(v) < 1e-9 ? 0 : v);
 
+/**
+ * The width a way is laid at. Roads, pavements, kerbs and procedural houses are all drawn from this,
+ * and tools/building-clearance.mjs holds OSM buildings clear of it, so it is the one place that says.
+ */
+export function laidWidth(w) {
+  // give the tightest two-way streets a little more room: a learner kept drifting over the centre
+  // line when turning. Aim for a comfortable ~3.4 m lane, but never widen a street by over 2.5 m
+  // (pavements and procedural houses are drawn from halfW, so they move out with it).
+  let width = w.width;
+  if (!w.rb && !w.link) {
+    if (!w.oneway && (RANK[w.cls] ?? 3) <= 4 && w.cls !== 'service') width = Math.min(w.width + 2.5, Math.max(w.width, 7));
+    // closes, mews and yards bake at 5 m, which is under two car widths once the hedges go up
+    else if (!w.oneway) width = Math.max(w.width, 6);
+    // a one-way street is baked one lane wide. A dual carriageway keeps what it has: its two
+    // halves sit about 6 m apart, so widening them would swallow the central reservation.
+    else if (!w.dual) width = Math.min(w.width + 1.3, Math.max(w.width, 5));
+  }
+  return width;
+}
+
 // ---------- a uniform grid over items with bounding boxes (ways, buildings, colliders) ----------
 export class GridIndex {
   constructor(cell = 100) { this.cell = cell; this.cells = new Map(); }
@@ -142,18 +162,7 @@ export class RoadNet {
       }
       const n = w.pts.length, cum = new Float64Array(n);
       for (let i = 1; i < n; i++) cum[i] = cum[i - 1] + hypot(w.pts[i][0] - w.pts[i - 1][0], w.pts[i][1] - w.pts[i - 1][1]);
-      // give the tightest two-way streets a little more room: a learner kept drifting over the centre
-      // line when turning. Aim for a comfortable ~3.4 m lane, but never widen a street by over 2.5 m
-      // (pavements and procedural houses are drawn from halfW, so they move out with it).
-      let width = w.width;
-      if (!w.rb && !w.link) {
-        if (!w.oneway && (RANK[w.cls] ?? 3) <= 4 && w.cls !== 'service') width = Math.min(w.width + 2.5, Math.max(w.width, 7));
-        // closes, mews and yards bake at 5 m, which is under two car widths once the hedges go up
-        else if (!w.oneway) width = Math.max(w.width, 6);
-        // a one-way street is baked one lane wide. A dual carriageway keeps what it has: its two
-        // halves sit about 6 m apart, so widening them would swallow the central reservation.
-        else if (!w.dual) width = Math.min(w.width + 1.3, Math.max(w.width, 5));
-      }
+      const width = laidWidth(w);
       const way = Object.assign({}, w, { cum, len: cum[n - 1], width, halfW: width / 2 });
       way.limit = w.limit || (w.pave ? 30 : 60);
       way.rank = RANK[w.cls] ?? 3;

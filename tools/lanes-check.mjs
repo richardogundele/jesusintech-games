@@ -32,6 +32,52 @@ for (const w of ways) { const ns = w.nodes.filter(Boolean); for (let i = 1; i < 
 const comps = new Set([...parent.keys()].map(find));
 if (comps.size === 1) ok('one connected component'); else fail(`${comps.size} connected components (every road should reach every other)`);
 
+// Touching is not enough. Respecting the one-ways, every road must be drivable to AND from every
+// other: one strongly connected component. Undirected alone passed a road you could drive into and
+// never out of, which strands a learner or a traffic car for the rest of the test. city-merge.mjs
+// drops and trims those; the towns' own region.json files are raw crops and still hold some.
+{
+  const fwd = new Map(), rev = new Map(), seen = new Set();
+  const edge = (a, b) => { if (!fwd.has(a)) fwd.set(a, []); fwd.get(a).push(b); if (!rev.has(b)) rev.set(b, []); rev.get(b).push(a); };
+  for (const w of ways) {
+    const ns = w.nodes.filter(Boolean);
+    for (const n of ns) seen.add(n);
+    for (let i = 1; i < ns.length; i++) { edge(ns[i - 1], ns[i]); if (!w.oneway) edge(ns[i], ns[i - 1]); }
+  }
+  const order = [], vis = new Set();
+  for (const s of seen) {
+    if (vis.has(s)) continue;
+    const st = [[s, 0]]; vis.add(s);
+    while (st.length) {
+      const t = st[st.length - 1], nb = fwd.get(t[0]) || [];
+      if (t[1] < nb.length) { const n = nb[t[1]++]; if (!vis.has(n)) { vis.add(n); st.push([n, 0]); } }
+      else { order.push(t[0]); st.pop(); }
+    }
+  }
+  const comp = new Map();
+  for (let i = order.length - 1, c = 0; i >= 0; i--) {
+    const s = order[i]; if (comp.has(s)) continue;
+    const st = [s]; comp.set(s, c);
+    while (st.length) { const v = st.pop(); for (const n of rev.get(v) || []) if (!comp.has(n)) { comp.set(n, c); st.push(n); } }
+    c++;
+  }
+  const size = new Map();
+  for (const n of seen) size.set(comp.get(n), (size.get(comp.get(n)) || 0) + 1);
+  const sccs = [...size.entries()].sort((a, b) => b[1] - a[1]);
+  // Only the merged city is played (vite.config.js ships 'city' alone); a town's own region.json is
+  // an input to tools/city-merge.mjs, which is where the crop and these drops happen. So this is a
+  // failure for the merged world and a warning for a town on its own.
+  const merged = Array.isArray(R.areas) && R.areas.length > 1;
+  if (sccs.length === 1) ok(`one strongly connected component: every road drivable to and from every other (${seen.size} nodes)`);
+  else {
+    const stray = [...seen].filter((n) => comp.get(n) !== sccs[0][0]);
+    const trap = stray.filter((n) => (rev.get(n) || []).some((p) => comp.get(p) === sccs[0][0]) && !(fwd.get(n) || []).some((p) => comp.get(p) === sccs[0][0]));
+    const where = (n) => `(${nodes[n].x}, ${nodes[n].z})`;
+    const msg = `${sccs.length} strongly connected components: ${stray.length} node(s) cannot be driven to and from the rest, ${trap.length} of them a one-way trap you cannot leave${trap.length ? ' -- ' + trap.slice(0, 5).map(where).join(', ') : ''}`;
+    if (merged) fail(msg); else warn(`${msg} (a town on its own; city-merge.mjs drops these when it builds Driving City)`);
+  }
+}
+
 const arms = new Map(); // node -> number of way-ends/throughs touching it
 for (const w of ways) w.nodes.forEach((n, i) => { if (n) arms.set(n, (arms.get(n) || 0) + (i > 0 && i < w.nodes.length - 1 ? 2 : 1)); });
 const MINOR = new Set(['residential', 'service', 'unclassified', 'living_street', 'track']);
