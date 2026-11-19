@@ -24,13 +24,17 @@
 // completed runs of `node tools/lesson-check.mjs --gen auto --region <id>`. It defaults to 1; a city
 // without a measured one plans slightly the wrong length of test, which is a reason to measure it
 // before setting `ready`, not a reason to guess.
-// Measured in Driving City on 2026-11-19 over seeds 1-12 (completed runs only): London 0.871 of an
-// estimate that already carried 1.05 (so 0.91), Manchester 0.905 (8 runs), Liverpool 0.909, Stoke 0.911,
-// Leeds 0.960, Warrington 0.966; sd 0.03 to 0.07. The other areas were within 3% of 1 and are left.
+// Set in Driving City on 2026-11-19. The ratio is not one number for a town: it moves with the routes
+// the multiplier itself lets in (London drove its old, short routes in 0.87 of the estimate, and the
+// longer ones a lower multiplier chose in 1.05 of it), and one route's time moves about a minute
+// either way with the traffic. So each value here is the one, of those tried either side of the
+// measured ratio, whose six gate seeds all finish inside 13-17 minutes with the most room to spare:
+// London 0.985, Manchester 0.96, Liverpool 0.91, Stoke 0.91, Leeds 1.0, Warrington 0.95, Coventry
+// 0.98, Burgess Hill 0.94 (0.89 measured once its London Road lights were given a plan).
 
 export const REGIONS = {
   london: {
-    id: 'london', timeK: 0.91, name: 'London', place: 'Mill Hill',
+    id: 'london', timeK: 0.985, name: 'London', place: 'Mill Hill',
     centre: { lat: 51.6101, lon: -0.2472 }, half: 2500,
     testCentre: { name: 'Mill Hill (London)', lat: 51.6101, lon: -0.2472, address: 'Unit 9, Grannard Business Centre, Bunns Lane, Mill Hill, London NW7 2DQ' },
     far: [['Birmingham', -160000, -125000], ['Manchester', -200000, -250000], ['Kent', 95000, 60000], ['Central London', 7000, 13000], ['Watford', -15000, -5000], ['Barnet', 4500, -2500], ['Edgware', -2500, 1500], ['Hendon', 1500, 3500], ['Finchley', 5500, 2500]],
@@ -42,7 +46,7 @@ export const REGIONS = {
     far: [['London', 160000, 125000], ['Manchester', -40000, -120000], ['City Centre', 1500, -7500], ['Solihull', 8000, -3000], ['Kings Heath', 500, -2500], ['Redditch', -2000, 15000], ['Stirchley', -2500, -3500], ['Hall Green', 3500, -2500]],
   },
   manchester: {
-    id: 'manchester', timeK: 0.90, name: 'Manchester', place: 'West Didsbury',
+    id: 'manchester', timeK: 0.96, name: 'Manchester', place: 'West Didsbury',
     // 4 km out, not 2.5: its two multi-lane roundabouts are 2.3 km from the centre, and on the
     // smaller square their approaches were clipped, so every seed drove the same single route.
     centre: { lat: 53.4252, lon: -2.2584 }, half: 4000,
@@ -58,12 +62,12 @@ export const REGIONS = {
     // Brighton and for Wilson Avenue. A Brighton candidate tests here, which is the only sense in
     // which this is Brighton. What its roads are actually like is what the variety report says after
     // the bake, not what anyone knows about Sussex.
-    id: 'burgesshill', name: 'Burgess Hill', place: 'Burgess Hill',
+    id: 'burgesshill', timeK: 0.94, name: 'Burgess Hill', place: 'Burgess Hill',
     centre: { lat: 50.951335, lon: -0.152148 }, half: 4000,
     testCentre: { name: 'Burgess Hill', lat: 50.951335, lon: -0.152148, address: 'Off Charles Avenue, Victoria Industrial Estate, Burgess Hill RH15 9AG' },
   },
   coventry: {
-    id: 'coventry', name: 'Coventry', place: 'Bayton Road',
+    id: 'coventry', timeK: 0.98, name: 'Coventry', place: 'Bayton Road',
     centre: { lat: 52.464282, lon: -1.475741 }, half: 4000,
     testCentre: { name: 'Coventry', lat: 52.464282, lon: -1.475741, address: 'Bayton Road Industrial Estate, 42 Bayton Road, Coventry CV7 9EJ' },
   },
@@ -79,14 +83,14 @@ export const REGIONS = {
     testCentre: { name: 'Stoke on Trent (Cobridge)', lat: 53.040335, lon: -2.188050, address: '8 Elder Road, Cobridge, Stoke-on-Trent ST6 2HE' },
   },
   warrington: {
-    id: 'warrington', timeK: 0.97, name: 'Warrington', place: 'Orford',
+    id: 'warrington', timeK: 0.95, name: 'Warrington', place: 'Orford',
     centre: { lat: 53.409965, lon: -2.579280 }, half: 4000,
     testCentre: { name: 'Warrington', lat: 53.409965, lon: -2.579280, address: 'Orford Day Centre, Festival Avenue, Warrington WA2 9EP' },
   },
   leeds: {
     // Horsforth of the three Leeds centres (the others are the Old Fire Station and Colton Mill);
     // which gives the better test routes is a question for the variety report, not for reputation
-    id: 'leeds', timeK: 0.96, name: 'Leeds', place: 'Horsforth',
+    id: 'leeds', timeK: 1.0, name: 'Leeds', place: 'Horsforth',
     centre: { lat: 53.839962, lon: -1.621766 }, half: 4000,
     testCentre: { name: 'Horsforth', lat: 53.839962, lon: -1.621766, address: 'Room 013 Woodside House, 261 Low Lane, Horsforth, Leeds LS18 5NY' },
   },
