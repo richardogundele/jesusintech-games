@@ -1454,7 +1454,15 @@ function carefulKent(run, car, st, bad) {
         if (!e.phase && ahead < 90) {
           // and nobody coming up on the right either: the move across is into their lane. On the
           // Canterbury mock test (seeds 5 and 6) the learner moved over into a car passing at 25 mph.
-          if (ahead > 0 && ahead < 30 && (oncoming(run, car, e, 7, 90) || behindRight(run, car, 6))) want = Math.min(want, stopIn(ahead - 2));
+          // Nor into a queue standing in that lane, facing it: "when it is safe to do so" is not while
+          // the kerb it is making for has a line of cars waiting to come past. oncoming() only sees
+          // moving cars, so the learner crossed in front of a standing queue, stopped nose to nose with
+          // it and did its reverse there -- a minute and a half of everyone waiting on everyone, and a
+          // 15.7 minute route driven in 19 (London seed 1). It waits for the lane to empty, but not for
+          // ever: a queue that has not moved in 45 s is not going to, and the test has to go on.
+          const queue = ahead > 0 && ahead < 30 && facingQueue(run, car, e);
+          if (queue && e.botQueueT == null) e.botQueueT = st.t;
+          if (ahead > 0 && ahead < 30 && (oncoming(run, car, e, 7, 90) || behindRight(run, car, 6) || (queue && st.t - e.botQueueT < 45))) want = Math.min(want, stopIn(ahead - 2));
           want = Math.min(want, stopIn(e.stopS - s));
         }
         if (e.phase === 'stopped' || e.phase === 'reversing') {
@@ -1658,6 +1666,16 @@ function oncoming(run, car, e, secs, r = 60) {
     if (c.fx * fx + c.fz * fz > -0.5 || c.v < 0.5) return false;
     const d = Math.hypot(c.x - P.x, c.z - P.z), toward = (P.x - c.x) * c.fx + (P.z - c.z) * c.fz;
     return toward > -3 && (d < 25 || (d < r + 40 && d / Math.max(c.v, 1) < secs));
+  });
+}
+/** a car standing in the lane a pull-up on the right crosses into, facing me, anywhere from where I cross to a queue's length past where I would stop */
+function facingQueue(run, car, e) {
+  const pts = run.route.pts, i0 = idxAtS(pts, e.s), i1 = Math.min(pts.length - 1, idxAtS(pts, e.stopS + 25));
+  const fx = Math.sin(car.heading), fz = Math.cos(car.heading);
+  return (run.world.traffic?.cars || []).some((c) => {
+    if (c.v >= 0.5 || c.fx * fx + c.fz * fz > -0.5) return false;
+    for (let i = i0; i <= i1; i += 2) if (Math.hypot(pts[i].x - c.x, pts[i].z - c.z) < 2.6) return true;
+    return false;
   });
 }
 /** a car about to come onto the ring from the arm before mine (it shouldn't, but it might) */
