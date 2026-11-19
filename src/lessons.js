@@ -1417,7 +1417,11 @@ function carefulKent(run, car, st, bad) {
         if (bad.runReds || e.botGo) break;
         const toLine = e.lineS - s - half;
         if (toLine > -0.5 && toLine < 60) {
-          if (w.signals.isStop(e.group, car.heading, toLine, Math.max(0, v))) want = Math.min(want, stopIn(toLine - 0.5));
+          // standing at the line already (held there by the queue beyond it, nose a hand's width over)
+          // is not "too close to stop": the amber then let it go, and it followed the queue across on
+          // the red that came next (Warrington seed 2)
+          const standing = v < 1.5 && w.signals.stateFor(e.group, car.heading) !== 'green';
+          if (standing || w.signals.isStop(e.group, car.heading, toLine, Math.max(0, v))) want = Math.min(want, stopIn(toLine - 0.5));
           else if (w.signals.stateFor(e.group, car.heading) !== 'green') e.botGo = true; // amber and too close to stop: keep going
           // and only into the junction if there's room to come out the other side (don't block the box)
           if (!e.crossing && toLine < 25 && !boxClear(run, car, e.lineS, e.lineS + 30)) want = Math.min(want, stopIn(toLine - 0.5));
