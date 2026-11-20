@@ -142,7 +142,7 @@ const HOME = { x: 4150, z: -5920 }; // see the report: the DESIGN.md point is in
     const bad = kind === 'car' ? carClear(colliders, at, L, W) : colliders.hits(at.x, at.z, 0.45, false);
     ok(bad.length === 0, `${name} is clear of the colliders${bad.length ? `: ${fmt(bad.slice(0, 2))}` : ''}`);
   }
-  ok(house.garage.length === 5 && ['revuelto', 'f458', 'cullinan', 'chiron', 'g63'].every((id) => house.garage.some((g) => g.id === id)), 'garage lists the five starter cars');
+  ok(house.garage.length === 4 && ['f458', 'rangerover', 'g63', 'cullinan'].every((id) => house.garage.some((g) => g.id === id)), 'garage lists the four home cars (Ferrari, Range Rover, G-Wagon, Rolls-Royce)');
   ok(house.slots.length === 6, 'six purchase bays');
   // the eyesight check: main.js stands you 22 m north of the parked car looking +z at its plate
   const eye = { x: house.parkedAt.x + 1, z: house.parkedAt.z - 22 };

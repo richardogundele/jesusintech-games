@@ -831,8 +831,9 @@ function setPlate(text) {
 /** every car you can take a lesson in: the free learner Polo plus the cars you own */
 function lessonCarList() {
   const sel = state.uk.lessonCar || 'learner';
-  return [{ id: 'learner', name: 'VW Polo', sel: sel === 'learner' },
-    ...Object.keys(CARS).filter((id) => P.ownsCar(id)).map((id) => ({ id, name: `${CARS[id].maker} ${CARS[id].model}`, sel: sel === id }))];
+  const SHORT = { f458: 'Ferrari', rangerover: 'Range Rover', g63: 'G-Wagon', cullinan: 'Rolls-Royce' };
+  return [...Object.keys(CARS).filter((id) => P.ownsCar(id)).map((id) => ({ id, name: SHORT[id] || `${CARS[id].maker} ${CARS[id].model}`, sel: sel === id })),
+    { id: 'learner', name: 'VW Polo', sel: sel === 'learner' }];
 }
 /** getting into the learner car: which car and gearbox (the HUD's hints teach the keys, step by step) */
 function learnerHello(c) {
@@ -1344,6 +1345,11 @@ async function startLesson(id) {
   const tiled = where !== 'uk'; // Kent and the cities stream tiles: warm them behind a fade
   if (lesson) lesson.cancel();
   hud.exam(null, false); // a set lesson marks its own route; hide the free-drive tally
+  // sitting in one of your own cars: the lesson or test is in that one (its looks, the learner's calm handling)
+  if (car && car.id !== 'learner' && CARS[car.id] && P.ownsCar(car.id) && state.uk.lessonCar !== car.id) {
+    state.uk.lessonCar = car.id; save();
+    for (const w of Object.values(worlds)) rebuildLearner(w);
+  }
   const learner = world.cars.find((c) => c.id === 'learner') || rebuildLearner(world);
   if (car && car !== learner) car.park();
   car = learner;

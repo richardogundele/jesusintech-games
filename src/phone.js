@@ -29,6 +29,7 @@ export class Phone {
       // these leave the phone: close it first so the game mode is restored before travelling
       // the driving test: the gearbox you learn in, a mock or the real thing, retrying a route
       if (act === 'trans') { this.hooks.setTrans(id); this.render(); return; }
+      if (act === 'lessoncar') { this.hooks.setLessonCar(id); this.render(); return; }
       if (act === 'theme') { state.theme = id === 'dark' ? 'dark' : 'light'; save(); this.render(); return; }
       if (act === 'lesson') { this.hooks.close(); this.hooks.startLesson(id); return; }
       if (act === 'plate') { this.hooks.setPlate($('plate-in')?.value); this.render(); return; }
@@ -110,6 +111,11 @@ export class Phone {
       <div class="group">
         <div class="seg" role="radiogroup" aria-label="Gearbox"><button class="${trans === 'auto' ? 'on' : ''}" data-act="trans" data-id="auto" aria-pressed="${trans === 'auto'}">Automatic</button><button class="${trans === 'manual' ? 'on' : ''}" data-act="trans" data-id="manual" aria-pressed="${trans === 'manual'}">Manual</button></div>
         <div class="s">${trans === 'manual' ? 'Pass in a manual and you can drive both.' : 'It creeps forward in D, so keep your foot over the brake. Pass in an automatic and your licence is for automatics only.'}</div>
+      </div>
+      <h3>Car for lessons and tests</h3>
+      <div class="group">
+        <div class="cars">${this.hooks.lessonCars().map((c) => `<button class="${c.sel ? 'on' : ''}" data-act="lessoncar" data-id="${c.id}" aria-pressed="${c.sel}">${esc(c.name)}</button>`).join('')}</div>
+        <div class="s">Lessons, mocks and the test are in this car, with L plates and the calm handling of a learner car. Or get into any of your cars at home and start a lesson from it.</div>
       </div>
       <h3>Appearance</h3>
       <div class="group">

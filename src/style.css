@@ -628,6 +628,10 @@ h1 { font-family: var(--font-display); font-size: clamp(40px, 9vw, 112px); lette
 #phone-body .seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 2px; padding: 3px; border-radius: 12px; background: var(--ph-card-2); }
 #phone-body .seg button { background: transparent; border: 0; color: var(--ph-muted); border-radius: 9px; padding: 9px 6px; font: 600 13px var(--font); cursor: pointer; }
 #phone-body .seg button.on { background: var(--ph-primary); color: var(--ph-primary-ink); }
+#phone-body .cars { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+#phone-body .cars button { background: var(--ph-card-2); border: 1px solid transparent; color: var(--ph-ink); border-radius: 10px; padding: 10px 8px; font: 600 13px var(--font); cursor: pointer; }
+#phone-body .cars button:hover { border-color: var(--ph-line); }
+#phone-body .cars button.on { background: var(--ph-primary); color: var(--ph-primary-ink); }
 #phone-body .keys { display: grid; grid-template-columns: auto 1fr; gap: 8px 12px; align-items: center; font-size: 13px; color: var(--ph-muted); }
 #phone-body kbd { justify-self: start; min-width: 26px; padding: 3px 7px; border-radius: 6px; border: 1px solid var(--ph-line); border-bottom-width: 2px; background: var(--ph-bg);
   color: var(--ph-ink); font: 650 12px var(--font); text-align: center; white-space: nowrap; }

@@ -418,11 +418,11 @@ export function buildKentHouse({ scene, colliders, tickers, origin, interactions
     },
     spawn: { x: O.x, z: O.z + 38, heading: Math.PI },
     garage: [
-      { id: 'chiron', x: O.x - 10.6, z: O.z + 3.6, heading: Math.PI },
-      { id: 'revuelto', x: O.x - 7.4, z: O.z + 3.6, heading: Math.PI },
-      { id: 'f458', x: O.x - 15, z: O.z + 11, heading: -Math.PI / 2 },
-      { id: 'cullinan', x: O.x - 15, z: O.z + 14.6, heading: -Math.PI / 2 },
-      { id: 'g63', x: O.x - 15, z: O.z + 18.2, heading: -Math.PI / 2 },
+      // Richard's four: the Ferrari and the Rolls-Royce in the garage, the Range Rover and the G-Wagon beside it
+      { id: 'f458', x: O.x - 10.6, z: O.z + 3.6, heading: Math.PI },
+      { id: 'cullinan', x: O.x - 7.4, z: O.z + 3.6, heading: Math.PI },
+      { id: 'rangerover', x: O.x - 15, z: O.z + 12.6, heading: -Math.PI / 2 },
+      { id: 'g63', x: O.x - 15, z: O.z + 16.6, heading: -Math.PI / 2 },
     ],
     slots: bays(14.5, 10.6, 6, 3.2, Math.PI / 2),
     learnerAt: { x: O.x + 9.5, z: O.z + 29, heading: Math.PI },

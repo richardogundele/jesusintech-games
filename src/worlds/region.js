@@ -122,7 +122,7 @@ export function buildRegion(renderer, { id, name, data, arena = false }) {
 
   // you arrive at the terminal; your cars wait in its car park, the learner at the test centre
   const spawn = { x: air.entrance.x, z: air.entrance.z - 6, heading: Math.PI };
-  const garage = ['revuelto', 'cullinan', 'tesla', 'lexus'].map((cid, i) => ({ id: cid, ...air.carPark[i] }));
+  const garage = ['f458', 'rangerover', 'g63', 'cullinan'].map((cid, i) => ({ id: cid, ...air.carPark[i] }));
   const player = { x: spawn.x, z: spawn.z, r: 0 };
   let last = 0;
   return {

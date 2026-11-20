@@ -39,6 +39,13 @@ export const CARS = {
     color: 0x15161a, topSpeed: 220, accel: 7, grip: 5.5, steer: 0.56, engine: 'v8',
     dims: { L: 4.87, W: 1.98 },
   },
+  rangerover: {
+    // no Range Rover model yet: the Cullinan's lofted SUV body, in Range Rover proportions and paint
+    loft: 'cullinan',
+    price: 165_000, maker: 'Land Rover', model: 'Range Rover', type: 'suv',
+    color: 0xeceae4, topSpeed: 250, accel: 6.5, grip: 6, steer: 0.55, engine: 'v8', // Fuji white, so it reads apart from the black G-Wagon beside it
+    dims: { L: 5.05, W: 2.05 },
+  },
   // ---- everyday cars you own: good for driving lessons (an L-plated learner, not a taxi) ----
   tesla: {
     loft: 'tesla',
@@ -104,8 +111,9 @@ export const PAINTS = [
   ['Sunflower', 0xf2c200], ['Orange', 0xff7a00], ['Lime', 0x9fd13a], ['Teal', 0x1c8a8a],
   ['Plum', 0x5b2a6b], ['Rose gold', 0xc99a8c], ['Sky blue', 0x7fb6e6], ['Sand', 0xd8c7a1],
 ];
-// the fleet you started with: always yours
-export const STARTER_CARS = ['revuelto', 'f458', 'cullinan', 'chiron', 'g63', 'tesla', 'lexus'];
+// the fleet at home, always yours (Richard's four: Ferrari, Range Rover, G-Wagon, Rolls-Royce), and any
+// of them can be the car for lessons and tests (the phone's Settings, or just start one sitting in it)
+export const STARTER_CARS = ['f458', 'rangerover', 'g63', 'cullinan'];
 
 // unbranded traffic: body shape + paint picked at random
 export const TRAFFIC = [
