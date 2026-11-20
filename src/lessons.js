@@ -273,8 +273,8 @@ export class LessonRun {
     this.stopT = 0;
     this.done = false;
     this.text = def.intro;
-    // the instructor who teaches (coach.js): lessons only; on a mock or a test the examiner stays quiet
-    this.coach = this.kent && !def.mock && !def.generated && !def.practice ? new Coach(this) : null;
+    // the instructor who teaches (coach.js): a lesson is taught, a mock gets hints, the real test gets nothing
+    this.coach = this.kent && !def.real && !def.practice ? new Coach(this, { hints: !!def.mock }) : null;
     // the gearbox lessons' drills, the coach's line under the instructor's text, the gears lesson's tasks
     this.drillQ = (def.drills?.start || []).map((k) => ({ k, ...DRILLS[k] }));
     this.stopN = 0; this.creepT = 0; this.coachText = ''; this.ctl = null;

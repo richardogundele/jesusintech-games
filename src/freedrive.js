@@ -88,6 +88,8 @@ export class FreeExam {
       const along = dx * fx + dz * fz - 2, side = Math.abs(dx * fz - dz * fx);
       if (da > 0.7 || side > 8 || along > 80 || along < -30) { this.lightAlong.delete(h); continue; }
       const prev = this.lightAlong.get(h);
+      // point it out while there is still room to stop gently
+      if (v > 3 && along > 15 && along < 60 && (h.state === 'red' || h.state === 'amber' || h.state === 'redamber')) this.tip(h.state === 'amber' ? 'Amber ahead: stop at the white line unless you are too close to stop safely.' : 'Red light ahead: ease off and stop behind the white line.', 'redahead', 10);
       if (prev != null && prev > 0 && along <= 0 && v > 0.8 && (h.state === 'red' || h.state === 'redamber')) {
         this.fault('serious', 'Response to signals: traffic lights (went through a red)', 'red', 6);
       }
@@ -212,6 +214,27 @@ export class FreeExam {
         }
       } else this.wrongDist = 0;
     } else this.wrongDist = 0;
+
+    // ---- the speed limit: say when it changes, and warn before it becomes a fault ----
+    const lim = world?.speedLimitAt?.(car.pos.x, car.pos.z);
+    if (lim && Math.abs(v) > 2) {
+      if (this.lastLimit && lim !== this.lastLimit) { this.lastLimit = lim; return this.tip(lim >= 60 ? `National speed limit: ${lim} mph here. It is a limit, not a target.` : `The speed limit is ${lim} mph now${lim < 30 ? ': watch for people near the road' : ''}.`, 'limitchg', 4); }
+      this.lastLimit = lim;
+      if (this.cHeld('nearlim', mph > lim + 0.5, dt, 0.4)) return this.tip(`Watch your speed: the limit here is ${lim}.`, 'nearlim', 15);
+    } else if (lim) this.lastLimit = lim;
+
+    // ---- a zebra crossing coming up ----
+    if (net && net.crossingsByWay && mph > 8) {
+      const h = net.nearest(car.pos.x, car.pos.z, 14);
+      const list = h && net.crossingsByWay.get(h.way.id);
+      if (list) {
+        const fwd = h.dir[0] * Math.sin(car.heading) + h.dir[1] * Math.cos(car.heading) >= 0 ? 1 : -1;
+        for (const c of list) {
+          const ahead = (c.s - h.s) * fwd;
+          if (ahead > 10 && ahead < 60) return this.tip(/zebra/.test(c.type) ? 'Zebra crossing ahead: check your mirror and cover the brake. Stop for anyone on it or waiting.' : 'Pedestrian crossing ahead: be ready to stop if the lights change.', 'zebra', 12);
+        }
+      }
+    }
 
     // ---- the edge of the map ----
     // Richard drove the A299 for a mile looking for Manchester. The map ends; nothing said so.

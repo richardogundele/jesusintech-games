@@ -89,7 +89,7 @@ export class Phone {
       ${this.practice(trans)}
       <div id="ph-mock"></div>
       <h3>Mock test</h3>
-      <p class="note">The real format, marked the way the examiner marks it, and each fault is shown as it happens. A new route every time, from one of the city's test centres.</p>
+      <p class="note">The real format, marked the way the examiner marks it, with a hint before each junction and every fault pointed out as it happens. The real test has none of that. A new route every time, from one of the city's test centres.</p>
       ${start('mock', 'any', 'Mock test', 'About a quarter of an hour: roundabouts, lights, crossings, a faster road, independent driving, a manoeuvre and sometimes an emergency stop.')}
       ${start('mock', 'whole', 'Long mock', 'About half an hour, from one test centre across the city to another. Marked the same way, with no bay park at the end.', true)}
       <div id="ph-test"></div>

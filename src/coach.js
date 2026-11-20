@@ -97,6 +97,9 @@ const CORRECT = [
   [/hit the kerb|edge line|mounted the pavement|left the carriageway/i, 'You touched the kerb. Look well ahead to where you want to go and the steering follows.'],
   [/normal driving|wrong side/i, 'Keep left: about a metre in from the kerb in normal driving.'],
   [/clearance/i, 'Too close to the parked cars. Leave a door\'s width, and slow down if you can\'t.'],
+  [/creep not controlled/i, 'There was traffic, so you needed to stop at the line. In an automatic, hold it on the footbrake: it creeps forward on its own.'],
+  [/control: parking brake/i, 'Handbrake on whenever you stop for more than a moment, and off before you move.'],
+  [/stalled/i, 'You stalled. Clutch down, neutral, restart, then a little more gas and a slower clutch.'],
   [/did not stop when asked/i, 'I asked you to pull up there. Mirrors, signal left, and stop close to the kerb.'],
   [/look before you reverse/i, 'Look all round before you reverse, and keep looking while you move.'],
   [/reverse about two car lengths/i, 'About two car lengths: use the car behind and the kerb to judge it.'],
@@ -174,10 +177,15 @@ function brief(e, want, rbInfo) {
 }
 
 export class Coach {
-  /** run: the LessonRun. Lessons only: the caller never makes one for a mock or a test. */
-  constructor(run) {
+  /**
+   * run: the LessonRun. A lesson gets the full teaching. A mock gets hints (`hints`): a short prompt
+   * with each direction, the checklist, and a correction when something goes wrong, but no praise and
+   * no skill debrief, since it has the examiner's own sheet. The real test never gets a coach.
+   */
+  constructor(run, { hints = false } = {}) {
     this.run = run;
-    this.skill = SKILLS[run.def.id] || { focus: [], name: 'today\'s skill' };
+    this.hints = hints;
+    this.skill = hints ? { focus: Object.keys(STEPS), name: 'the test' } : SKILLS[run.def.id] || { focus: [], name: 'today\'s skill' };
     this.focus = new Set(this.skill.focus);
     this.open = [];     // events briefed and not yet finished: { e, want, steps, f0, s0 }
     this.log = [];      // finished focus events: { kind, place, failed: Set(step) }
@@ -198,8 +206,9 @@ export class Coach {
     // the whole routine the first time, and again after one that went wrong; a prompt once it's going well
     const last = [...this.log].reverse().find((x) => x.kind === e.kind);
     const key = e.kind === 'rb' || e.kind === 'turn' || e.kind === 'emerge' ? `${e.kind}:${want}` : e.kind;
-    const full = !this.briefed?.has(key) || (last && last.failed.size);
+    const full = !this.hints && (!this.briefed?.has(key) || (last && last.failed.size));
     (this.briefed ||= new Set()).add(key);
+    if (this.hints) { const p = prompt(e, want, rb); return p ? `Hint: ${p}` : ''; }
     return full ? brief(e, want, rb) : prompt(e, want, rb);
   }
   /** moving off after a stop is a skill of its own on the first lessons (called just before it is marked) */
@@ -247,7 +256,7 @@ export class Coach {
       this.log.push({ kind: e.kind, steps: o.steps, failed, place: run.where({ s: e.entryS ?? e.lineS ?? e.s }) });
       // praise a clean one, when nothing has just been said and nothing is about to be
       const next = run.events.find((q) => !q.said && q.s > s);
-      if (!failed.size && run.t - this.lastSaid > 3 && (!next || next.s - s > 90)) {
+      if (!this.hints && !failed.size && run.t - this.lastSaid > 3 && (!next || next.s - s > 90)) {
         const P = PRAISE[e.kind] || ['Good.'];
         this.speak(P[this.praiseN++ % P.length]);
       }
@@ -273,7 +282,7 @@ export class Coach {
 
   /** the debrief by skill for the result screen: { name, done, clean, steps: [{ name, ok, of }], issues: [text] } */
   summary() {
-    if (!this.log.length) return null;
+    if (this.hints || !this.log.length) return null;
     const steps = {};
     for (const x of this.log) for (const k of x.steps) {
       steps[k] = steps[k] || { name: STEP_NAME[k] || k, ok: 0, of: 0 };
