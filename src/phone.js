@@ -1,20 +1,19 @@
 // The phone (Tab): Drive (lessons, parking practice, the mock and the test, your results), Settings
-// (the gearbox you learn in, the lesson car, its paint and plate), the dealer, the hangar, the wardrobe,
-// your profile, and today's goals.
+// (the gearbox you learn in and your plate) and your profile. (The dealer, hangar and wardrobe tabs
+// were taken out, at Richard's word.)
 import { state, formatMoney } from './state.js';
 import { CARS, JETS } from './catalog.js';
 import * as P from './progress.js';
 import { DL25_ROWS } from './dl25.js';
 import { LESSONS } from './lessons.js';
 import { PARKED_ON } from './kent/parked.js';
-import { LOOKS, CIVILIANS } from './character.js';
 import { CITY } from '../tools/driving-city.mjs';
 
 const $ = (id) => document.getElementById(id);
 const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 // Drive first: what a learner opens the phone for is to start something, so starting things is the
 // first tab and the first thing on it. The settings it used to share a page with get their own tab.
-const TABS = [['drive', 'Drive'], ['settings', 'Settings'], ['dealer', 'Dealer'], ['hangar', 'Hangar'], ['wardrobe', 'Wardrobe'], ['me', 'Profile']];
+const TABS = [['drive', 'Drive'], ['settings', 'Settings'], ['me', 'Profile']];
 
 export class Phone {
   /** hooks: { homeId(), crowdSize(), onCarBought(id, home), onJetBought(id), sfx(kind) } */
@@ -30,13 +29,6 @@ export class Phone {
       if (b.dataset.tab) { this.tab = b.dataset.tab; this.render(); }
       if (b.dataset.close !== undefined) this.hooks.close();
       const act = b.dataset.act, id = b.dataset.id;
-      if (act === 'car') {
-        const home = this.hooks.homeId();
-        if (P.buyCar(id, home)) { this.hooks.sfx('spend'); this.hooks.onCarBought(id, home); }
-        this.render();
-      }
-      if (act === 'repair') { if (P.repairCar(id)) { this.hooks.sfx('spend'); this.hooks.onCarRepaired?.(id); } this.render(); }
-      if (act === 'jet' && P.buyJet(id)) { this.hooks.sfx('spend'); this.hooks.onJetBought(id); }
       // these leave the phone: close it first so the game mode is restored before travelling
       // the driving test: the gearbox you learn in, a mock or the real thing, retrying a route
       if (act === 'trans') { this.hooks.setTrans(id); this.render(); return; }
@@ -48,7 +40,6 @@ export class Phone {
       if (act === 'jump') { $(id)?.scrollIntoView({ block: 'start', behavior: 'smooth' }); return; } // a quick-start button: down to its section
       if (act === 'retest') { const i = id.lastIndexOf(':'); this.hooks.close(); this.hooks.startTest(id.slice(0, i), +id.slice(i + 1), 'mock'); return; } // (the whole-city centre is whole:<from>:<to>, colons of its own)
       if (act === 'gohome') { this.hooks.close(); this.hooks.goHome(); return; }
-      if (act === 'look') { state.look[b.dataset.part] = id; this.hooks.setLook(state.look); }
       if (act) this.render();
     });
     // Enter in the plate box saves it, like the button
@@ -67,6 +58,7 @@ export class Phone {
       if (on) b.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' }); // keep the current tab in view in the scrolling row
     }
     $('phone-balance').textContent = formatMoney(state.balance);
+    if (!TABS.some(([id]) => id === this.tab)) this.tab = 'drive'; // a tab that has been taken out opens Drive
     this.body.innerHTML = this[this.tab]();
     this.body.scrollTop = 0;
   }
@@ -149,52 +141,6 @@ export class Phone {
         ${t.seed != null ? `<button class="buy ghost" data-act="retest" data-id="${t.centre}:${t.seed}">Retry route</button>` : ''}</div>`;
     }).join('');
     return `<h3>Your tests</h3><div class="trend">${bars}</div><p class="note">${trend}${top ? ` Most common: <b>${label[top[0]] || top[0]}</b>.` : ''}</p>${rows}`;
-  }
-
-  dealer() {
-    const rows = Object.entries(CARS).map(([id, c]) => {
-      const owned = P.ownsCar(id), off = P.isWrittenOff(id), cond = P.carCondition(id);
-      const repairCost = Math.max(1, Math.round(c.price * ((100 - cond) / 100) * 0.4));
-      let btn;
-      if (owned) {
-        btn = cond < 100
-          ? `<button class="buy ghost" data-act="repair" data-id="${id}">Repair · ${P.shortMoney(repairCost)}</button>`
-          : '<span class="owned">In your garage</span>';
-      } else {
-        btn = `<button class="buy" data-act="car" data-id="${id}" ${state.balance < c.price ? 'disabled' : ''}>${off ? 'Replace · ' : ''}${P.shortMoney(c.price)}</button>`;
-      }
-      const sub = off ? '<div class="s" style="color:#e2574c">Written off</div>'
-        : owned && cond < 100 ? `<div class="s">Condition ${cond}%</div>` : `<div class="s">${c.topSpeed} km/h</div>`;
-      return `<div class="row"><div class="swatch" style="background:#${c.color.toString(16).padStart(6, '0')}"></div>
-        <div class="grow"><div class="m">${c.maker}</div><div class="t">${c.model}</div>${sub}</div>${btn}</div>`;
-    }).join('');
-    return `<p class="note">Crash a car and it takes real damage: a knock costs repairs, a hard hit writes it off. Buy or replace one here — it's delivered to you.</p>${rows}`;
-  }
-
-  hangar() {
-    // Every town a jet used to fly to is an area of Driving City now, so there is no route to quote:
-    // the listing is the aircraft itself, and the note says plainly that it is somewhere to walk, not
-    // somewhere to leave from.
-    return `<p class="note">New jets are parked in the second row at your jet park, out past the edge of Guildford. The house is in the town now, so the jet park is a drive away: 6.6 km, about eight minutes. Every town a jet used to fly to is part of Driving City now, so there is nowhere left to fly to: they are yours to own and walk around.</p>` +
-      Object.entries(JETS).sort((a, b) => (a[1].price || 0) - (b[1].price || 0)).map(([id, j]) => {
-        const owned = P.ownsJet(id);
-        const btn = owned ? '<span class="owned">Yours</span>'
-          : `<button class="buy" data-act="jet" data-id="${id}" ${state.balance < j.price ? 'disabled' : ''}>${P.shortMoney(j.price)}</button>`;
-        return `<div class="row"><div class="grow"><div class="m">${j.maker}</div><div class="t">${j.model}</div>
-          <div class="s">${j.range} · Mach ${j.mach} · up to ${j.seats} passengers${j.note ? ` · ${j.note}` : ''}</div></div>${btn}</div>`;
-      }).join('');
-  }
-
-  wardrobe() {
-    const row = (part, label) => `<h3>${label}</h3><div class="swatches">${Object.entries(LOOKS[part]).map(([name, hex]) =>
-      `<button class="sw ${state.look[part] === name ? 'on' : ''}" data-act="look" data-part="${part}" data-id="${name}" title="${name}" style="background:#${hex.toString(16).padStart(6, '0')}"></button>`).join('')}</div>
-      <p class="note">${state.look[part]}</p>`;
-    const o = state.look.outfit ?? 'Realistic soldier';
-    const extra = o === 'Realistic soldier'
-      ? '<p class="note">A realistic soldier in army digital camouflage (Microsoft Rocketbox avatar, MIT licence). Pick the beret uniform to choose your own camouflage and skin tone.</p>'
-      : CIVILIANS.some((c) => c.name === o) ? '<p class="note">Everyday clothes on a Microsoft Rocketbox avatar (MIT licence), the same people you pass on the pavement.</p>'
-      : (o === 'Military uniform' ? row('camo', 'Camouflage') : row('top', 'Sweatshirt') + row('jeans', 'Jeans')) + row('skin', 'Skin tone');
-    return `<p class="note">What you're wearing around Driving City.</p>` + row('outfit', 'Outfit') + extra;
   }
 
   me() {

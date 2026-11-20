@@ -1436,7 +1436,7 @@ function applyCrash(sev) {
   if (r.insured) { audio.sfx('spend'); hud.toast(`Crash — insurance excess ${P.shortMoney(r.cost)}`, 3200); return; }
   if (r.writeOff) {
     audio.sfx('crash');
-    hud.toast(`Your ${r.car} is written off — buy a replacement at the Dealer.`, 6500);
+    hud.toast(`Your ${r.car} is written off and has been towed away.`, 6500);
     writeOffCurrentCar();
   } else {
     audio.sfx('spend');
@@ -1444,7 +1444,7 @@ function applyCrash(sev) {
     if (car.setCondition) car.setCondition(r.condition); // show the knocks
   }
 }
-/** Eject the player, tow the wreck away, and open the Dealer so a replacement can be bought. */
+/** Eject the player and tow the wreck away. */
 function writeOffCurrentCar() {
   const c = car;
   const side = new THREE.Vector3(Math.cos(c.heading), 0, -Math.sin(c.heading)); // step out on the driver's side
@@ -1457,8 +1457,6 @@ function writeOffCurrentCar() {
   car = null; mode = 'foot';
   hud.exam(null, false);
   snapCamera();
-  phone.tab = 'dealer';
-  togglePhone(); // straight to the showroom
 }
 
 // ---------- sound ----------
