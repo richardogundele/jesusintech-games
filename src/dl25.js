@@ -130,6 +130,9 @@ const ADVICE = {
   ancillary: ['Lights, wipers and demisters must work when you need them.', 'Know where every switch is without looking down.', null],
 };
 
+/** [why, tip] for a fault category, from its DL25 row (the instructor's correction in a lesson: coach.js) */
+export function adviceFor(cat) { const a = ADVICE[rowOf(cat).row]; return a ? [a[0], a[1]] : ['', '']; }
+
 /**
  * The examiner's debrief and "what to improve": { verdict, spoken, main, improve: [{ row, where, why,
  * tip, lesson }] }. where(f) names the place a fault happened ("Greenhill roundabout").

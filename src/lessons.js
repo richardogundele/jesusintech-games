@@ -15,6 +15,7 @@ import { buildKentRoute, KENT_ROUTES, idxAtS, shiftSpec, CENTRES } from './kent/
 import { pedalsManual, pedalsAuto, gearFor } from './pedals.js';
 import { seeded, estimateMinutes, longerWay, sameLine } from './kent/test-routes.js';
 import { scoreSheet, debrief } from './dl25.js';
+import { Coach } from './coach.js';
 
 const BAY_X = BAYS[8].x;
 // the last few metres of the test: left into the test centre, along the aisle, forward into a bay
@@ -272,6 +273,8 @@ export class LessonRun {
     this.stopT = 0;
     this.done = false;
     this.text = def.intro;
+    // the instructor who teaches (coach.js): lessons only; on a mock or a test the examiner stays quiet
+    this.coach = this.kent && !def.mock && !def.generated && !def.practice ? new Coach(this) : null;
     // the gearbox lessons' drills, the coach's line under the instructor's text, the gears lesson's tasks
     this.drillQ = (def.drills?.start || []).map((k) => ({ k, ...DRILLS[k] }));
     this.stopN = 0; this.creepT = 0; this.coachText = ''; this.ctl = null;
@@ -310,6 +313,7 @@ export class LessonRun {
     this.faults.push({ sev, cat, s: this.s, at: this.carPos && { x: +this.carPos.x.toFixed(1), z: +this.carPos.z.toFixed(1) }, extra: this.lastExtra });
     this.lastExtra = null;
     if (!this.def.real) this.hooks.flash?.(`${SEV[sev]}: ${cat}`, sev); // the real test keeps it for the debrief
+    this.coach?.onFault(this.faults[this.faults.length - 1]); // a lesson: say what went wrong and why
     // (NO_SERIOUS_STOP=1, headless only: drive on after a serious fault as the old game did, so a gate
     // can be compared like for like with a baseline that never stopped on one)
     const stopOnSerious = !(typeof process !== 'undefined' && process.env?.NO_SERIOUS_STOP);
@@ -368,6 +372,7 @@ export class LessonRun {
     // ---- moving off ----
     if (car.drive) this.drills(dt, car, mph);
     if (!this.moved && mph > 2 && car.vF > 0) { // forwards: creeping back in a drill isn't moving off
+      this.coach?.movingOff();
       this.moved = true; this.movedT = this.t;
       if (!this.mirror.some((m) => this.t - m.t < 10)) this.fault('minor', 'Move off: safety (mirrors)');
       // after an emergency stop you're already in the lane: mirrors yes, signal only if needed
@@ -381,7 +386,17 @@ export class LessonRun {
         e.said = true;
         // independent driving: the sat nav gives the directions, not the examiner (in Kent the sat nav card speaks for itself)
         if (this.kent && this.independent) { if (TALK_ANYWAY.includes(e.kind)) this.say(e.text); }
-        else this.say(this.independent && e.kind !== 'baypark' && e.kind !== 'pullup' ? `Sat nav: ${e.text.replace('At the', 'In 200 metres, at the').replace('Take the next', 'In 150 metres, take the next')}` : e.text);
+        else if (this.coach && !this.independent) {
+          // a lesson: the direction, then how to do it (coach.js), with the checklist under it
+          const how = this.coach.brief(e, e.kind === 'rb' ? rbApproach(e) : e.kind === 'merge' || e.kind === 'pullright' ? 'right' : e.kind === 'diverge' || e.kind === 'stop' ? 'left' : e.dir);
+          this.say(how ? `${e.text.replace(/ Use the [a-z-]+ lane\./, '')} ${how}` : e.text);
+        } else this.say(this.independent && e.kind !== 'baypark' && e.kind !== 'pullup' ? `Sat nav: ${e.text.replace('At the', 'In 200 metres, at the').replace('Take the next', 'In 150 metres, take the next')}` : e.text);
+      }
+      // a lesson: zebras and lights come with no direction, so the instructor briefs them on her own
+      if (this.coach && !e.text && !e.coachSaid && (e.kind === 'zebra' || e.kind === 'lights') && this.moved && s > (e.lineS ?? e.s) - 70 && s < (e.lineS ?? e.s) - 12) {
+        e.coachSaid = true;
+        const how = this.coach.brief(e, null);
+        if (how) this.coach.speak(how);
       }
       if ((this.kent ? MARK_KENT : MARK_WM).includes(e.kind) && !e.marked && s > e.s + (e.kind === 'rb' ? 20 : 10)) {
         e.marked = true;
@@ -589,6 +604,7 @@ export class LessonRun {
     }
     if (this.kent) this.satnavUpdate(car);
     if (this.kent && this.def.generated) this.watchClock(car);
+    this.coach?.tick(car, mph);
     this.hooks.hud({ text: this.text, coach: this.coachText, faults: this.counts(), mock: !!this.def.mock, title: this.independent ? 'Independent driving · follow the sat nav' : this.def.title });
   }
   /**
@@ -1220,7 +1236,7 @@ export class LessonRun {
     if (!terminated) this.say(this.def.mock ? `Please switch off the engine and give me a moment to complete my test report. ${brief.spoken}` : brief.verdict);
     const map = this.kent || this.route.pts.length ? { pts: this.route.pts.filter((q, i) => i % 6 === 0).map((q) => [+q.x.toFixed(1), +q.z.toFixed(1)]), faults: this.faults.filter((f) => f.at).map((f) => ({ x: f.at.x, z: f.at.z, sev: f.sev })) } : null;
     this.hooks.result({ id: this.def.id, title: this.def.title, mock: !!this.def.mock, real: !!this.def.real, practice: !!this.def.practice, passed, counts: c, lines, time: this.t, tasks: this.tasks, trans: this.trans || car.trans,
-      sheet, brief, map, generated: this.def.generated || null, signs: this.def.signs || null, terminated: terminated || false });
+      sheet, brief, map, generated: this.def.generated || null, skill: this.coach?.summary() || null, signs: this.def.signs || null, terminated: terminated || false });
   }
 
   /** where a fault happened, for the debrief: the roundabout or junction near it, else the road */

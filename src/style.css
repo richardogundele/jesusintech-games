@@ -533,6 +533,16 @@ h1 { font-family: var(--font-display); font-size: clamp(40px, 9vw, 112px); lette
 .phone, #result .modal, #jets .modal, #quiz .modal { animation: sheet-pop 0.22s var(--ease) both; }
 @media (prefers-reduced-motion: reduce) { .phone, #result .modal, #jets .modal, #quiz .modal { animation: none; } }
 
+/* a lesson's result: the instructor's debrief by skill (coach.js) */
+#res-sub .skill { text-align: left; margin: var(--sp-4) auto 0; max-width: 380px; }
+#res-sub .skill h4 { font-size: var(--fs-xs); letter-spacing: 0.2em; text-transform: uppercase; color: var(--gold); margin: 0 0 var(--sp-2); font-weight: 600; }
+#res-sub .skill-head { font-size: var(--fs-md); color: var(--text); margin-bottom: var(--sp-2); }
+#res-sub .skill-steps { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+#res-sub .skill-steps div { display: flex; justify-content: space-between; gap: 8px; padding: 6px 10px; border-radius: var(--r-sm); background: rgba(255, 255, 255, 0.05); font-size: var(--fs-xs); }
+#res-sub .skill-steps .ok b { color: var(--green-soft); }
+#res-sub .skill-steps .miss b { color: var(--amber); }
+#res-sub .skill-issues { margin-top: var(--sp-2); font-size: var(--fs-xs); color: var(--text-2); line-height: 1.6; }
+
 /* ---------- the phone (Tab, and the HUD's Settings button) ----------
    Driving City's own colours: cream, brown, white and black. Light is cream paper with white cards and
    black type; dark is near-black with warm brown cards and cream type. One set of tokens, two values. */

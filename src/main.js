@@ -1136,7 +1136,13 @@ function sheetHtml(r) {
   if (!r.sheet || !r.mock) { // lessons: the faults and the lesson's tasks; tests get the whole DL25
     const lines = r.lines.length ? r.lines.map((l) => `<div class="${l.sev}">${l.sev === 'minor' ? 'Driving fault' : l.sev === 'serious' ? 'Serious' : 'Dangerous'} · ${esc(l.cat)}${l.n > 1 ? ` ×${l.n}` : ''}</div>`).join('') : '<div>No faults at all. Textbook.</div>';
     const tasks = r.tasks ? `<div class="tasks">${Object.entries(r.tasks).map(([k, v]) => `<span class="${v ? 'done' : ''}">${v ? '✓' : '·'} ${{ up4: 'Up to fourth', down: 'Changed down for a junction', block: 'Block change', start: 'Started the engine', bite: 'Found the bite', biteDown: 'Clutch down at the bite', stall: 'Stalled on purpose', recover: 'Recovered the stall', astart: 'Started the engine', select: 'Selected D', creep: 'Creep control', reverse: 'Reversed in R', select2: 'Back into D', secureP: 'Parked: handbrake and P' }[k] || k}</span>`).join('')}</div>` : '';
-    return `<div class="faults">${lines}</div>${tasks}`;
+    // the instructor's debrief by skill (coach.js): how many, how many cleanly, and each step
+    const k = r.skill;
+    const skill = k ? `<div class="skill"><h4>Today's skill: ${esc(k.name)}</h4>
+        <div class="skill-head"><b>${k.clean}</b> of <b>${k.done}</b> done cleanly</div>
+        <div class="skill-steps">${k.steps.map((x) => `<div class="${x.ok === x.of ? 'ok' : 'miss'}"><span>${esc(x.name)}</span><b>${x.ok}/${x.of}</b></div>`).join('')}</div>
+        ${k.issues.length ? `<div class="skill-issues">${k.issues.map((t) => `<div>${esc(t)}</div>`).join('')}</div>` : ''}</div>` : '';
+    return `${skill}<div class="faults">${lines}</div>${tasks}`;
   }
   const S = r.sheet, B = r.brief || { improve: [] };
   const rows = S.rows.map((R) => `<tr class="${R.d || R.s || R.x ? 'hit' : ''}"><td>${esc(R.label)}${Object.keys(R.subs).length ? `<small>${Object.entries(R.subs).map(([k, n]) => `${k}${n > 1 ? ' ×' + n : ''}`).join(' · ')}</small>` : ''}</td><td>${tally(R.d)}</td><td class="s">${R.s ? (R.habitual ? 'S*' : 'S'.repeat(R.s)) : ''}</td><td class="x">${R.x ? 'D'.repeat(R.x) : ''}</td></tr>`).join('');
