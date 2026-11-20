@@ -101,6 +101,7 @@ export class Hud {
     this.satnavEl = $('satnav');
     this.indEl = $('indicators');
     this.mirrorEl = $('mirror');
+    this.doorL = $('mirror-l'); this.doorR = $('mirror-r');
     this.tipEl = $('ctl-tip');
     this.controlsEl = $('controls');
     this.controlsBody = $('controls-body');
@@ -408,6 +409,11 @@ export class Hud {
   mirror(show, flash) {
     this.flag(this.mirrorEl, 'hidden', !show);
     this.flag(this.mirrorEl, 'flash', !!flash);
+  }
+  /** the door mirrors' frames (main.js draws the glass inside them) */
+  doorMirrors(left, right, flash) {
+    this.flag(this.doorL, 'hidden', !left); this.flag(this.doorR, 'hidden', !right);
+    this.flag(this.doorL, 'flash', !!flash); this.flag(this.doorR, 'flash', !!flash);
   }
 
   trial(html) {

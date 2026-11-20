@@ -199,6 +199,13 @@ h1 { font-family: var(--font-display); font-size: clamp(40px, 9vw, 112px); lette
 #mirror { flex: none; width: 296px; height: 74px; border: 2px solid rgba(14, 15, 18, 0.95); border-radius: var(--r-xs);
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(255, 255, 255, 0.1); transition: border-color var(--dur-1) ease; }
 #mirror.flash { border-color: var(--gold); }
+/* the door mirrors: glass drawn by WebGL at 200 x 124, 22px in from each edge and centred on the game
+   view's height (main.js DOOR_*); the 2px frame sits round it (square glass, so only a small radius) */
+.door-mirror { position: absolute; top: calc(50% - 64px); width: 204px; height: 128px; border: 2px solid rgba(14, 15, 18, 0.95);
+  border-radius: var(--r-xs); box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(255, 255, 255, 0.1); transition: border-color var(--dur-1) ease; }
+#mirror-l { left: 20px; }
+#mirror-r { right: 20px; }
+.door-mirror.flash { border-color: var(--gold); }
 #lesson { max-width: min(620px, calc(100vw - 2 * (var(--edge) + 290px))); min-width: 280px; text-align: center; padding: 9px 18px 11px; border-radius: var(--r-lg); }
 #lesson .l-title { font-size: var(--fs-xs); font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: var(--gold); }
 #lesson .l-title .bad { color: var(--red-soft); }

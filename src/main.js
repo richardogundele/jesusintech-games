@@ -52,27 +52,63 @@ window.addEventListener('resize', () => {
   renderer.setSize(viewW(), viewH());
   pipeline.setSize(viewW(), viewH());
 });
-const mirrorCam = new THREE.PerspectiveCamera(42, 292 / 70, 0.3, 600);
+// The learner car's three mirrors. The interior mirror sits top centre (its 2px frame is #mirror: 296 x 74
+// at top 16px, style.css). The door mirrors sit one each side, mid-height at the screen's edge (frames
+// #mirror-l / #mirror-r at the same DOOR_* numbers): each shows when you signal its way, both when you
+// check your mirrors (Q) or reverse, so the habit is the real one: interior mirror, then the door mirror
+// on the side you're going.
+// A mirror shows what is behind you on your left on its left. A camera looking backwards shows it on the
+// right, so every mirror renders to a small target and is drawn back flipped on a quad (a flipped camera
+// would turn every face in the scene inside out). Measured on screen: a door mirror shows the car's own
+// flank on its inside edge, and a car overtaking on your right is on the right of the interior mirror.
+const IN_W = 292, IN_H = 70, DOOR_W = 200, DOOR_H = 124, DOOR_EDGE = 22;
+const quadCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+function mirrorView(w, h, fov) {
+  const rt = new THREE.WebGLRenderTarget(w * 2, h * 2);
+  const q = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.MeshBasicMaterial({ map: rt.texture, depthTest: false, depthWrite: false }));
+  q.scale.x = -1; // flipped left to right (three.js turns the winding round for a negative scale)
+  const scene = new THREE.Scene(); scene.add(q);
+  return { rt, scene, cam: new THREE.PerspectiveCamera(fov, w / h, 0.3, 600), w, h };
+}
+const mirrors = { inside: mirrorView(IN_W, IN_H, 42), left: mirrorView(DOOR_W, DOOR_H, 36), right: mirrorView(DOOR_W, DOOR_H, 36) };
+const doors = { left: 0, right: 0 }; // seconds left showing each door mirror
+const doorsFit = () => viewW() >= 760 && viewH() >= 520; // no room on a small screen
+/** render mirror m from its camera and draw it flipped at (x, yTop) in CSS pixels */
+function drawMirror(m, x, yTop, hideCar) {
+  renderer.setRenderTarget(m.rt);
+  if (hideCar) car.model.root.visible = false;
+  renderer.render(world.scene, m.cam);
+  car.model.root.visible = true;
+  renderer.setRenderTarget(null);
+  renderer.setScissorTest(true);
+  renderer.setScissor(x, viewH() - yTop - m.h, m.w, m.h);
+  renderer.setViewport(x, viewH() - yTop - m.h, m.w, m.h);
+  renderer.render(m.scene, quadCam);
+  renderer.setScissorTest(false);
+  renderer.setViewport(0, 0, viewW(), viewH());
+}
 const draw = () => {
   if (!renderer.domElement.width || !renderer.domElement.height) return; // minimised / zero-size window
   updateCulling(camera.position);
   pipeline.render(world.scene);
-  // a real rear-view mirror in the learner car (its 2px frame is #mirror: 296 x 74 at top 16px, style.css)
   if (car?.drive && mode === 'car') {
-    const w = 292, h = 70, x = (viewW() - w) / 2, yTop = 18;
-    const fx = Math.sin(car.heading), fz = Math.cos(car.heading);
-    mirrorCam.position.set(car.pos.x + fx * 0.2, car.pos.y + 1.25, car.pos.z + fz * 0.2);
-    mirrorCam.lookAt(car.pos.x - fx * 30, car.pos.y + 0.9, car.pos.z - fz * 30);
+    // forward, and (cos h, -sin h): measured on screen, that is the car's left as you see it from behind
+    const fx = Math.sin(car.heading), fz = Math.cos(car.heading), rx = Math.cos(car.heading), rz = -Math.sin(car.heading);
     const auto = renderer.shadowMap.autoUpdate;
     renderer.shadowMap.autoUpdate = false;
-    renderer.setScissorTest(true);
-    renderer.setScissor(x, viewH() - yTop - h, w, h);
-    renderer.setViewport(x, viewH() - yTop - h, w, h);
-    car.model.root.visible = false;
-    renderer.render(world.scene, mirrorCam);
-    car.model.root.visible = true;
-    renderer.setScissorTest(false);
-    renderer.setViewport(0, 0, viewW(), viewH());
+    const mi = mirrors.inside;
+    mi.cam.position.set(car.pos.x + fx * 0.2, car.pos.y + 1.25, car.pos.z + fz * 0.2);
+    mi.cam.lookAt(car.pos.x - fx * 30, car.pos.y + 0.9, car.pos.z - fz * 30);
+    drawMirror(mi, (viewW() - IN_W) / 2, 18, true);
+    // the door mirrors see the car's own flank, as real ones do
+    if (doorsFit()) for (const side of ['left', 'right']) {
+      if (!(doors[side] > 0)) continue;
+      const m = mirrors[side], k = side === 'left' ? 1 : -1, half = (car.model.width || 1.75) / 2;
+      const px = car.pos.x + rx * k * (half + 0.12) + fx * 0.55, pz = car.pos.z + rz * k * (half + 0.12) + fz * 0.55;
+      m.cam.position.set(px, car.pos.y + 1.0, pz);
+      m.cam.lookAt(px - fx * 30 + rx * k * 3.2, car.pos.y + 0.75, pz - fz * 30 + rz * k * 3.2);
+      drawMirror(m, side === 'left' ? DOOR_EDGE : viewW() - DOOR_EDGE - DOOR_W, Math.round(viewH() / 2 - DOOR_H / 2), false);
+    }
     renderer.shadowMap.autoUpdate = auto;
   }
 };
@@ -1723,6 +1759,12 @@ function step(dt) {
     const inLearner = mode === 'car' && !!car?.drive; // the rear-view mirror is the learner car's
     hud.limit(world.units === 'mph' ? world.speedLimitAt(p.x, p.z) : null, world.units === 'mph' && world.nslAt?.(p.x, p.z));
     hud.mirror(inLearner, drive.mirrorFlash > 0);
+    // door mirrors: the side you signal, both on a mirror check (Q) or in reverse; they linger a moment after
+    for (const side of ['left', 'right']) {
+      const want = inLearner && (drive.indicator === side || drive.mirrorFlash > 0 || car.vF < -0.3);
+      doors[side] = want ? 1.5 : Math.max(0, doors[side] - dt);
+    }
+    hud.doorMirrors(inLearner && doorsFit() && doors.left > 0, inLearner && doorsFit() && doors.right > 0, drive.mirrorFlash > 0);
     drive.mirrorFlash -= dt;
     const place = world.place(p.x, p.z);
     if (place !== lastPlace) { lastPlace = place; P.emit('place', place); }
