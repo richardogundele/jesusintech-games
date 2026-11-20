@@ -14,9 +14,11 @@ export const CARS = {
   },
   f458: {
     // real scanned model in local dev only (licence unconfirmed); a lofted body on the public site
-    price: 230_000, maker: 'Ferrari', model: '458 Italia', type: 'super', loft: 'revuelto', ...(import.meta.env.PROD ? {} : { gltf: 'ferrari' }),
-    color: 0xa30b12, topSpeed: 325, accel: 11.5, grip: 8, steer: 0.64, engine: 'v8',
-    dims: { L: 4.53, W: 1.94 },
+    // the 12Cilindri (2024): a front-engined V12, 830 cv, 340 km/h. The id stays f458 so saves keep it
+    // (the scanned local-dev model is still the older 458's shape until a 12Cilindri model comes)
+    price: 395_000, maker: 'Ferrari', model: '12Cilindri', type: 'super', loft: 'revuelto', ...(import.meta.env.PROD ? {} : { gltf: 'ferrari' }),
+    color: 0xa30b12, topSpeed: 340, accel: 12.5, grip: 8, steer: 0.64, engine: 'v12',
+    dims: { L: 4.73, W: 2.18 },
   },
   cullinan: {
     gltf: 'car_cullinan', fit: { yaw: 0, wheels: /^wheel_[fr][lr]$/, paint: /^colored$/, tint: true }, // its paint is baked red: tint it
