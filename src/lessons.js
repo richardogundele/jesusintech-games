@@ -13,7 +13,7 @@ import * as THREE from 'three';
 import { buildRoute, MPH, LANE, LW, LOT, BAYS, inLot } from './worlds/uk.js';
 import { buildKentRoute, KENT_ROUTES, idxAtS, shiftSpec, CENTRES } from './kent/lesson-routes.js';
 import { pedalsManual, pedalsAuto, gearFor } from './pedals.js';
-import { seeded, estimateMinutes } from './kent/test-routes.js';
+import { seeded, estimateMinutes, longerWay, sameLine } from './kent/test-routes.js';
 import { scoreSheet, debrief } from './dl25.js';
 
 const BAY_X = BAYS[8].x;
@@ -592,42 +592,129 @@ export class LessonRun {
     this.hooks.hud({ text: this.text, coach: this.coachText, faults: this.counts(), mock: !!this.def.mock, title: this.independent ? 'Independent driving · follow the sat nav' : this.def.title });
   }
   /**
-   * A test that is running late is brought back by a shorter way, as an examiner does: the stretches
-   * still to come are dropped and the route goes straight to where it ends. A route is planned to
-   * about a quarter of an hour, but what it takes on the day moves a minute or more either way with
-   * the lights and the queues, and nothing else can pull a slow one back.
-   * Only once: when what is left would end the test after LATE minutes, when the short way saves half
-   * a minute or more and still ends it after EARLY, with every pull-up and the manoeuvre done, on the
-   * route, and on a stretch with nothing just said and nothing about to be.
+   * The examiner keeps an eye on the clock. A route is planned to about a quarter of an hour, but what
+   * it takes on the day moves a minute or more either way with the lights and the queues, and nothing
+   * else can pull a slow drive back or fill out a quick one. So, once, with every pull-up and the
+   * manoeuvre done and the car on the route:
+   * - running late (what is left would end the test after LATE minutes), it is brought back by a
+   *   shorter way: the stretches still to come are dropped and the route goes straight to where it
+   *   ends, when that saves half a minute or more and still ends the test after EARLY, on a stretch
+   *   with nothing just said and nothing about to be;
+   * - running early (it would end before SOON), it is taken a longer way round: one more estate
+   *   junction to go round before the route carries on (test-routes.js longerWay), to end as near MID
+   *   as the streets allow, no sooner than EARLY and a bit and no later than ROOM. Only in the last
+   *   LAST minutes, and the more of them are left the earlier it has to be running: the stretch added comes
+   *   on top of whatever the test would have taken, so the clock has to be right about that first.
+   *   Over the gate's 78 tests it is out by up to 2.4 min with eight or more to go, by 1.1 at most
+   *   (19 times in 20) with four or five, and by 0.35 with two or three. So under SOON counts as
+   *   early inside the last two minutes, and 0.3 min less for each minute more than that; and MID is
+   *   under the middle of 13-17, so that a test the clock had a minute short still ends in time.
    */
   watchClock(car) {
     const g = this.def.generated;
-    if (this.cut || g.wholeCity || !this.moved || this.t < (this.clockT ?? 240)) return;
+    // (once corrected it is left alone; a clock hook, which lesson-check --clock has, goes on being told)
+    if ((this.cut && !this.hooks.clock) || g.wholeCity || !this.moved || this.t < (this.clockT ?? 240)) return;
     this.clockT = this.t + 3;
-    const s = this.s, K = g.timeK || 1, LATE = 16.4, EARLY = 14;
-    if (this.dist > 6 || !(this.spec.vias || []).some((v, i) => this.viaS[i] > s + 10)) return;
-    if (this.estop?.state === 'braking') return;
+    const s = this.s, K = g.timeK || 1, LATE = 16.4, EARLY = 14, SOON = 14, MID = 14.7, ROOM = 15.5, LAST = 5;
+    if (this.dist > 6 || this.estop?.state === 'braking') return;
     if (this.events.some((e) => (e.kind === 'stop' || e.kind === 'pullright') && endOf(e) > s)) return;
+    const left = estimateMinutes(this.route, s) * K, end = this.t / 60 + left;
+    this.hooks.clock?.({ t: this.t, s, end });
+    if (this.cut) return;
+    if (end < SOON) { if (left <= LAST && end < SOON - 0.3 * Math.max(0, left - 2)) this.goLonger(car, s, K, end, [EARLY + 0.2 - end, MID - end, ROOM - end]); return; }
+    if (end <= LATE || !(this.spec.vias || []).some((v, i) => this.viaS[i] > s + 10)) return;
     if (this.events.some((e) => (e.exitS ?? e.s) > s - 20 && (e.entryS ?? e.s) < s + 90)) return;
-    const left = estimateMinutes(this.route, s) * K;
-    if (this.t / 60 + left <= LATE) return;
     this.clockT = this.t + 12; // it is late; trying the short way costs a route search, so not every look
     let r = null;
     // (from where the car is, facing the way it faces: the short way may not begin by turning round)
     try { r = buildKentRoute(this.world.net, { ...this.spec, start: { x: car.pos.x, z: car.pos.z, fx: Math.sin(car.heading), fz: Math.cos(car.heading) }, vias: [], stops: 0, angled: false, pullRight: false }, { rnd: seeded((this.def.seed ?? 1) + 7) }); } catch { r = null; }
     if (!r || r.pts.length < 4) return;
-    const short = estimateMinutes(r) * K;
+    // (the car is already moving where the short way starts, as it is in `left`: counted as a route
+    // from rest it came out 0.19 min long, and a test brought back to "14" ended at 13.7 and 13.8)
+    const short = estimateMinutes(r, 0, true) * K;
     if (left - short < 0.5 || this.t / 60 + short < EARLY) return;
     // and it has to begin along the line the car is on: the same lane for its first 30 m. A route from
     // "the road nearest here" can be the other carriageway, or the road across the junction the car is
     // standing in, and the car then swings for a line two metres to one side of it (Coventry seed 4
     // went over the kerb doing it). Not now, then: the next look may be from a better place.
-    for (let k = 0; k < r.pts.length && r.pts[k].s <= 30; k += 2) {
-      const p = r.pts[k], q = this.route.pts[Math.min(this.route.pts.length - 1, idxAtS(this.route.pts, s + p.s))];
-      if (Math.hypot(p.x - q.x, p.z - q.z) > 1) return;
-    }
-    this.cut = { t: this.t, s, saved: +(left - short).toFixed(1) };
+    if (!sameLine(this.route.pts, s, r)) return;
+    this.cut = { t: this.t, s, saved: +(left - short).toFixed(1), end: +(this.t / 60 + short).toFixed(1) };
     this.reroute(car, true);
+  }
+  /**
+   * Running early (watchClock): look for the longer way and take it. It begins at a point 80 m or
+   * more ahead of the car, one with nothing going on at it, so the road up to there is left exactly as
+   * it is and the first new direction comes with the usual notice.
+   */
+  goLonger(car, s, K, end, add) {
+    const route = this.route, pts = route.pts, g = this.def.generated;
+    const box = (this.world.areas || this.world.net.data?.areas || []).find((a) => a.id === this.def.centre)?.box || null;
+    for (let at = s + 80, looks = 0; at < s + 320 && at < route.length - 150 && looks < 3; at += 15) {
+      const p = pts[idxAtS(pts, at)];
+      if (p.rb || p.man || p.park || this.events.some((e) => Math.max(endOf(e), e.exitS ?? 0, e.endS ?? 0) > at - 8 && Math.min(e.s, e.lineS ?? e.s, e.entryS ?? e.s) < at + 30)) continue;
+      looks++;
+      this.clockT = this.t + 12; // a search is a dozen route builds, so not every look
+      const vias = (this.spec.vias || []).filter((v, i) => this.viaS[i] > at + 10);
+      const w = longerWay(this.world.net, route, this.spec, { at, vias, add, timeK: K, box, seed: this.def.seed ?? 1, keepLast: Math.min(g.lastVias || 0, vias.length) });
+      if (w.why === 'line') { at += 30; continue; } // no route from there keeps to this line: a little further on may
+      if (!w.r) return;
+      this.cut = { t: this.t, s, added: +w.added.toFixed(1), end: +(end + w.added).toFixed(1), longer: true };
+      this.spliceRoute(car, w);
+      return;
+    }
+  }
+  /**
+   * The route as far as `at`, a point ahead of the car, and from there the route r (the longer way).
+   * What is before `at` stays as it is -- the path, and its events with all that has been said and
+   * marked at them -- so nothing the car is in the middle of is disturbed.
+   */
+  spliceRoute(car, { at, r, vias }) {
+    const old = this.route, iAt = idxAtS(old.pts, at), grew = r.length - (old.length - at);
+    // the new path eases out of the old one over its first 30 m (it is within a metre of it there)
+    for (const p of r.pts) {
+      if (p.s > 30) break;
+      const i = Math.min(old.pts.length - 2, idxAtS(old.pts, at + p.s)), a = old.pts[i], b = old.pts[i + 1];
+      const f = Math.max(0, Math.min(1, (at + p.s - a.s) / (b.s - a.s || 1))), u = p.s / 30, k = u * u * (3 - 2 * u);
+      const qx = a.x + (b.x - a.x) * f, qz = a.z + (b.z - a.z) * f;
+      p.x = qx + (p.x - qx) * k; p.z = qz + (p.z - qz) * k;
+    }
+    for (const p of r.pts) p.s += at;
+    for (const e of r.events) for (const k of S_KEYS) if (e[k] != null) e[k] += at;
+    r.length += at;
+    this.viaS = viaPositions(r); // on the new part only: a via beside a road already driven is still to come
+    this.spec = { ...this.spec, vias };
+    // Following the signs for somewhere when the longer way turns off: that is not the way the signs
+    // lead, so the independent driving ends here. By sat nav it simply carries on round the longer way,
+    // and ends as far from the end of the test as it was going to.
+    const signsEnd = this.independent && this.indepMode === 'signs' && this.indep[1] > at;
+    const bySatNav = this.independent && this.indepMode !== 'signs' && this.indep[1] > at; // still by sat nav where the new way begins
+    if (signsEnd) { this.indep = [this.s, this.s]; this.indepEnded = true; }
+    else if (this.indep) this.indep = this.indep.map((v) => (v > at ? v + grew : v));
+    // an emergency stop still to come stays where it was if the new way passes the place, with nothing
+    // new going on there; otherwise it is dropped, as it is when the car leaves the route
+    const es = this.estop;
+    if (es?.state === 'armed' && es.s > at) {
+      const j = idxAtS(old.pts, es.s), q = old.pts[j], q2 = old.pts[Math.min(old.pts.length - 1, j + 2)];
+      const hit = r.pts.find((p, i) => i + 2 < r.pts.length && (p.x - q.x) ** 2 + (p.z - q.z) ** 2 < 2.25 && (r.pts[i + 2].x - p.x) * (q2.x - q.x) + (r.pts[i + 2].z - p.z) * (q2.z - q.z) > 0);
+      const busy = (x) => r.events.some((e) => Math.abs((e.entryS ?? e.s) - x) < 50);
+      if (hit && !busy(hit.s) && !busy(hit.s + 40)) es.s = hit.s; else this.estop = null;
+    }
+    const keep = this.events.filter((e) => e.s < at), fresh = r.events.map((e) => ({ ...e, text: dt1Text(e, !!this.def.mock) }));
+    let prevEnd = keep.reduce((m, e) => (MANOEUVRES.includes(e.kind) ? Math.max(m, endOf(e)) : m), 0);
+    for (const e of fresh) { e.prevEnd = prevEnd; if (MANOEUVRES.includes(e.kind)) prevEnd = endOf(e); }
+    this.route = { ...r, pts: [...old.pts.slice(0, iAt + 1), ...r.pts.slice(1)], events: [...old.events.filter((e) => e.s < at), ...r.events], layout: old.layout };
+    this.events = [...keep, ...fresh];
+    this.endEv = fresh.find((e) => e.kind === 'pullup' || e.kind === 'baypark' || e.kind === 'parallel') || this.endEv;
+    this.track(car);
+    if (this.guide) { this.world.scene.remove(this.guide); this.guide.geometry.dispose(); this.guide = guideLine(this.route.pts, this.world.heightAt); this.world.scene.add(this.guide); }
+    this.satnav = { next: null, called: {} };
+    // Said now when nothing on the screen is a direction to lose (the sat nav card gives those during
+    // independent driving). When the examiner is directing, it goes with the next direction instead:
+    // said on its own it would take the place of one already given for a junction just ahead.
+    const why = "We're a little ahead of time, so ";
+    if (signsEnd) this.say(`Thank you, that's the end of the independent driving. ${why}I'll direct you a slightly longer way round. Follow the road ahead unless I ask you to turn.`);
+    else if (bySatNav) this.say(`${why}the sat nav will take us a slightly longer way round.`);
+    else { const e = fresh.find((q) => q.text && q.kind !== 'pullup' && q.kind !== 'baypark' && q.kind !== 'parallel'); if (e) e.text = `${why}I'll take you a slightly longer way round. ${e.text}`; }
   }
 
   // ---------- the learner gearbox: drills, control faults, coaching ----------
@@ -1003,7 +1090,7 @@ export class LessonRun {
     try { r = buildKentRoute(net, { ...this.spec, start: { x: car.pos.x, z: car.pos.z, ...(home ? { fx: Math.sin(car.heading), fz: Math.cos(car.heading) } : {}) }, vias, stops: 0, angled: false, pullRight: false }, this.def.seed != null ? { rnd: seeded(this.def.seed + 7) } : undefined); } catch { r = null; }
     if (!r || r.pts.length < 4) { this.say(this.def.mock ? "We've gone off the route. Turn round when it's safe and I'll take you back." : "We've gone off the route. Turn round when it's safe."); return; }
     for (const p of r.pts) p.s += sNow;
-    for (const e of r.events) for (const k of ['s', 'lineS', 'entryS', 'exitS', 'signalLeftS', 'stopS', 'endS']) if (e[k] != null) e[k] += sNow;
+    for (const e of r.events) for (const k of S_KEYS) if (e[k] != null) e[k] += sNow;
     r.length += sNow;
     // Following the signs for somewhere, and brought back a shorter way: the short way is not the way
     // the signs lead, so that is where the independent driving ends, and the examiner directs from here
@@ -1200,6 +1287,10 @@ function touching(car, p) {
   const fx = Math.sin(car.heading), fz = Math.cos(car.heading), dx = p.x - car.pos.x, dz = p.z - car.pos.z;
   return Math.abs(dx * fx + dz * fz) < car.model.length / 2 + 0.15 && Math.abs(dx * fz - dz * fx) < car.model.width / 2 + 0.15;
 }
+// every arc length an event carries, for a route that takes over part way along another (reroute,
+// spliceRoute). laneChangeS was not among them: a roundabout met after a reroute kept its "change lane
+// from here" at the new route's own zero, so the learner looked for its gap from wherever it was.
+const S_KEYS = ['s', 'lineS', 'entryS', 'exitS', 'signalLeftS', 'stopS', 'endS', 'laneChangeS'];
 /** where a manoeuvre's own signalling is over (moving off after a stop signals for another 15-20 m) */
 const endOf = (e) => (e.kind === 'rb' ? e.exitS + 8 : e.kind === 'diverge' ? e.s + 110 : e.kind === 'stop' ? e.s + 30 : e.kind === 'pullright' ? e.stopS + 40 : (e.lineS ?? e.s) + 12);
 const FRONT = 2; // m from the middle of the car to its front bumper (a Polo is 4.07 m long)

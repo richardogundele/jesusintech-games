@@ -17,6 +17,19 @@ import { REGIONS } from '../../tools/regions.mjs';
 
 const BIG = new Set(['trunk', 'primary', 'secondary', 'tertiary']);
 const ESTATE = new Set(['residential', 'unclassified', 'living_street', 'tertiary']);
+/**
+ * A junction inside an estate, the kind a test goes round: every road at it a street (not all of them
+ * tertiary, which is a main road's junction), and three ways or more a car may leave by, so it is a
+ * junction and not a bend. The loops below are made of these, and test-routes.js longerWay takes a
+ * test that is running early round one more.
+ */
+export function estateJunction(n) {
+  if (n.kind !== 'junction' || n.rb) return false;
+  const ws = n.ways.map((r) => r.way);
+  if (ws.length < 2 || !ws.every((w) => ESTATE.has(w.cls) && !w.rb && !w.link)) return false;
+  if (ws.filter((w) => w.cls === 'tertiary').length === ws.length) return false;
+  return n.arms().filter((a) => a.legal).length >= 3;
+}
 
 /**
  * autoPool(net, tc, { key, world, radius }) -> a pool generateTest accepts in place of a POOLS key.
@@ -98,10 +111,8 @@ export function autoPool(net, tc, { key = 'auto', world = null, radius = null, b
   for (const n of net.nodes.values()) {
     if (n.kind !== 'junction' || n.rb || !near(n.x, n.z)) continue;
     if (Math.hypot(n.x - tc.x, n.z - tc.z) < 120) continue; // not the centre's own doorstep
+    if (!estateJunction(n)) continue;
     const ws = n.ways.map((r) => r.way);
-    if (ws.length < 2 || !ws.every((w) => ESTATE.has(w.cls) && !w.rb && !w.link)) continue;
-    if (ws.filter((w) => w.cls === 'tertiary').length === ws.length) continue; // a tertiary-only junction is a main road, not an estate
-    if (n.arms().filter((a) => a.legal).length < 3) continue; // a real junction, not a bend
     const k = `${Math.floor((n.x - tc.x) / CELL)},${Math.floor((n.z - tc.z) / CELL)}`;
     if (!cells.has(k)) cells.set(k, []);
     cells.get(k).push({ id: n.id, x: n.x, z: n.z, names: ws.map((w) => w.name).filter(Boolean) });

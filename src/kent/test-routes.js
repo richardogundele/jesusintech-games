@@ -19,6 +19,7 @@
 // traffic signs (roughly one test in five), one manoeuvre, a normal stop and an angled start, and
 // sometimes an emergency stop.
 import { buildKentRoute, testCentreLayout, centreOf, idxAtS, outerWays } from './lesson-routes.js';
+import { estateJunction } from './auto-pool.js';
 
 /** a small seeded random number generator (mulberry32): the same seed, the same test */
 export function seeded(seed) {
@@ -126,7 +127,7 @@ export function shiftedPool(key, [dx, dz], extra = {}) {
 
 const MPH = 2.23694;
 /** minutes a careful driver takes (limit less 3 mph, slower round bends and rings, plus waits), calibrated on the full mocks */
-export function estimateMinutes(route, from = 0) { // from: only the part of the route past this arc length (lessons.js watchClock)
+export function estimateMinutes(route, from = 0, rolling = from > 0) { // from: only the part of the route past this arc length; rolling: the car is already moving at its start (lessons.js watchClock)
   const pts = route.pts, n = pts.length, v = new Float64Array(n);
   for (let i = 0; i < n; i++) {
     const p = pts[i]; let w = ((p.park ? 6 : p.road?.limit ?? 30) - 3) / MPH;
@@ -156,13 +157,22 @@ export function estimateMinutes(route, from = 0) { // from: only the part of the
   let t = 0;
   for (let i = 1; i < n; i++) if (pts[i].s > from) t += (pts[i].s - pts[i - 1].s) / Math.max(1, (v[i] + v[i - 1]) / 2);
   const ev = route.events, count = (k) => ev.filter((e) => e.kind === k && (e.s ?? 0) >= from).length;
-  t += 9 * count('stop') + 40 * count('pullright') + 35 * count('baypark') + 4 * (count('emerge') + count('cross') + count('rb') + count('mini')) + 8 * count('lights') + (from > 0 ? 10 : 20);
+  // The 35 s for a bay park is in the plan and not on the road: of the gate's town tests that ran as
+  // planned, the 7 that end in a bay took 0.84 min less than planned, the 64 that end at the kerb 0.05
+  // less. The plan keeps it, because each town's timeK was fitted with it there and a test is the
+  // route its seed plans; the examiner's clock (rolling) leaves it out, or a bay-park test reads 0.7
+  // min later than it will end.
+  t += 9 * count('stop') + 40 * count('pullright') + (rolling ? 0 : 35) * count('baypark') + 4 * (count('emerge') + count('cross') + count('rb') + count('mini')) + 8 * count('lights') + (rolling ? 10 : 20);
   return (t / 60) * 1.12;
 }
 
-/** the reasons a route isn't a fair test (empty = fine) */
-export function validateRoute(net, route, { minMin = 14, maxMin = 16, timeK = 1, relaxRb = false } = {}) {
-  const bad = [], pts = route.pts, ev = route.events;
+/**
+ * What is wrong with a route as a line to drive (empty = fine): turning round, a turn too tight for a
+ * car, the same road twice the same way, a cut across a roundabout's island. validateRoute asks it of
+ * a whole test, and longerWay of the stretch an examiner adds to one.
+ */
+export function routeShape(net, route) {
+  const bad = [], pts = route.pts;
   // U-turns: the same road back the way it came, or the path doubling back on itself (not round a ring)
   const ws = route.route.ways;
   for (let i = 1; i < ws.length; i++) if (ws[i].way === ws[i - 1].way && ws[i].dir === -ws[i - 1].dir && !ws[i].way.rb) { bad.push(`U-turn on ${ws[i].way.name || ws[i].way.id}`); break; }
@@ -201,11 +211,17 @@ export function validateRoute(net, route, { minMin = 14, maxMin = 16, timeK = 1,
     const lo = Math.max(Math.min(a.s0, a.s1), Math.min(b.s0, b.s1)), hi = Math.min(Math.max(a.s0, a.s1), Math.max(b.s0, b.s1));
     if (hi - lo > 250) { bad.push(`drives ${a.way.name || a.way.ref || a.way.id} twice the same way`); break; }
   }
+  // across a roundabout's island
+  for (const p of pts) { const rb = p.rb ? net.roundabouts.get(p.rb) : null; if (rb && rb.island && Math.hypot(p.x - rb.x, p.z - rb.z) < rb.island - 0.3) { bad.push(`crosses the island of ${rb.name}`); break; } }
+  return bad;
+}
+
+/** the reasons a route isn't a fair test (empty = fine) */
+export function validateRoute(net, route, { minMin = 14, maxMin = 16, timeK = 1, relaxRb = false } = {}) {
+  const bad = routeShape(net, route), pts = route.pts, ev = route.events;
   // two pull-ups in one place (the second would stop on the angled start's parked car)
   const ups = ev.filter((e) => e.kind === 'stop' || e.kind === 'pullright').map((e) => pts.find((p) => p.s >= e.s) || pts[pts.length - 1]);
   if (ups.some((p, i) => ups.some((q, j) => j > i && Math.hypot(p.x - q.x, p.z - q.z) < 60))) bad.push('two pull-ups in one place');
-  // across a roundabout's island
-  for (const p of pts) { const rb = p.rb ? net.roundabouts.get(p.rb) : null; if (rb && rb.island && Math.hypot(p.x - rb.x, p.z - rb.z) < rb.island - 0.3) { bad.push(`crosses the island of ${rb.name}`); break; } }
   // Roundabouts "where available" (DT1): Kent has them, so a Kent test needs two with one multi-lane.
   // A centre with no multi-lane ring in reach (West Didsbury) is judged on its lights instead: at
   // least one roundabout or mini, and two signalled junctions.
@@ -463,7 +479,145 @@ export function generateTest(net, centreKey, seed, opts = {}) {
     // DVSA uses traffic signs on roughly one test in five; where the route has no signed stretch, the sat nav
     const signs = rnd() < (opts.signsRate ?? 0.3) ? signsStretch(net, route, s0, s1, pool.name) : null;
     const indep = signs ? { mode: 'signs', target: signs.target, s0, s1: signs.s1 } : { mode: 'satnav', s0, s1 };
-    return { spec, route, meta: { seed, timeK: pool.timeK, wholeCity: !!pool.wholeCity, centre: centreKey, centreName: pool.name, world: pool.world || 'kent', stretches: parts.map((c) => c.part.name), manoeuvre: man, stops, indep, minutes: +mins.toFixed(1), attempts: attempt + 1, length: Math.round(route.length) } };
+    return { spec, route, meta: { seed, timeK: pool.timeK, wholeCity: !!pool.wholeCity, lastVias: (pool.last || []).length, centre: centreKey, centreName: pool.name, world: pool.world || 'kent', stretches: parts.map((c) => c.part.name), manoeuvre: man, stops, indep, minutes: +mins.toFixed(1), attempts: attempt + 1, length: Math.round(route.length) } };
   }
   throw new Error(`no fair test route from ${pool.name} for seed ${seed} (last: ${last})`);
+}
+
+// ---------- the longer way ----------
+/** how far the point p is from the path near arc length s (to the path's line, not to its nearest sample) */
+export function offPath(pts, s, p) {
+  const i = idxAtS(pts, s);
+  let best = Infinity;
+  for (let j = Math.max(0, i - 2); j < Math.min(pts.length - 1, i + 3); j++) {
+    const a = pts[j], b = pts[j + 1], dx = b.x - a.x, dz = b.z - a.z, L2 = dx * dx + dz * dz || 1;
+    const t = Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.z - a.z) * dz) / L2));
+    best = Math.min(best, Math.hypot(p.x - a.x - dx * t, p.z - a.z - dz * t));
+  }
+  return best;
+}
+/** does the route r, built from the point of `pts` at arc length `at`, begin along that path: the same lane for its first 30 m */
+export function sameLine(pts, at, r) {
+  for (let j = 0; j < r.pts.length && r.pts[j].s <= 30; j += 2) if (offPath(pts, at + r.pts[j].s, r.pts[j]) > 1) return false;
+  return true;
+}
+const STREET = new Set(['residential', 'unclassified', 'living_street', 'tertiary']);
+/**
+ * A longer way round for a test that is running early (lessons.js watchClock): the route as it stands
+ * from `at`, a point on it ahead of the car, with one more estate junction to go round before it
+ * carries on to the vias it still had and the same end. An estate junction is what a town's pool is
+ * made of (auto-pool.js estateJunction), so the stretch added is the kind of road the test was planned
+ * from, and it is held to the same shape as a planned route (routeShape): no turning round, no turn
+ * too tight, no road twice the same way -- nor 250 m of a road the test has already driven that way.
+ *
+ * Which junction: one a set distance into the side streets off the route, measured along them from
+ * the junctions the route passes. As the crow flies does not do: at Herne Bay the junctions 200 m
+ * from the route added 9 to 16 minutes, and over the gate's routes a longer way turned up at 53% of
+ * the places asked, against 78% this way. The `tries` nearest the distance that should add `aim`
+ * minutes are routed and lane-pathed, and the one that comes nearest is taken.
+ *
+ * It may not meet a set of traffic lights the planned way did not, nor meet one from another side or
+ * leave it by another arm. The stretch is only worth adding if it takes what it was planned to, and
+ * the lights are where a drive loses the minutes the estimate cannot see: over the gate's 78 tests,
+ * 57 of the 122 waits of 15 s or more were at lights, and what a set costs depends on the arm and
+ * the turn (a right turn across the oncoming green can wait out a cycle or two).
+ *
+ * add: [lo, aim, hi], the minutes it should add (the estimate times timeK), nothing outside lo-hi.
+ * vias: the vias still to come, in order; the new one goes in where the route passes it, but never
+ * among the last `keepLast` (a pool's way in to its centre). box: the test's own area. The new route
+ * must begin along the old one's line, the same lane for its first 30 m: a route from "the road
+ * nearest here" can be the other carriageway.
+ *
+ * Returns { at, r, vias, added, via } -- r the route from `at` (its arc lengths from 0), vias the new
+ * list, via the junction added -- or { why } when there is none: 'line' if no route from `at` begins
+ * along the old line (another place may do), 'none' if no junction fits.
+ */
+export function longerWay(net, route, spec, { at, vias = [], add, timeK = 1, box = null, seed = 1, keepLast = 0, tries = 10, log = null }) {
+  const [lo, aim, hi] = add, pts = route.pts, i0 = idxAtS(pts, at), P = pts[i0], Q = pts[Math.min(pts.length - 1, i0 + 2)];
+  const len = Math.hypot(Q.x - P.x, Q.z - P.z) || 1, start = { x: P.x, z: P.z, fx: (Q.x - P.x) / len, fz: (Q.z - P.z) / len };
+  at = P.s;
+  const legs = new Map(), rnd = () => seeded(seed + 7);
+  const build = (v) => { try { const r = buildKentRoute(net, { ...spec, start, vias: v, stops: 0, angled: false, pullRight: false }, { rnd: rnd(), legs }); return r.pts.length >= 4 ? r : null; } catch { return null; } };
+  // the way as it stands, built from here: the junctions it passes, and whether a route from here keeps to this line at all
+  const plain = build(vias);
+  if (!plain || !sameLine(pts, at, plain)) return { why: 'line' };
+  const base = estimateMinutes(route, at) * timeK; // what is left from there as planned
+  // each set of junction lights a route meets from s on: which, the way in and the way out
+  const lights = (rt, s) => rt.events.filter((e) => e.kind === 'lights' && !e.crossing && e.s >= s).map((e) => {
+    const hd = (a, b) => { const p = rt.pts[idxAtS(rt.pts, a)], q = rt.pts[idxAtS(rt.pts, b)]; return Math.atan2(q.x - p.x, q.z - p.z); };
+    return { group: e.group, hin: hd((e.lineS ?? e.s) - 12, (e.lineS ?? e.s) - 3), hout: hd(e.s + 28, e.s + 38) };
+  });
+  const turned = (a, b) => Math.abs(Math.atan2(Math.sin(a - b), Math.cos(a - b)));
+  const planned = lights(route, at);
+  const sOf = (n) => { let best = 0, bd = Infinity; for (let i = 0; i < plain.pts.length; i += 2) { const q = plain.pts[i], d = (q.x - n.x) ** 2 + (q.z - n.z) ** 2; if (d < bd) { bd = d; best = q.s; } } return best; };
+  const viaAt = vias.map((v) => sOf(typeof v === 'number' ? net.nodes.get(v) : v));
+  // out along the streets from the junctions the route passes (not its first 45 m, where the new way must
+  // still be the old one, nor its last 60), by distance: Dijkstra in 10 m buckets
+  const avoid = new Set([...(spec.avoid || []), ...outerWays(net)]), tc = route.tc, EDGE = 150;
+  // how far in: there and back at 7 m/s, less the 25 s that three more junctions cost (measured over
+  // the gate's routes: a junction 160-300 m in adds 1.5 to 1.7 minutes, the median)
+  const dStar = Math.max(120, Math.min(600, (aim * 60 / timeK - 25) * 3.5)), dMax = Math.min(800, dStar * 1.8), dMin = dStar * 0.4;
+  const dist = new Map(), from = new Map(), buckets = [];
+  const put = (id, d, src) => { if (d > dMax || (dist.get(id) ?? Infinity) <= d) return; dist.set(id, d); from.set(id, src); (buckets[Math.floor(d / 10)] ||= []).push(id); };
+  const onTail = new Set(plain.route.nodes);
+  for (const id of plain.route.nodes) { const n = net.nodes.get(id); if (!n) continue; const sn = sOf(n); if (sn > 45 && sn < plain.length - 60) put(id, 0, sn); }
+  for (let b = 0; b < buckets.length; b++) for (let k = 0; buckets[b] && k < buckets[b].length; k++) {
+    const id = buckets[b][k], d = dist.get(id);
+    if (Math.floor(d / 10) !== b) continue; // reached sooner another way
+    for (const { link, dir } of net.out.get(id) || []) {
+      const w = link.way, nx = dir > 0 ? link.b : link.a;
+      if (!nx || w.rb || w.link || w.dual || !STREET.has(w.cls) || avoid.has(w.id) || avoid.has(nx)) continue;
+      put(nx, d + link.len, from.get(id));
+    }
+  }
+  const cands = [];
+  for (const [id, d] of dist) {
+    if (d < dMin || onTail.has(id) || vias.includes(id)) continue;
+    const n = net.nodes.get(id);
+    if (!n || !estateJunction(n)) continue;
+    if (box && (n.x < box.minX + EDGE || n.x > box.maxX - EDGE || n.z < box.minZ + EDGE || n.z > box.maxZ - EDGE)) continue;
+    if (tc && Math.hypot(n.x - tc.x, n.z - tc.z) < 120) continue; // not the centre's own doorstep
+    cands.push({ id, d, s: from.get(id), off: Math.abs(d - dStar) });
+  }
+  cands.sort((a, b) => a.off - b.off || a.id - b.id);
+  let driven = null; // the road already driven, in 5 m squares, for the "not that road again" check
+  const redriven = (r) => {
+    if (!driven) {
+      driven = new Map();
+      for (let i = 2; i < i0 - 4; i += 2) { const p = pts[i], q = pts[i + 2], k = `${Math.floor(p.x / 5)},${Math.floor(p.z / 5)}`; let a = driven.get(k); if (!a) driven.set(k, (a = [])); a.push([p.x, p.z, q.x - p.x, q.z - p.z]); }
+    }
+    let m = 0;
+    for (let i = 0; i < r.pts.length - 2; i += 2) {
+      const p = r.pts[i], q = r.pts[i + 2], hx = q.x - p.x, hz = q.z - p.z, cx = Math.floor(p.x / 5), cz = Math.floor(p.z / 5);
+      let hit = false;
+      for (let a = cx - 1; a <= cx + 1 && !hit; a++) for (let b = cz - 1; b <= cz + 1 && !hit; b++) for (const o of driven.get(`${a},${b}`) || []) {
+        if ((o[0] - p.x) ** 2 + (o[1] - p.z) ** 2 < 16 && o[2] * hx + o[3] * hz > 0.8 * Math.hypot(o[2], o[3]) * Math.hypot(hx, hz)) { hit = true; break; }
+      }
+      if (hit) m += q.s - p.s;
+    }
+    return m;
+  };
+  let best = null, built = 0;
+  for (const c of cands) {
+    if (built >= tries) break;
+    let k = viaAt.findIndex((v) => v > c.s); if (k < 0) k = vias.length;
+    k = Math.min(k, Math.max(0, vias.length - keepLast));
+    const v2 = [...vias.slice(0, k), c.id, ...vias.slice(k)];
+    const r = build(v2);
+    let why = null;
+    const added = r ? estimateMinutes(r, 0, true) * timeK - base : null;
+    if (!r) why = 'no route';
+    else {
+      built++;
+      if (added < lo || added > hi) why = 'minutes';
+      else if (!sameLine(pts, at, r)) why = 'another line';
+      else if (lights(r, 0).some((l) => !planned.some((o) => o.group === l.group && turned(o.hin, l.hin) < 0.5 && turned(o.hout, l.hout) < 0.5))) why = 'lights the plan did not have';
+      else why = routeShape(net, r)[0] || (redriven(r) > 250 ? 'a road already driven' : null);
+    }
+    log?.({ ...c, added, why });
+    if (why) continue;
+    if (!best || Math.abs(added - aim) < Math.abs(best.added - aim)) best = { at, r, vias: v2, added, via: c.id };
+    if (Math.abs(best.added - aim) < 0.25) break;
+  }
+  return best || { why: 'none' };
 }
