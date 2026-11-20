@@ -15,6 +15,7 @@ const DEFAULTS = () => ({
   wins: { date: '', counts: {} },      // real-life wins logged today, per category
   radio: false,
   welcomed: false, // the first-run toast has been shown
+  theme: 'light', // the phone's look: 'light' (cream and white) or 'dark' (black and brown)
   // driving lessons and tests: licence false | 'auto' (passed in an automatic) | 'full' (passed in a manual);
   // trans: the gearbox you learn in; history: your driving tests (newest last); hints: key hints seen per gearbox
   // paint: a hex colour for your car (null = the car's own colour); plate: your registration (set on first run)

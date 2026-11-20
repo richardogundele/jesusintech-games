@@ -1,7 +1,7 @@
 // The phone (Tab): Drive (lessons, parking practice, the mock and the test, your results), Settings
 // (the gearbox you learn in and your plate) and your profile. (The dealer, hangar and wardrobe tabs
 // were taken out, at Richard's word.)
-import { state, formatMoney } from './state.js';
+import { state, formatMoney, save } from './state.js';
 import { DL25_ROWS } from './dl25.js';
 import { LESSONS } from './lessons.js';
 import { PARKED_ON } from './kent/parked.js';
@@ -29,6 +29,7 @@ export class Phone {
       // these leave the phone: close it first so the game mode is restored before travelling
       // the driving test: the gearbox you learn in, a mock or the real thing, retrying a route
       if (act === 'trans') { this.hooks.setTrans(id); this.render(); return; }
+      if (act === 'theme') { state.theme = id === 'dark' ? 'dark' : 'light'; save(); this.render(); return; }
       if (act === 'lesson') { this.hooks.close(); this.hooks.startLesson(id); return; }
       if (act === 'plate') { this.hooks.setPlate($('plate-in')?.value); this.render(); return; }
       if (act === 'mock') { this.hooks.close(); this.hooks.startTest(id, null, 'mock'); return; }
@@ -49,13 +50,14 @@ export class Phone {
   }
 
   render() {
+    if (!TABS.some(([id]) => id === this.tab)) this.tab = 'drive'; // a tab that has been taken out opens Drive
+    this.el.dataset.theme = state.theme === 'dark' ? 'dark' : 'light';
     for (const b of $('phone-tabs').children) {
       const on = b.dataset.tab === this.tab;
       b.classList.toggle('on', on);
-      if (on) b.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' }); // keep the current tab in view in the scrolling row
+      b.setAttribute('aria-selected', on);
     }
     $('phone-balance').textContent = formatMoney(state.balance);
-    if (!TABS.some(([id]) => id === this.tab)) this.tab = 'drive'; // a tab that has been taken out opens Drive
     this.body.innerHTML = this[this.tab]();
     this.body.scrollTop = 0;
   }
@@ -72,51 +74,63 @@ export class Phone {
     // towns are the city's streets, not places to choose between.) The long mock is the drive across
     // the city, a mock only: the real test is the DVSA format, a quarter of an hour.
     const start = (act, id, title, text, ghost = false) => `<div class="row"><div class="grow"><div class="t">${title}</div><div class="s">${text}</div></div><button class="buy${ghost ? ' ghost' : ''}" data-act="${act}" data-id="${id}">Start</button></div>`;
-    const lic = uk.licence === 'full' ? 'Full' : uk.licence === 'auto' ? 'Automatic' : 'Provisional';
-    return `<div class="hero"><div class="big">${lic}<span>UK licence</span></div>
-        <div class="s">${uk.licence === 'auto' ? 'Automatic cars only: pass a test in a manual for a full licence. ' : uk.licence === 'full' ? 'Manual and automatic. ' : ''}Real UK rules on real roads: drive on the left, mph limits, give way to the right at roundabouts. Z and X are the indicators, Q checks your mirrors.</div></div>
-      <h3>Start here</h3>
-      <p class="note">Pick one. Lessons are ten to twenty minutes with an instructor talking you through; a mock is the real test format with nothing riding on it; the test is the one that counts.</p>
-      <div class="seg" style="flex-wrap:wrap"><button data-act="jump" data-id="ph-lessons">Lessons</button>${PARKED_ON ? '<button data-act="lesson" data-id="park">Parking practice</button>' : ''}<button data-act="jump" data-id="ph-mock">Mock test</button><button data-act="jump" data-id="ph-test">Driving test</button></div>
-      <p class="note">Free driving needs no button: close the phone (Tab), get in the car (E) and go: A to accelerate, B to brake, the arrows to steer. Manual or automatic is under <b>Settings</b>.</p>
+    const lic = uk.licence === 'full' ? 'Full licence' : uk.licence === 'auto' ? 'Automatic licence' : 'Provisional licence';
+    const passed = h.filter((t) => t.passed).length;
+    return `<div class="hero"><div class="k">UK driving licence</div><div class="big">${lic}</div>
+        <div class="s">${uk.licence === 'auto' ? 'Automatic cars only: pass a test in a manual for a full licence.' : uk.licence === 'full' ? 'Manual and automatic.' : 'Real UK rules on real roads: drive on the left, mph limits, give way to the right at roundabouts.'}</div>
+        <div class="chips"><span class="chip">Learning in ${trans === 'auto' ? 'an automatic' : 'a manual'}</span><span class="chip">${mocks.length} mock${mocks.length === 1 ? '' : 's'} · ${mocksPassed} passed</span>${reals.length ? `<span class="chip">${reals.length} test${reals.length === 1 ? '' : 's'} · ${passed - mocksPassed} passed</span>` : ''}</div></div>
+      <div class="tiles">
+        <button class="tile" data-act="jump" data-id="ph-lessons">Lessons<small>One skill at a time</small></button>
+        <button class="tile" data-act="jump" data-id="ph-mock">Mock test<small>Nothing riding on it</small></button>
+        <button class="tile" data-act="jump" data-id="ph-test">Driving test<small>The one that counts</small></button>
+      </div>
+      <p class="note">Or just drive: close the phone (<b>Tab</b>), get in the car (<b>E</b>) and go. Manual or automatic is under <b>Settings</b>.</p>
       <div id="ph-lessons"></div>
       ${this.practice(trans)}
       <div id="ph-mock"></div>
       <h3>Mock test</h3>
-      <p class="note">The real format, marked the way the examiner marks it, but nothing rides on it: a new route every time, from one of the city's test centres, with roundabouts, lights and crossings, a dual carriageway or 40 road, independent driving, a manoeuvre and sometimes an emergency stop. Each fault is shown as it happens so you learn on the way round.${mocks.length ? ` You've taken ${mocks.length} mock${mocks.length === 1 ? '' : 's'} and passed ${mocksPassed}.` : ''}</p>
-      ${start('mock', 'any', 'Mock test', 'About a quarter of an hour, from one of the test centres in Driving City.')}
-      ${start('mock', 'whole', 'Long mock', 'About half an hour: from one test centre, out by the link road and across the city to another. Marked the same way. No bay park, because the car park is back where you started.', true)}
+      <p class="note">The real format, marked the way the examiner marks it, and each fault is shown as it happens. A new route every time, from one of the city's test centres.</p>
+      ${start('mock', 'any', 'Mock test', 'About a quarter of an hour: roundabouts, lights, crossings, a faster road, independent driving, a manoeuvre and sometimes an emergency stop.')}
+      ${start('mock', 'whole', 'Long mock', 'About half an hour, from one test centre across the city to another. Marked the same way, with no bay park at the end.', true)}
       <div id="ph-test"></div>
       <h3>The driving test</h3>
-      <p class="note">The one that counts. Same route maker, same DL25 marking: 15 driving faults or fewer and no serious faults to pass. The examiner says nothing about a fault until the debrief. A pass gets you your licence and pays €5m.${reals.length ? ` ${reals.length} attempt${reals.length === 1 ? '' : 's'} so far.` : mocksPassed ? '' : ' Take a mock first if you want to see how you are marked.'}</p>
-      ${start('real', 'any', 'Driving test', 'About a quarter of an hour, from one of the test centres in Driving City.')}
-      <p class="note">Every route is planned off the city's real streets the moment you press Start. You don't choose where: the centre and the route are the luck of the day, as they are for any candidate.</p>
+      ${start('real', 'any', 'Driving test', `15 driving faults or fewer and no serious faults to pass. The examiner says nothing until the debrief. A pass gets you your licence.${!reals.length && !mocksPassed ? ' Take a mock first to see how you are marked.' : ''}`)}
       ${this.testHistory()}
-      <h3>Study</h3><div class="row"><div class="grow"><div class="t">Road signs</div><div class="s">Name ten Highway Code signs. Not marked: just practice.</div></div><button class="buy" data-act="signs">Start</button></div>`;
+      <h3>Study</h3>${start('signs', '', 'Road signs', 'Name ten Highway Code signs. Not marked: just practice.', true)}`;
   }
 
   /** the gearbox you learn in and your number plate (the lesson car and paint pickers were taken out, at Richard's word) */
   settings() {
-    const uk = state.uk, trans = uk.trans;
-    return `<h3 style="margin-top:4px">Settings</h3>
-      <p class="note">How you learn. Starting a lesson or a test is under <b>Drive</b>.</p>
-      <h3>Learning in</h3>
-      <div class="seg"><button class="${trans === 'manual' ? 'on' : ''}" data-act="trans" data-id="manual">Manual</button><button class="${trans === 'auto' ? 'on' : ''}" data-act="trans" data-id="auto">Automatic</button></div>
-      <p class="note">${trans === 'manual'
-        ? 'Manual: the pedals are <b>C</b> clutch (hold it), <b>B</b> brake and <b>A</b> accelerator, left to right as in the car; <b>←</b> <b>→</b> steer, <b>1</b>-<b>5</b> the gears, <b>N</b> neutral, <b>R</b> reverse, <b>I</b> the engine, <b>Space</b> the handbrake, <b>V</b> the camera. Pass in a manual and you can drive both.'
-        : 'Automatic: <b>B</b> brake and <b>A</b> accelerator; <b>←</b> <b>→</b> steer, <b>D</b> drive, <b>R</b> reverse, <b>N</b> neutral, <b>P</b> park, <b>I</b> the engine, <b>Space</b> the handbrake, <b>V</b> the camera. It creeps in D: cover the brake. Pass in an automatic and your licence is for automatics only.'}</p>
+    const trans = state.uk.trans, dark = state.theme === 'dark';
+    const keys = (rows) => `<div class="keys">${rows.map(([k, v]) => `<kbd>${k}</kbd><span>${v}</span>`).join('')}</div>`;
+    const manualKeys = [['C', 'Clutch (hold it down)'], ['B', 'Brake'], ['A', 'Accelerator'], ['← →', 'Steer'], ['1 – 5', 'Gears'], ['N', 'Neutral'], ['R', 'Reverse'], ['I', 'Engine on / off'], ['Space', 'Handbrake']];
+    const autoKeys = [['B', 'Brake'], ['A', 'Accelerator'], ['← →', 'Steer'], ['D', 'Drive'], ['R', 'Reverse'], ['N', 'Neutral'], ['P', 'Park'], ['I', 'Engine on / off'], ['Space', 'Handbrake']];
+    const common = [['Q', 'Check your mirrors'], ['Z / X', 'Signal left / right'], ['V', 'Change camera'], ['E', 'Get in or out'], ['Tab', 'This phone']];
+    return `<h3>Learning in</h3>
+      <div class="group">
+        <div class="seg" role="radiogroup" aria-label="Gearbox"><button class="${trans === 'auto' ? 'on' : ''}" data-act="trans" data-id="auto" aria-pressed="${trans === 'auto'}">Automatic</button><button class="${trans === 'manual' ? 'on' : ''}" data-act="trans" data-id="manual" aria-pressed="${trans === 'manual'}">Manual</button></div>
+        <div class="s">${trans === 'manual' ? 'Pass in a manual and you can drive both.' : 'It creeps forward in D, so keep your foot over the brake. Pass in an automatic and your licence is for automatics only.'}</div>
+      </div>
+      <h3>Appearance</h3>
+      <div class="group">
+        <div class="seg" role="radiogroup" aria-label="Appearance"><button class="${dark ? '' : 'on'}" data-act="theme" data-id="light" aria-pressed="${!dark}">Light</button><button class="${dark ? 'on' : ''}" data-act="theme" data-id="dark" aria-pressed="${dark}">Dark</button></div>
+      </div>
       <h3>Number plate</h3>
-      <div class="plate-row"><input id="plate-in" maxlength="8" value="${esc(this.hooks.myPlate())}" spellcheck="false" autocomplete="off" aria-label="Your number plate" /><button class="buy" data-act="plate">Set plate</button></div>
-      <p class="note">Your registration, front and back. Letters, numbers and a space, up to eight characters.</p>
-      `;
+      <div class="group">
+        <div class="plate-row"><input id="plate-in" maxlength="8" value="${esc(this.hooks.myPlate())}" spellcheck="false" autocomplete="off" aria-label="Your number plate" /><button class="buy" data-act="plate">Save</button></div>
+        <div class="s">Front and back. Letters, numbers and a space, up to eight characters.</div>
+      </div>
+      <h3>Controls · ${trans === 'manual' ? 'manual' : 'automatic'}</h3>
+      <div class="group">${keys(trans === 'manual' ? manualKeys : autoKeys)}</div>
+      <div class="group">${keys(common)}</div>`;
   }
 
   /** one thing at a time before a mock: moving off, junctions, roundabouts... in the gearbox you picked above */
   practice(trans) {
     const lessons = LESSONS.filter((l) => l.world === 'kent' && !l.mock && (!l.trans || l.trans === trans) && (!l.park || PARKED_ON)); // (parking practice needs the parked cars)
-    const rows = lessons.map((l) => `<div class="row"><div class="grow"><div class="t">${l.title}</div><div class="s">${l.blurb}</div></div>
+    const rows = lessons.map((l, i) => `<div class="row"><div class="num">${i + 1}</div><div class="grow"><div class="t">${l.title}</div><div class="s">${l.blurb}</div></div>
       <button class="buy ghost" data-act="lesson" data-id="${l.id}">Start</button></div>`).join('');
-    return `<h3>Practice lessons</h3><p class="note">Work on one thing at a time before you take a mock, with an instructor talking you through it. Shown for the gearbox you're learning in.</p>${rows}`;
+    return `<h3>Lessons</h3><p class="note">One skill at a time, with an instructor beside you. Shown for the gearbox you're learning in.</p>${rows}`;
   }
 
   /** your tests: the last five, the trend in driving faults, the fault that keeps coming up, retry a route */
@@ -135,7 +149,7 @@ export class Phone {
     const trend = recent.length >= 4 ? (avg(b) < avg(a) - 0.5 ? 'Fewer driving faults lately: keep it up.' : avg(b) > avg(a) + 0.5 ? 'More driving faults lately: run a mock on the roads that catch you out.' : 'Steady.') : '';
     const rows = last.map((t) => {
       const d = new Date(t.at), when = `${d.getDate()}/${d.getMonth() + 1} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-      return `<div class="row"><div class="tick">${t.passed ? '✓' : '✕'}</div>
+      return `<div class="row"><div class="tick${t.passed ? '' : ' fail'}">${t.passed ? '✓' : '✕'}</div>
         <div class="grow"><div class="t">${t.centreName || (t.centre === 'canterbury' ? 'Canterbury' : 'Herne Bay')} · ${t.kind === 'real' ? 'driving test' : 'mock'} · ${t.trans === 'auto' ? 'automatic' : 'manual'}</div>
         <div class="s">${when} · ${t.minor} driving · ${t.serious} serious · ${t.dangerous} dangerous${t.main ? ` · ${esc(t.main)}` : ''}</div></div>
         ${t.seed != null ? `<button class="buy ghost" data-act="retest" data-id="${t.centre}:${t.seed}">Retry route</button>` : ''}</div>`;
@@ -144,13 +158,15 @@ export class Phone {
   }
 
   me() {
-    const s = state.stats;
-    const line = (k, v) => `<div class="row"><div class="grow"><div class="t">${k}</div></div><div class="amt">${v}</div></div>`;
-    return line('Distance driven', `${s.km.toFixed(1)} km`) +
-      line('Top speed', `${s.topKmh} km/h`) +
-      line('UK driving licence', state.uk.licence === 'full' ? 'Full (manual)' : state.uk.licence === 'auto' ? 'Automatic only' : 'Provisional') +
-      line('Learning in', state.uk.trans === 'auto' ? 'Automatic' : 'Manual') +
-      line('Number plate', esc(this.hooks.myPlate())) +
-      line('Driving tests', `${(state.uk.history || []).filter((t) => t.passed).length} passed of ${(state.uk.history || []).length}`);
+    const s = state.stats, h = state.uk.history || [];
+    const stat = (k, v) => `<div class="stat"><div class="k">${k}</div><div class="v">${v}</div></div>`;
+    return `<h3>Your driving</h3><div class="stats">` +
+      stat('Licence', state.uk.licence === 'full' ? 'Full' : state.uk.licence === 'auto' ? 'Automatic' : 'Provisional') +
+      stat('Learning in', state.uk.trans === 'auto' ? 'Automatic' : 'Manual') +
+      stat('Tests passed', `${h.filter((t) => t.passed).length} of ${h.length}`) +
+      stat('Number plate', esc(this.hooks.myPlate())) +
+      stat('Distance driven', `${s.km.toFixed(1)} km`) +
+      stat('Top speed', `${Math.round(s.topKmh * 0.621371)} mph`) +
+      '</div>';
   }
 }
