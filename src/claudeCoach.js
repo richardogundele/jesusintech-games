@@ -5,6 +5,11 @@
 // As a local-dev fallback the user can paste their own key in the in-game setup panel;
 // it is stored in localStorage and sent directly to api.anthropic.com only in that case.
 
+// Paused at Richard's word (2026-11-20): no API key, so the game never calls Claude, not through the
+// Netlify proxy and not with a pasted key. Set to true to bring the AI instructor back (it also brings
+// back the J key and its line on the controls card).
+export const AI_ON = false;
+
 const STORE = 'dreamlife.coach.key';
 const RATE_MS = 8000;
 const MODEL = 'claude-haiku-5-5';
@@ -45,6 +50,7 @@ export class ClaudeCoach {
    * @param {(text: string, done: boolean) => void} onText
    */
   async ask(event, ctx = {}, onText) {
+    if (!AI_ON) return; // paused: nothing is sent anywhere
     if (this._busy) return;
     if (Date.now() - this._lastMs < RATE_MS) return;
     this._lastMs = Date.now();

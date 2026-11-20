@@ -18,7 +18,7 @@ import { buildCabin } from './worlds/cabin.js';
 import { buildUK, lPlateTex, MPH } from './worlds/uk.js';
 import { LESSONS, LessonRun, carefulDriver, TELL_ME, randomPlate, plateOptions, testDef } from './lessons.js';
 import { FreeExam } from './freedrive.js';
-import { ClaudeCoach } from './claudeCoach.js';
+import { ClaudeCoach, AI_ON } from './claudeCoach.js';
 import { SignTeacher } from './signTeach.js';
 import { KENT_ROUTES, KENT_AREAS, CENTRES } from './kent/lesson-routes.js';
 import { generateTest, signsOnRoute, shiftedPool } from './kent/test-routes.js';
@@ -217,7 +217,7 @@ hud.onControlsClose = () => { if (controlsOpen) toggleControls(); };
 const coachSetupEl = document.getElementById('coach-setup');
 const coachKeyIn = document.getElementById('coach-key-in');
 function showCoachSetup() {
-  if (!coachSetupEl) return;
+  if (!coachSetupEl || !AI_ON) return; // the AI instructor is paused
   coachKeyIn.value = aiCoach.key || '';
   coachSetupEl.classList.remove('hidden');
   setTimeout(() => coachKeyIn.focus(), 50);
@@ -295,7 +295,7 @@ window.addEventListener('keydown', (e) => {
     drive.turned = 0;
   }
   if (mode === 'car' && e.code === 'KeyQ') { drive.mirrorPressed = true; drive.mirrorFlash = 0.6; }
-  if (mode === 'car' && e.code === 'KeyJ') {
+  if (mode === 'car' && e.code === 'KeyJ' && AI_ON) {
     aiCoach.ask({ type: 'hint' }, coachCtx(), coachReply);
   }
   if (e.code === 'KeyV' && mode === 'car') camMode = (camMode + 1) % 3; // (C is the clutch)

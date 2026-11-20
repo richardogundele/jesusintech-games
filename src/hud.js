@@ -1,4 +1,5 @@
 import { formatMoney, shortMoney } from './state.js';
+import { AI_ON } from './claudeCoach.js'; // the controls card lists J only while the AI instructor is on
 
 const $ = (id) => document.getElementById(id);
 const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -60,7 +61,7 @@ const GROUPS = {
   manual: ['Gearbox <small>· manual</small>', [[k('C'), 'Clutch (hold)'], [`${k('1')}–${k('5')}`, 'Gears'], [k('R'), 'Reverse'], [k('N'), 'Neutral'], [k('I'), 'Engine on · off'], [k('Space'), 'Parking brake on · off']]],
   auto: ['Gearbox <small>· automatic</small>', [[k('D'), 'Drive'], [k('R'), 'Reverse'], [k('N'), 'Neutral'], [k('P'), 'Park'], [k('I'), 'Engine on · off'], [k('Space'), 'Parking brake on · off']]],
   lesson: ['Lessons', [[k('Z'), 'Left indicator'], [k('X'), 'Right indicator'], [k('Q'), 'Check your mirrors']]],
-  game: ['Game', [[k('Tab'), 'Phone'], [k('M'), 'Sound on · off'], [k('J'), 'AI instructor hint (in a car)'], [k('H'), 'These controls']]],
+  game: ['Game', [[k('Tab'), 'Phone'], [k('M'), 'Sound on · off'], ...(AI_ON ? [[k('J'), 'AI instructor hint (in a car)']] : []), [k('H'), 'These controls']]],
 };
 
 // sat nav arrows (stroked, currentColor)
