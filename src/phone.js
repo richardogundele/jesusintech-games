@@ -2,7 +2,6 @@
 // (the gearbox you learn in and your plate) and your profile. (The dealer, hangar and wardrobe tabs
 // were taken out, at Richard's word.)
 import { state, formatMoney } from './state.js';
-import * as P from './progress.js';
 import { DL25_ROWS } from './dl25.js';
 import { LESSONS } from './lessons.js';
 import { PARKED_ON } from './kent/parked.js';
@@ -145,8 +144,7 @@ export class Phone {
   me() {
     const s = state.stats;
     const line = (k, v) => `<div class="row"><div class="grow"><div class="t">${k}</div></div><div class="amt">${v}</div></div>`;
-    return `<div class="hero"><div class="big">${P.shortMoney(P.netWorth())}<span>net worth</span></div></div>` +
-      line('Distance driven', `${s.km.toFixed(1)} km`) +
+    return line('Distance driven', `${s.km.toFixed(1)} km`) +
       line('Top speed', `${s.topKmh} km/h`) +
       line('UK driving licence', state.uk.licence === 'full' ? 'Full (manual)' : state.uk.licence === 'auto' ? 'Automatic only' : 'Provisional') +
       line('Learning in', state.uk.trans === 'auto' ? 'Automatic' : 'Manual') +
