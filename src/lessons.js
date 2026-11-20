@@ -101,15 +101,15 @@ const KENT = [
     drills: { start: ['astart', 'select', 'creep'], stop1: ['reverse', 'select2'], stop2: ['secureP', 'select2'] },
   },
   {
-    id: 'junctions', world: 'kent', route: 'junctions', title: 'Junctions', blurb: 'Into Herne Bay: Mickleburgh Hill, then the town streets: turning into side roads and emerging at give-way lines.',
-    intro: 'Junctions today. Mirrors, signal, then slow down before the turn. At the give-way lines, look both ways and only go when it is clear. We head into town down Mickleburgh Hill.',
+    id: 'junctions', world: 'kent', route: 'junctions', title: 'Junctions', blurb: "About twenty junctions in Herne Bay's town streets: turning left and right into side roads, emerging at T-junctions, crossroads and a mini roundabout.",
+    intro: "Junctions today: about twenty of them, in the town. For each one I'll tell you the routine as we come up to it, and tick the steps off as you do them. It's always mirrors, signal, then slow down, and at a give-way line, look both ways and only go when it's clear.",
   },
   {
     id: 'roundabouts', world: 'kent', route: 'roundabouts', title: 'Roundabouts', blurb: 'Altira, the Margate Road rings, the Eddington junction and the big Greenhill roundabout.',
     intro: 'Roundabouts. Give way to traffic coming from your right. Signal left on the approach for the first exit; none for straight on; for an exit to the right, the right-hand lane and a right signal; and always signal left once you pass the exit before yours.',
   },
   {
-    id: 'crossings', world: 'kent', route: 'crossings', title: 'Crossings and lights', blurb: "The King's Road zebras, the Station Road lights and the zebras along Central Parade.",
+    id: 'crossings', world: 'kent', route: 'crossings', title: 'Crossings and lights', blurb: 'Zebra crossings in the town and along Central Parade, and a set of traffic lights: reading them early and stopping for people.',
     intro: 'Pedestrian crossings and traffic lights. If someone is on or waiting at a zebra, stop and let them cross. Stop at a red light behind the white line. The town is 20 mph.',
   },
   {

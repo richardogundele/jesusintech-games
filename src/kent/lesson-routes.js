@@ -327,8 +327,11 @@ export const KENT_ROUTES = {
   // gears: Reculver Road, Mickleburgh Hill, the A299 link road up to 40, the Eddington rings (change down,
   // block change), the A299 at 70 in fifth, off at Margate Road and back to the centre
   gears: { centre: 'herne', start: HB_EAST, vias: [{ x: 3300, z: -4746 }, 1000, 1179, 466, 469, 1723], to: { x: 3420, z: -4743.5 } },
-  // the Herne Bay town grid: King's Road, Beach Street, Hanover Street, Brunswick Square, Station Road
-  junctions: { centre: 'herne', start: HB_EAST, vias: [{ x: 3300, z: -4746 }, 996, 997, 1000, 1274, 2612, 2613, 1179, 999], to: { x: 2048, z: -5650 } },
+  // the Herne Bay town grid: King's Road, Beach Street, Hanover Street, Brunswick Square, Station Road,
+  // then Bank Street, the High Street, Prospect Hill and Mortimer Street. Junctions are the lesson, so
+  // it is mostly turns and emerging: 10 turns, 8 T-junctions, 2 crossroads and a mini roundabout,
+  // against the 3 roundabouts on the way out of the test centre (the town grid alone had 6 junctions)
+  junctions: { centre: 'herne', start: HB_EAST, vias: [{ x: 3300, z: -4746 }, 996, 997, 1000, 1274, 2612, 2613, 1179, 999, 2008, 1003, 1720, 4685, 1709], to: { x: 2048, z: -5650 } },
   // Altira, the Margate Road rings, the A299 link road, Eddington C and B, Greenhill, Sea Street
   roundabouts: { centre: 'herne', start: HB_EAST, vias: [{ x: 3300, z: -4746 }, 4403, 121, 4066, 4214, 4217, 3300, 4224], to: { x: 975.9, z: -5500.1 } }, // ends on Sea Street
   // King's Road zebras, the Station Road crossings, Dolphin Street, the Central Parade zebras
