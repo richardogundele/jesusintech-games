@@ -1245,7 +1245,7 @@ async function startTest(centre = 'any', seed = null, kind = 'mock') {
   let whole = centre === 'whole' || centre.startsWith('whole:');
   if (whole && kind === 'real') { whole = false; centre = 'any'; }
   if (centre === 'any') centre = areas[Math.floor(Math.random() * areas.length)];
-  if (!whole && !areas.includes(centre)) { hud.toast(`That test centre isn't in Driving City. Pick one of its ${areas.length}.`, 4000); return; }
+  if (!whole && !areas.includes(centre)) { hud.toast("That test centre isn't in Driving City any more. Start a new test from the phone.", 4000); return; }
   await ensureWorldData('city');
   const w = getWorld('city');
   if (whole) {

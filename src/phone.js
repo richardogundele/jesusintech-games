@@ -5,7 +5,6 @@ import { state, formatMoney } from './state.js';
 import { DL25_ROWS } from './dl25.js';
 import { LESSONS } from './lessons.js';
 import { PARKED_ON } from './kent/parked.js';
-import { CITY } from '../tools/driving-city.mjs';
 
 const $ = (id) => document.getElementById(id);
 const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -67,9 +66,12 @@ export class Phone {
     const h = uk.history || [];
     const mocks = h.filter((t) => t.kind !== 'real'), mocksPassed = mocks.filter((t) => t.passed).length;
     const reals = h.filter((t) => t.kind === 'real');
-    // every test centre in Driving City, by its area (tools/driving-city.mjs). `whole` adds the drive
-    // across the city, which is a mock only: the real test is the DVSA format and stays in one town.
-    const centres = (act, whole = false) => `<div class="seg" style="flex-wrap:wrap">${CITY.areas.map((a) => `<button data-act="${act}" data-id="${a.id}">${a.name}</button>`).join('')}<button data-act="${act}" data-id="any">Surprise me</button>${whole ? `<button data-act="${act}" data-id="whole">Whole city</button>` : ''}</div>`;
+    // One city, so nothing to pick: a mock or a test starts from one of Driving City's test centres,
+    // whichever the day gives you ('any', main.js startTest), as a candidate gets whichever route the
+    // examiner has. (This was a row of thirteen town buttons, which Richard had never asked for: the
+    // towns are the city's streets, not places to choose between.) The long mock is the drive across
+    // the city, a mock only: the real test is the DVSA format, a quarter of an hour.
+    const start = (act, id, title, text, ghost = false) => `<div class="row"><div class="grow"><div class="t">${title}</div><div class="s">${text}</div></div><button class="buy${ghost ? ' ghost' : ''}" data-act="${act}" data-id="${id}">Start</button></div>`;
     const lic = uk.licence === 'full' ? 'Full' : uk.licence === 'auto' ? 'Automatic' : 'Provisional';
     return `<div class="hero"><div class="big">${lic}<span>UK licence</span></div>
         <div class="s">${uk.licence === 'auto' ? 'Automatic cars only: pass a test in a manual for a full licence. ' : uk.licence === 'full' ? 'Manual and automatic. ' : ''}Real UK rules on real roads: drive on the left, mph limits, give way to the right at roundabouts. Z and X are the indicators, Q checks your mirrors.</div></div>
@@ -81,14 +83,14 @@ export class Phone {
       ${this.practice(trans)}
       <div id="ph-mock"></div>
       <h3>Mock test</h3>
-      <p class="note">The real format, marked the way the examiner marks it, but nothing rides on it: a new route from the centre you pick with roundabouts, lights and crossings, a dual carriageway or 40 road, independent driving, a manoeuvre and sometimes an emergency stop. Each fault is shown as it happens so you learn on the way round.${mocks.length ? ` You've taken ${mocks.length} mock${mocks.length === 1 ? '' : 's'} and passed ${mocksPassed}.` : ''}</p>
-      ${centres('mock', true)}
-      <p class="note"><b>Whole city</b> is the long one: it starts at one town's test centre, takes the link road out and finishes at the next town's, about half an hour instead of a quarter. Marked the same way. There's no bay park, because the car park you'd reverse into is back in the town you left.</p>
+      <p class="note">The real format, marked the way the examiner marks it, but nothing rides on it: a new route every time, from one of the city's test centres, with roundabouts, lights and crossings, a dual carriageway or 40 road, independent driving, a manoeuvre and sometimes an emergency stop. Each fault is shown as it happens so you learn on the way round.${mocks.length ? ` You've taken ${mocks.length} mock${mocks.length === 1 ? '' : 's'} and passed ${mocksPassed}.` : ''}</p>
+      ${start('mock', 'any', 'Mock test', 'About a quarter of an hour, from one of the test centres in Driving City.')}
+      ${start('mock', 'whole', 'Long mock', 'About half an hour: from one test centre, out by the link road and across the city to another. Marked the same way. No bay park, because the car park is back where you started.', true)}
       <div id="ph-test"></div>
       <h3>The driving test</h3>
       <p class="note">The one that counts. Same route maker, same DL25 marking: 15 driving faults or fewer and no serious faults to pass. The examiner says nothing about a fault until the debrief. A pass gets you your licence and pays €5m.${reals.length ? ` ${reals.length} attempt${reals.length === 1 ? '' : 's'} so far.` : mocksPassed ? '' : ' Take a mock first if you want to see how you are marked.'}</p>
-      ${centres('real')}
-      <p class="note">Every route is planned off the real streets round that centre the moment you press the button, and stays inside its part of the city. (Only the whole-city mock leaves it.)</p>
+      ${start('real', 'any', 'Driving test', 'About a quarter of an hour, from one of the test centres in Driving City.')}
+      <p class="note">Every route is planned off the city's real streets the moment you press Start. You don't choose where: the centre and the route are the luck of the day, as they are for any candidate.</p>
       ${this.testHistory()}
       <h3>Study</h3><div class="row"><div class="grow"><div class="t">Road signs</div><div class="s">Name ten Highway Code signs. Not marked: just practice.</div></div><button class="buy" data-act="signs">Start</button></div>`;
   }
