@@ -15,6 +15,7 @@ const DEFAULTS = () => ({
   wins: { date: '', counts: {} },      // real-life wins logged today, per category
   radio: false,
   welcomed: false, // the first-run toast has been shown
+  name: '', // what the instructor calls you (the phone's Settings); empty: she doesn't use a name
   theme: 'light', // the phone's look: 'light' (cream and white) or 'dark' (black and brown)
   // driving lessons and tests: licence false | 'auto' (passed in an automatic) | 'full' (passed in a manual);
   // trans: the gearbox you learn in; history: your driving tests (newest last); hints: key hints seen per gearbox

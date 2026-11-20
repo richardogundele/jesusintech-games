@@ -338,7 +338,7 @@ export function buildKentHouse({ scene, colliders, tickers, origin, interactions
 
   const meshes = flush();
 
-  const sign = tryLabel("Richard's Kent Home", { size: 2, sub: 'Beltinge' });
+  const sign = tryLabel("Home", { size: 2, sub: 'Beltinge' });
   if (sign) { sign.position.set(O.x, 11, O.z); scene.add(sign); }
 
   // ---------- tickers: flames, garage door, the TV ----------
@@ -406,7 +406,7 @@ export function buildKentHouse({ scene, colliders, tickers, origin, interactions
       if (lx > -30 && lx < 30 && lz > -31 && lz < 7) return 'Garden';
       if (lx > -19 && lx < 19 && lz >= 7 && lz < 34) return 'Motor Court';
       if (lx > -5 && lx < 5 && lz >= 34 && lz < driveEnd) return 'Driveway';
-      if (lx > -31 && lx < 31 && lz > -32 && lz < 43) return "Richard's Kent Home";
+      if (lx > -31 && lx < 31 && lz > -32 && lz < 43) return "Home";
       return null;
     },
     /** floor height under (x, z): 0, the stair ramp, or 3.3 upstairs (yPrev says which floor you came from) */

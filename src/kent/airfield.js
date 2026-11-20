@@ -205,7 +205,7 @@ export function buildAirfield({ scene, colliders, tickers, origin, JETS, STARTER
 
   const sign = tryLabel('Kent Jet Centre', { size: 2.2, sub: 'Jets to Monaco, Dubai and Singapore' });
   if (sign) { sign.position.set(CTR.x + T.x, 12, CTR.z + T.z); scene.add(sign); }
-  const parkSign = tryLabel("Richard's Jet Park", { size: 3, sub: 'Your private fleet' });
+  const parkSign = tryLabel("Private Jet Park", { size: 3, sub: 'Your private fleet' });
   if (parkSign) { parkSign.position.set(CTR.x - 100, 30, CTR.z - 80); scene.add(parkSign); }
 
   tickers.push((t) => {

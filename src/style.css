@@ -638,6 +638,7 @@ h1 { font-family: var(--font-display); font-size: clamp(40px, 9vw, 112px); lette
 #phone-body .plate-row { display: flex; gap: 8px; align-items: center; }
 #phone-body .plate-row input { flex: 1; min-width: 0; padding: 9px 12px; border-radius: 6px; border: 2px solid #17130f; background: #f2d300; color: #17130f;
   font: 800 20px/1 "Arial Narrow", Arial, sans-serif; letter-spacing: 0.08em; text-transform: uppercase; text-align: center; outline: none; }
+#phone-body .name-row input { background: var(--ph-bg); color: var(--ph-ink); border: 1px solid var(--ph-line); border-radius: 10px; font: 600 15px var(--font); letter-spacing: 0; text-transform: none; text-align: left; }
 #phone-body .plate-row input:focus { box-shadow: 0 0 0 3px color-mix(in srgb, var(--ph-accent) 45%, transparent); }
 
 /* profile: a grid of figures */

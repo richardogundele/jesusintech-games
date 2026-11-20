@@ -82,12 +82,12 @@ const DT1_START = 'Throughout the drive continue ahead, unless traffic signs dir
 const KENT = [
   {
     id: 'moveoff', world: 'kent', route: 'moveoff', title: 'Moving off and stopping', blurb: 'The Boulevard by the Herne Bay test centre: mirrors, signal, move off, pull up on the left, an angled start.',
-    intro: "Hi Richard, I'm Sarah, your instructor. We're outside the Herne Bay test centre on The Boulevard. Today: moving off and stopping. Check your mirrors with Q, signal right with X, then move off and keep to the left.",
+    intro: "Hi {name}, I'm Sarah, your instructor. We're outside the Herne Bay test centre on The Boulevard. Today: moving off and stopping. Check your mirrors with Q, signal right with X, then move off and keep to the left.",
   },
   // the gearbox lessons: only the ones for the car you're learning in are offered (def.trans)
   {
     id: 'clutch', world: 'kent', route: 'clutch', trans: 'manual', engineOff: true, title: 'Clutch control', blurb: 'The Boulevard: start the engine, find the biting point, move off and stop again and again, and a stall on purpose so you know how to recover.',
-    intro: "Hi Richard, I'm Sarah. Today it's all about the clutch, here on The Boulevard. The engine's off and the handbrake's on.",
+    intro: "Hi {name}, I'm Sarah. Today it's all about the clutch, here on The Boulevard. The engine's off and the handbrake's on.",
     drills: { start: ['start', 'bite', 'biteDown'], stop2: ['stall', 'recover'] },
   },
   {
@@ -97,7 +97,7 @@ const KENT = [
   },
   {
     id: 'autocontrols', world: 'kent', route: 'autocontrols', trans: 'auto', engineOff: true, title: 'Automatic controls', blurb: 'P, R, N and D, creeping at walking pace with just the brake, reversing a car length, and the handbrake at every stop.',
-    intro: "Hi Richard, I'm Sarah. An automatic has no clutch: the lever does the work. P to park, R reverse, N neutral, D drive. In D it creeps forward on its own, so your right foot covers the brake.",
+    intro: "Hi {name}, I'm Sarah. An automatic has no clutch: the lever does the work. P to park, R reverse, N neutral, D drive. In D it creeps forward on its own, so your right foot covers the brake.",
     drills: { start: ['astart', 'select', 'creep'], stop1: ['reverse', 'select2'], stop2: ['secureP', 'select2'] },
   },
   {
@@ -139,7 +139,7 @@ const WHITMORE = [
   {
     id: 'wm-moveoff', world: 'uk', practice: true, title: 'Moving off and stopping', blurb: 'Mirrors, signal, move off, keep left, pull up at the kerb.',
     stops: ['TC', { x: -130, z: 0 }],
-    intro: "Hi Richard, I'm Sarah, your instructor. Today: moving off and stopping. Check your mirrors with Q, signal right with X, then move off and keep to the left.",
+    intro: "Hi {name}, I'm Sarah, your instructor. Today: moving off and stopping. Check your mirrors with Q, signal right with X, then move off and keep to the left.",
   },
   {
     id: 'wm-junctions', world: 'uk', practice: true, title: 'Junctions', blurb: 'Turning into side roads and emerging at give-way lines.',
@@ -279,7 +279,11 @@ export class LessonRun {
     this.drillQ = (def.drills?.start || []).map((k) => ({ k, ...DRILLS[k] }));
     this.stopN = 0; this.creepT = 0; this.coachText = ''; this.ctl = null;
     this.tasks = def.tasks ? Object.fromEntries(def.tasks.map((k) => [k, false])) : null;
-    this.say(this.drillQ.length ? `${def.intro} ${this.drillQ[0].text}` : def.intro);
+    // the game has many players: the instructor greets each by the name they gave in Settings, or with none
+    const nm = (hooks.playerName?.() || '').trim();
+    const intro = (def.intro || '').replace(/Hi \{name\},/g, nm ? `Hi ${nm},` : 'Hi,'); // (def is shared: never rewrite it)
+    this.text = intro;
+    this.say(this.drillQ.length ? `${intro} ${this.drillQ[0].text}` : intro);
     if (this.drillQ.length) this.drillQ[0].shown = true;
     // emerging give-way lines: where the route crosses the mouth of the side road
     if (!def.mock) this.guide = guideLine(this.route.pts, world.heightAt);

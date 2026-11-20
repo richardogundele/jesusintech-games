@@ -29,6 +29,7 @@ export class Phone {
       // these leave the phone: close it first so the game mode is restored before travelling
       // the driving test: the gearbox you learn in, a mock or the real thing, retrying a route
       if (act === 'trans') { this.hooks.setTrans(id); this.render(); return; }
+      if (act === 'name') { this.hooks.setName?.($('name-in')?.value); this.render(); return; }
       if (act === 'lessoncar') { this.hooks.setLessonCar(id); this.render(); return; }
       if (act === 'theme') { state.theme = id === 'dark' ? 'dark' : 'light'; save(); this.render(); return; }
       if (act === 'lesson') { this.hooks.close(); this.hooks.startLesson(id); return; }
@@ -42,7 +43,10 @@ export class Phone {
       if (act) this.render();
     });
     // Enter in the plate box saves it, like the button
-    this.el.addEventListener('keydown', (e) => { if (e.target?.id === 'plate-in' && e.key === 'Enter') { this.hooks.setPlate(e.target.value); this.render(); } });
+    this.el.addEventListener('keydown', (e) => {
+      if (e.target?.id === 'plate-in' && e.key === 'Enter') { this.hooks.setPlate(e.target.value); this.render(); }
+      if (e.target?.id === 'name-in' && e.key === 'Enter') { this.hooks.setName?.(e.target.value); this.render(); }
+    });
   }
   get open() { return !this.el.classList.contains('hidden'); }
   show(v) {
@@ -107,7 +111,12 @@ export class Phone {
     const manualKeys = [['C', 'Clutch (hold it down)'], ['B', 'Brake'], ['A', 'Accelerator'], ['← →', 'Steer'], ['1 – 5', 'Gears'], ['N', 'Neutral'], ['R', 'Reverse'], ['I', 'Engine on / off'], ['Space', 'Handbrake']];
     const autoKeys = [['B', 'Brake'], ['A', 'Accelerator'], ['← →', 'Steer'], ['D', 'Drive'], ['R', 'Reverse'], ['N', 'Neutral'], ['P', 'Park'], ['I', 'Engine on / off'], ['Space', 'Handbrake']];
     const common = [['Q', 'Check your mirrors'], ['Z / X', 'Signal left / right'], ['V', 'Change camera'], ['E', 'Get in or out'], ['Tab', 'This phone']];
-    return `<h3>Learning in</h3>
+    return `<h3>Your name</h3>
+      <div class="group">
+        <div class="plate-row name-row"><input id="name-in" maxlength="24" value="${esc(state.name || '')}" placeholder="What should Sarah call you?" spellcheck="false" autocomplete="given-name" aria-label="Your name" /><button class="buy" data-act="name">Save</button></div>
+        <div class="s">Your instructor greets you by it. It stays on this device.</div>
+      </div>
+      <h3>Learning in</h3>
       <div class="group">
         <div class="seg" role="radiogroup" aria-label="Gearbox"><button class="${trans === 'auto' ? 'on' : ''}" data-act="trans" data-id="auto" aria-pressed="${trans === 'auto'}">Automatic</button><button class="${trans === 'manual' ? 'on' : ''}" data-act="trans" data-id="manual" aria-pressed="${trans === 'manual'}">Manual</button></div>
         <div class="s">${trans === 'manual' ? 'Pass in a manual and you can drive both.' : 'It creeps forward in D, so keep your foot over the brake. Pass in an automatic and your licence is for automatics only.'}</div>

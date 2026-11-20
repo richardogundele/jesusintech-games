@@ -404,7 +404,7 @@ function openJets() {
     // hangar rather than a departures board. It asked for CITIES[undefined].name before this and
     // threw, which lost you the jet park altogether.
     const flying = Boolean(jetDest);
-    $('jets-title').textContent = flying ? `Where to, Richard?` : 'Your jet park';
+    $('jets-title').textContent = flying ? `Where to${state.name ? `, ${state.name}` : ''}?` : 'Your jet park';
     $('jet-dest').innerHTML = dests.map((c) => `<button data-c="${c}" class="${c === jetDest ? 'on' : ''}">${CITIES[c].name}</button>`).join('');
     for (const b of $('jet-dest').children) b.onclick = () => { jetDest = b.dataset.c; render(); };
     const list = $('jet-list');
@@ -670,6 +670,7 @@ const phone = new Phone({
   lessonCars: () => lessonCarList(),
   setPaint: (hex) => setPaint(hex),
   setPlate: (text) => setPlate(text),
+  setName: (text) => { state.name = String(text || '').replace(/[<>]/g, '').trim().slice(0, 24); save(); hud.toast(state.name ? `Sarah will call you ${state.name}` : 'Sarah won\'t use a name', 2400); },
   myPlate: () => myPlate(),
   goHome: () => goHome(),
   toast: (t, ms) => hud.toast(t, ms),
@@ -1085,6 +1086,7 @@ async function signDrill(n = 10) {
   hud.toast(`Road signs: ${right} of ${n} right`, 3000);
 }
 const lessonHooks = {
+  playerName: () => state.name || '',
   quiz: (item) => quiz(item),
   // at a red light in a lesson the instructor sometimes asks you to name a sign (not marked)
   signQuiz: () => quiz({ ...signQuestion(), title: 'While we wait at the lights · not marked' }).then((ok) => { hud.toast(ok ? 'Right!' : 'Not quite: look it up in the Highway Code.', 1800); return ok; }),
