@@ -9,7 +9,7 @@ export function groundHeight(T) {
   const x1 = x0 + (nx - 1) * step, z1 = z0 + (nz - 1) * step;
   const at = (i, j) => heights[j * nx + i];
   /** ground height at a world point; 0 outside the grid, so the jet centre past it stays flat */
-  return function heightAt(x, z) {
+  function heightAt(x, z) {
     if (x < x0 || x > x1 || z < z0 || z > z1) return 0;
     const fx = (x - x0) / step, fz = (z - z0) / step;
     let i = Math.floor(fx), j = Math.floor(fz);
@@ -21,5 +21,9 @@ export function groundHeight(T) {
     return u + v <= 1
       ? h00 + u * (h10 - h00) + v * (h01 - h00)
       : h11 + (1 - u) * (h01 - h11) + (1 - v) * (h10 - h11);
-  };
+  }
+  // where the ground folds: the grid's lines and each cell's anti-diagonal. Whatever is laid on the
+  // ground is cut along them first (terrain.js splitOnFolds), so it lies on it and not across it.
+  heightAt.grid = { x0, z0, step, nx, nz };
+  return heightAt;
 }

@@ -71,7 +71,16 @@ for (const p of picks.values()) {
     const bb = o.geometry.boundingBox;
     for (let i = 0; i < o.count; i++) {
       o.getMatrixAt(i, Mx); Mx.decompose(V, Q, S);
-      const base = V.y + bb.min.y * S.y, ground = T.heightAt(V.x, V.z), dev = base - ground;
+      const base = V.y + bb.min.y * S.y, ground = T.heightAt(V.x, V.z);
+      // a lamp on a raised road stands on its deck (scenery.js plants it at the road's height there): the ground, or the deck of a road within reach, whichever it is nearer
+      let dev = base - ground;
+      if (k === 'lamp') for (const { way, i } of net.grid.near(V.x, V.z, 8)) {
+        if (!way.hasDeck) continue;
+        const a = way.pts[i], c = way.pts[i + 1], dx = c[0] - a[0], dz = c[1] - a[1], L2 = dx * dx + dz * dz, u = L2 > 1e-9 ? Math.max(0, Math.min(1, ((V.x - a[0]) * dx + (V.z - a[1]) * dz) / L2)) : 0;
+        if (Math.hypot(a[0] + dx * u - V.x, a[1] + dz * u - V.z) > way.halfW + 4) continue;
+        const d = base - ground - net.deckAt(way, way.cum[i] + Math.sqrt(L2) * u);
+        if (Math.abs(d) < Math.abs(dev)) dev = d;
+      }
       const s = stat[k]; s.n++;
       if (k === 'hedge') { if (dev < -3) s.buried++; if (dev > 0.5) s.floating++; }
       else s.worst = Math.max(s.worst, Math.abs(dev));

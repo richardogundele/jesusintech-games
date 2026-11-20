@@ -1,7 +1,9 @@
 import * as THREE from 'three';
 import { facadeMaterial, waterMaterial, worldMappedMaterial } from '../materials.js';
 import { drapeGeometry } from '../worlds/terrain.js';
+import { UNDERLAY } from './surface.js';
 import { PAVE_W, KERB_W } from './markings.js';
+import { netView, _internals as ROADS } from './roads.js';
 import { PARKED_L } from './parked.js';
 
 // Kent scenery: everything in a tile that is not road, sign or traffic. Buildings from OSM
@@ -211,17 +213,18 @@ class GB {
     this.quad(P(-hw, 0, -hd), P(-hw, 0, hd), P(-hw, h, hd), P(-hw, h, -hd), col);
     if (top) this.quad(P(-hw, h, -hd), P(-hw, h, hd), P(hw, h, hd), P(hw, h, -hd), col);
   }
-  /** walls of a clockwise footprint from y0 to y0 + h */
-  walls(poly, y0, h, col) {
+  /** one wall from a to b on plan, from y0 up to y0 + h (h is the wall's height, not the height of its top) */
+  face(a, b, y0, h, col) {
     // Under the eaves the wall sits in the roof's shadow: the top 0.9 m of every wall shades off
     // to 70 %, which is what makes a box read as a building with a roof on it rather than a box.
     // Two quads an edge so the band is a band and not a ramp up the whole wall.
     const band = Math.min(0.9, h * 0.3), yb = y0 + h - band, dark = _eaves.copy(col).multiplyScalar(0.7);
-    for (let i = 0, n = poly.length; i < n; i++) {
-      const a = poly[i], b = poly[(i + 1) % n];
-      this.quad([a[0], y0, a[1]], [b[0], y0, b[1]], [b[0], yb, b[1]], [a[0], yb, a[1]], col);
-      this.quad([a[0], yb, a[1]], [b[0], yb, b[1]], [b[0], y0 + h, b[1]], [a[0], y0 + h, a[1]], col, undefined, dark);
-    }
+    this.quad([a[0], y0, a[1]], [b[0], y0, b[1]], [b[0], yb, b[1]], [a[0], yb, a[1]], col);
+    this.quad([a[0], yb, a[1]], [b[0], yb, b[1]], [b[0], y0 + h, b[1]], [a[0], y0 + h, a[1]], col, undefined, dark);
+  }
+  /** walls of a clockwise footprint from y0 to y0 + h */
+  walls(poly, y0, h, col) {
+    for (let i = 0, n = poly.length; i < n; i++) this.face(poly[i], poly[(i + 1) % n], y0, h, col);
   }
   /** flat cap over a footprint at height y, facing up */
   cap(poly, y, col) {
@@ -553,6 +556,10 @@ function shared() {
     // no polygonOffset: at grazing angles it would push fields through the asphalt 2 cm above them;
     // the world's ground plane should sit a few cm below y 0 so the fields clear it by height alone
     field: new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 1 }),
+    // the sheets that lie on the land -- landuse fields, the surface of a car park or a drive, the
+    // railway's ballast -- are painted on to it and write no depth (surface.js UNDERLAY says why)
+    ground: new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 1, depthWrite: false }),
+    railFlush: new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.75, metalness: 0.2, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }), // rails set in a road at a level crossing: paint's bias, so they read on the tarmac
     rail: new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.75, metalness: 0.2 }),
     sleeper: new THREE.MeshStandardMaterial({ color: 0x5c5347, roughness: 1 }),
     misc: new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.8 }),
@@ -583,6 +590,7 @@ const FIELD = {
   farmland: { col: [0xc9b36a, 0x9bb968, 0xb5a85c, 0xa7b76a], y: 1 }, grass: { col: [0x83a35f, 0x7b9a56], y: 2 },
   wood: { col: [0x3e6b2f], y: 3 }, beach: { col: [0xc8bda2], y: 4 }, water: { col: [0x3f6f8c], y: 4 },
 };
+export { UNDERLAY }; // (surface.js: what is painted on to the land, and in what order)
 
 /**
  * Scenery builder for the tile manager. `net` is the RoadNet (its `data` is region.json),
@@ -614,20 +622,148 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
     || inRoundabout(x, z) || inCarPark(x, z);
   const halfW = (w) => w.halfW ?? (w.width ?? (w.cls === 'residential' || w.cls === 'living_street' ? 6 : 7.3)) / 2;
   const nearestRoad = (x, z, d) => { try { return net?.nearest?.(x, z, d) || null; } catch { return null; } };
-  /** does a collider box (w across, d along yaw) cover any part of a carriageway? */
-  const obbOnRoad = (o) => {
+  /** does a collider box (w across, d along yaw) cover any part of a carriageway? (`service`: of a service road too; `pad`: how near its edge counts, 0.3 m inside it by default) */
+  const obbOnRoad = (o, service = false, pad = -0.3) => {
     if (!net?.grid) return false;
     const c = Math.cos(o.yaw), s = Math.sin(o.yaw), hw = o.w / 2, hd = o.d / 2, R = Math.hypot(hw, hd) + 12;
     const local = (x, z) => [(x - o.cx) * c - (z - o.cz) * s, (x - o.cx) * s + (z - o.cz) * c]; // across, along
     for (const { way, i } of net.grid.near(o.cx, o.cz, R)) {
-      if (way.cls === 'service') continue;
+      if (way.cls === 'service' && !service) continue;
       const a = local(way.pts[i][0], way.pts[i][1]), b = local(way.pts[i + 1][0], way.pts[i + 1][1]), n = Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1])) + 1;
       for (let k = 0; k <= n; k++) {
         const u = a[0] + ((b[0] - a[0]) * k) / n, v = a[1] + ((b[1] - a[1]) * k) / n;
-        if (Math.hypot(Math.max(0, Math.abs(u) - hw), Math.max(0, Math.abs(v) - hd)) < way.halfW - 0.3) return true;
+        if (Math.hypot(Math.max(0, Math.abs(u) - hw), Math.max(0, Math.abs(v) - hd)) < way.halfW + pad) return true;
       }
     }
     return false;
+  };
+  /**
+   * Is the carriageway of any road within r of a point on plan: every road, service roads too, where
+   * it is on the ground. What is planted along a road (a hedge, a lamp, a street tree) is set out from
+   * that road's own centre line and kept clear of that road's own junctions, and knew nothing of the
+   * next road over: the hedge on the offside of a dual carriageway stood in the other carriageway
+   * (Thanet Way), and the lamps of London Road in Guildford stood in the mouth of Weylea Avenue,
+   * which joins a different one of London Road's ways.
+   */
+  // (`but`: a way that does not count, the one the thing is planted along. `under`: whether a road
+  // overhead leaves room beneath it: for a hedge, yes; a lamp 8 m tall came up through the
+  // carriageway 5.7 m over it beside the M60. A lamp is also kept 4 m from the edge of every road but its own: between a
+  // carriageway and the slip road leaving it there is tarmac that belongs to neither road's width,
+  // and thirty lamps in the city stood on it.)
+  const nearRoad = (x, z, r, but = null, under = true) => {
+    if (!net?.grid) return false;
+    for (const { way, i } of net.grid.near(x, z, r + 12)) {
+      if (but && way.id === but.id) continue;
+      const a = way.pts[i], b = way.pts[i + 1], dx = b[0] - a[0], dz = b[1] - a[1], L2 = dx * dx + dz * dz;
+      const u = L2 > 1e-9 ? clamp(((x - a[0]) * dx + (z - a[1]) * dz) / L2, 0, 1) : 0;
+      if (Math.hypot(a[0] + dx * u - x, a[1] + dz * u - z) >= way.halfW + r) continue;
+      if (under && way.hasDeck && net.deckAt && net.deckAt(way, way.cum[i] + Math.sqrt(L2) * u) > 2.5) continue; // overhead there
+      return true;
+    }
+    return !but && inMouth(x, z, r);
+  };
+  // The mouth of a junction is wider than its roads: each corner is rounded, and the tarmac between
+  // the two kerb lines and the curve of the kerb belongs to neither road's own width. roads.js
+  // works each corner out (nodeInfo: C where the two edges would meet, TA and TB where the curve
+  // leaves them, O and rf its centre and radius); a lamp set out 7 m along its road from a wide
+  // junction stood on that tarmac (Harts Gardens in Guildford).
+  const roadView = net?.nodes instanceof Map ? netView(net) : null;
+  const mouthGrid = new Map(), MOUTH = 64;
+  if (roadView) for (const n of net.nodes.values()) { const k = `${Math.floor(n.x / MOUTH)},${Math.floor(n.z / MOUTH)}`; let l = mouthGrid.get(k); if (!l) mouthGrid.set(k, (l = [])); l.push(n); }
+  const inMouth = (x, z, r) => {
+    if (!roadView) return false;
+    for (let gx = Math.floor((x - 40) / MOUTH); gx <= Math.floor((x + 40) / MOUTH); gx++) for (let gz = Math.floor((z - 40) / MOUTH); gz <= Math.floor((z + 40) / MOUTH); gz++) {
+      for (const n of mouthGrid.get(`${gx},${gz}`) || []) {
+        if (Math.abs(n.x - x) > 40 || Math.abs(n.z - z) > 40 || !roadView.nodes.has(n.id)) continue;
+        for (const f of ROADS.nodeInfo(roadView, n.id).fillets || []) {
+          if (Math.hypot(x - f.O[0], z - f.O[1]) < f.rf - r) continue; // behind the curve of the kerb
+          // inside the triangle TA, C, TB, or within r of it
+          const [a, b, c] = [f.TA, f.C, f.TB], sg = Math.sign((b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])) || 1;
+          const side = (p, q) => (sg * ((q[0] - p[0]) * (z - p[1]) - (q[1] - p[1]) * (x - p[0]))) / (Math.hypot(q[0] - p[0], q[1] - p[1]) || 1);
+          if (side(a, b) > -r && side(b, c) > -r && side(c, a) > -r) return true;
+        }
+      }
+    }
+    return false;
+  };
+
+  /** does the centre line of a road (not a service road, not one on a deck) run through a building's footprint? */
+  const roadThrough = (b) => {
+    if (!net?.grid) return false;
+    for (const { way, i } of net.grid.near(b.obb.cx, b.obb.cz, Math.hypot(b.obb.w, b.obb.d) / 2 + 2)) {
+      if (way.cls === 'service' || way.hasDeck) continue;
+      const p = way.pts[i], q = way.pts[i + 1], n = Math.ceil(Math.hypot(q[0] - p[0], q[1] - p[1])) + 1;
+      for (let k = 0; k <= n; k++) if (pointInPoly(b.poly, p[0] + ((q[0] - p[0]) * k) / n, p[1] + ((q[1] - p[1]) * k) / n)) return true;
+    }
+    return false;
+  };
+
+  /**
+   * The box a car hits for a building drawn from its outline: the box round the footprint, or, where
+   * that box reaches a carriageway (an L-shaped footprint with the road in its crook, a footprint the
+   * merge cut back along a kerb), the same box with one side cut back, whichever side clears the road
+   * for the least floor lost. null if no one cut of up to six tenths does: no invisible wall in a road.
+   */
+  const hitBox = (b) => {
+    if (b.hit !== undefined) return b.hit;
+    const o = b.obb;
+    if (!obbOnRoad(o)) return (b.hit = o);
+    const c = Math.cos(o.yaw), s = Math.sin(o.yaw);
+    let best = null;
+    for (const [along, side] of [[0, 1], [0, -1], [1, 1], [1, -1]]) {
+      const full = along ? o.d : o.w, other = along ? o.w : o.d;
+      for (let t = 0.5; t <= full * 0.6; t += 0.5) {
+        if (best && t * other >= best.lost) break;
+        const sh = (-side * t) / 2, lx = along ? 0 : sh, lz = along ? sh : 0; // the side at +side goes; the centre moves half the cut the other way
+        const q = { cx: o.cx + lx * c + lz * s, cz: o.cz - lx * s + lz * c, w: along ? o.w : o.w - t, d: along ? o.d - t : o.d, yaw: o.yaw };
+        if (!obbOnRoad(q)) { best = { q, lost: t * other }; break; }
+      }
+    }
+    return (b.hit = best ? best.q : null);
+  };
+  /** is a point on plan under a road: inside the carriageway or footways of one that is not a service road, on the ground there */
+  const underRoad = (x, z) => {
+    for (const { way, i } of net.grid.near(x, z, 16)) {
+      if (way.cls === 'service' || way.hasDeck) continue;
+      const a = way.pts[i], b = way.pts[i + 1], dx = b[0] - a[0], dz = b[1] - a[1], L2 = dx * dx + dz * dz;
+      const u = L2 > 1e-9 ? clamp(((x - a[0]) * dx + (z - a[1]) * dz) / L2, 0, 1) : 0;
+      if (Math.hypot(a[0] + dx * u - x, a[1] + dz * u - z) < corridorOf(way) + 0.4) return true;
+    }
+    return false;
+  };
+  /** does a wall of a building's own outline stand more than half a metre inside a carriageway (the merge leaves a few: Christie Way in Manchester, Badgers Brow in Stoke) */
+  const wallInRoad = (b) => {
+    for (let i = 0, n = b.poly.length; i < n; i++) {
+      const a = b.poly[i], e = b.poly[(i + 1) % n], steps = Math.max(1, Math.ceil(Math.hypot(e[0] - a[0], e[1] - a[1])));
+      for (let k = 0; k <= steps; k++) if (nearRoad(a[0] + ((e[0] - a[0]) * k) / steps, a[1] + ((e[1] - a[1]) * k) / steps, -0.5, { id: NaN }, true)) return true;
+    }
+    return false;
+  };
+  /**
+   * The walls of a building a road runs through (Quadrant Road goes under The Potteries Centre in
+   * Stoke; two buildings in the city have a road's centre line inside them): each wall is walked in
+   * half-metre steps and left open to HEADROOM where the road and its footways pass under it, so the
+   * road goes in under the building as it does in life and not into a wall.
+   */
+  const HEADROOM = 5.2;
+  const wallsOverRoads = (gb, b, gy, col) => {
+    const top = gy + b.h;
+    for (let i = 0, n = b.poly.length; i < n; i++) {
+      const a = b.poly[i], e = b.poly[(i + 1) % n], steps = Math.max(1, Math.ceil(Math.hypot(e[0] - a[0], e[1] - a[1]) / 0.5));
+      const at = (k) => [a[0] + ((e[0] - a[0]) * k) / steps, a[1] + ((e[1] - a[1]) * k) / steps];
+      let from = 0, open = underRoad(...at(0.5));
+      for (let k = 1; k <= steps; k++) {
+        const o = k < steps ? underRoad(...at(k + 0.5)) : !open; // the last step always closes the run
+        if (o === open) continue;
+        const p = at(from), q = at(k);
+        if (!open) gb.face(p, q, gy, b.h, col);
+        else {
+          const y0 = (groundY ? Math.max(gy, groundY(p[0], p[1]), groundY(q[0], q[1])) : gy) + HEADROOM;
+          if (top - y0 > 0.6) gb.face(p, q, y0, top - y0, col);
+        }
+        from = k; open = o;
+      }
+    }
   };
 
   // ---- index everything by tile once, so a tile build only touches what overlaps it ----
@@ -704,6 +840,29 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
   const KEEP = []; // keep-clear circles round bespoke landmarks (procedural houses stay out too)
   const clear = (x, z, r) => { KEEP.push({ x, z, r }); for (const b of nearBuildings(x, z, r)) b.skip = true; };
   const addLm = (lm) => { landmarks.push(lm); put(idx.landmarks, Math.floor(lm.x / TILE), Math.floor(lm.z / TILE), lm); };
+  /**
+   * Where a bespoke landmark stands: at its point on the map, turned to the road it is on, or -- if
+   * any of its boxes ([across, along, w, d] from its centre) would reach a carriageway there -- the
+   * nearest place within `reach` where none does. null if there is none: better no petrol station
+   * than one in the road. The map gives a station as a point, often at its kerb, and the canopy built
+   * round the point is 17 m wide: five of the city's 120 stood a lane deep in a through road, columns,
+   * pumps, colliders and all (Woodbridge Road in Guildford, Kingsway in Manchester).
+   */
+  const siteOffRoad = (x, z, boxes, reach, lanes = false) => {
+    const hit = nearestRoad(x, z, 120), yaw = hit ? Math.atan2(hit.dir[0], hit.dir[1]) : 0, c = Math.cos(yaw), s = Math.sin(yaw);
+    const onRoad = (px, pz, service) => boxes.some(([lx, lz, w, d]) => obbOnRoad({ cx: px + lx * c + lz * s, cz: pz - lx * s + lz * c, w, d, yaw }, service));
+    // `lanes`: clear of the service roads as well if there is such a place (a station's own lane on
+    // the map runs through its forecourt, and the pump islands lay across it), else of the rest
+    for (const service of lanes ? [true, false] : [false]) {
+      if (!onRoad(x, z, service)) return { x, z, yaw };
+      for (let r = 2; r <= reach; r += 2) for (let k = 0; k < 12; k++) {
+        const a = (k / 12) * Math.PI * 2, px = x + Math.cos(a) * r, pz = z + Math.sin(a) * r;
+        if (!onRoad(px, pz, service)) return { x: px, z: pz, yaw };
+      }
+    }
+    return null;
+  };
+  const FUEL_BOXES = [[0, 0, 17.4, 10.4], [0, -12, 11.4, 7.4]], SHOP_BOXES = [[0, 0, 44, 30]]; // as buildLandmarks draws them: canopy and kiosk; the stand-in store
   for (const tc of data.testCentres || []) { clear(tc.x, tc.z, 32); addLm({ type: 'testCentre', x: tc.x, z: tc.z, name: tc.name }); }
   for (const lm of data.landmarks || []) {
     const name = lm.name || '', cat = lm.cat || lm.category || '';
@@ -713,13 +872,20 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
     else if (cat === 'pier' && /^herne bay pier$/i.test(name)) addLm({ type: 'pier', x: lm.x, z: lm.z, name });
     else if (cat === 'pier' && /pier head|remains of the end/i.test(name)) addLm({ type: 'pierHead', x: lm.x, z: lm.z, name });
     else if (cat === 'pier' && /neptune/i.test(name)) addLm({ type: 'harbourArm', x: lm.x, z: lm.z, name });
-    else if (cat === 'fuel') { clear(lm.x, lm.z, 14); addLm({ type: 'fuel', x: lm.x, z: lm.z, name: lm.brand || name || 'Petrol' }); }
+    else if (cat === 'fuel') { const at = siteOffRoad(lm.x, lm.z, FUEL_BOXES, 16, true); if (at) { clear(at.x, at.z, 14); addLm({ type: 'fuel', x: at.x, z: at.z, yaw: at.yaw, name: lm.brand || name || 'Petrol' }); } }
     else if (cat === 'supermarket') {
       const b = buildingAt(lm.x, lm.z, 45);
       const brand = lm.brand || name || 'Supermarket';
       if (b) { b.sign = brand; b.kind = 'shop'; b.pitched = false; if (b.h < 6) b.h = 6.5; KEEP.push({ x: b.cx, z: b.cz, r: b.rad + 10 }); }
-      else { KEEP.push({ x: lm.x, z: lm.z, r: 40 }); addLm({ type: 'supermarket', x: lm.x, z: lm.z, name: brand }); }
-      supers.push({ x: lm.x, z: lm.z, brand, b: b || null, park: null });
+      else {
+        // (no footprint of its own on the map: a stand-in store is built, where it clears the roads)
+        const at = siteOffRoad(lm.x, lm.z, SHOP_BOXES, 30);
+        if (!at) continue;
+        KEEP.push({ x: at.x, z: at.z, r: 40 }); addLm({ type: 'supermarket', x: at.x, z: at.z, yaw: at.yaw, name: brand });
+        supers.push({ x: at.x, z: at.z, yaw: at.yaw, brand, b: null, park: null });
+        continue;
+      }
+      supers.push({ x: lm.x, z: lm.z, brand, b, park: null });
     }
   }
 
@@ -751,6 +917,7 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
   // ---- statics: sea, cliff, beach, sea wall. Built on first use, added to `statics` ----
   const statics = new THREE.Group();
   statics.name = 'kent-scenery-statics';
+  statics.renderOrder = UNDERLAY.land - 1; // (a group's order is its children's: the sea and the beach go down before the fields are painted, as the land does)
   if (scene) scene.add(statics);
   let staticsBuilt = false, water = null;
   function buildStatics() {
@@ -1120,8 +1287,12 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
         if (u.drive && u.gap >= 2.8 && !blocked(s + u.w, s + u.w + u.gap)) {
           const dw = Math.min(3, u.gap - 0.4), sc = s + u.w + u.gap / 2, q = pointAt(way, sc);
           const d0 = way.halfW + pave, d1 = front + u.d * 0.6;
-          rec.extras.push({ type: 'drive', x: q.x + nx * (d0 + d1) / 2, z: q.z + nz * (d0 + d1) / 2, w: dw, h: 0.05, d: d1 - d0, yaw, col: 0xb7b2aa });
+          const dr = { type: 'drive', x: q.x + nx * (d0 + d1) / 2, z: q.z + nz * (d0 + d1) / 2, w: dw, h: 0.05, d: d1 - d0, yaw, col: 0xb7b2aa };
+          // (it runs straight back from the road at the house's angle: on a bend, or with another road behind, its far end could lie on tarmac)
+          if (!obbOnRoad({ cx: dr.x, cz: dr.z, w: dr.w, d: dr.d, yaw }, true, 0)) rec.extras.push(dr);
         }
+        // (its wall, hedge and fences are set out from its own street; none is built where another road is)
+        rec.extras = rec.extras.filter((e) => !(e.type === 'wall' || e.type === 'hedge' || e.type === 'fence') || !obbOnRoad({ cx: e.x, cz: e.z, w: e.w, d: e.d, yaw: e.yaw }, false, 0));
         out.push(rec);
         s += u.w + u.gap;
       }
@@ -1295,7 +1466,7 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
   for (const S of supers) {
     let o = S.b ? S.b.obb : null;
     const hit = nearestRoad(S.b ? S.b.cx : S.x, S.b ? S.b.cz : S.z, 200);
-    if (!o) o = { cx: S.x, cz: S.z, w: 44, d: 30, yaw: hit ? Math.atan2(hit.dir[0], hit.dir[1]) : 0 }; // buildLandmarks' own box
+    if (!o) o = { cx: S.x, cz: S.z, w: 44, d: 30, yaw: S.yaw ?? (hit ? Math.atan2(hit.dir[0], hit.dir[1]) : 0) }; // buildLandmarks' own box
     const tx = hit ? hit.px - o.cx : 0, tz = hit ? hit.pz - o.cz : 1;
     const c = Math.cos(o.yaw), s = Math.sin(o.yaw);
     const faces = [[c, -s, o.d, o.w / 2], [-c, s, o.d, o.w / 2], [s, c, o.w, o.d / 2], [-s, -c, o.w, o.d / 2]].sort((a, b) => (b[0] * tx + b[1] * tz) - (a[0] * tx + a[1] * tz));
@@ -1350,13 +1521,17 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
     const near = lod === 'near', parks = idx.parks.get(tileKey(tile.tx, tile.tz)) || [], drives = near ? drivesForTile(tile.tx, tile.tz) : [];
     if (!parks.length && !drives.length) return { carParks: 0, drives: 0 };
     const g = new GB({ uv: false, color: true }), tar = new THREE.Color(0x4a4c50), white = new THREE.Color(0xf2f2ee), steel = new THREE.Color(0x9aa0a6), col = new THREE.Color();
-    const slab = (R, c, top = 0.06) => g.box(R.cx, 0, R.cz, R.w, top, R.d, rectYaw(R), c);
+    // the surfaces and the bay lines are paint on the land (M.ground): a road, a footway or a kerb they
+    // reach is drawn over them. (They were 6 cm slabs, and one whose corner or way in reached a road's
+    // flare stood on the carriageway.) Surfaces first, lines after: nothing here writes depth.
+    const u = new GB({ uv: false, color: true });
+    const sheet = (cx, cz, w, d, yaw, y, c) => { const cs2 = Math.cos(yaw), sn = Math.sin(yaw), P = (lx, lz) => [cx + lx * cs2 + lz * sn, cz - lx * sn + lz * cs2]; u.cap([P(-w / 2, -d / 2), P(-w / 2, d / 2), P(w / 2, d / 2), P(w / 2, -d / 2)], y, c); };
+    const slab = (R, c) => sheet(R.cx, R.cz, R.w, R.d, rectYaw(R), 0.02, c);
     for (const d of drives) slab(d.R, col.set(d.col));
+    for (const P of parks) { slab(P.R, tar); if (P.access) slab(P.access, tar); }
     for (const P of parks) {
-      slab(P.R, tar);
-      if (P.access) slab(P.access, tar);
       if (!near) continue;
-      for (const l of P.lines) g.box(l.x, 0.06, l.z, 0.1, 0.012, BAY_D, l.yaw, white);
+      for (const l of P.lines) sheet(l.x, l.z, 0.1, BAY_D, l.yaw, 0.024, white);
       if (P.totem) {
         const t = P.totem, { bg, ink } = brandColours(P.brand);
         g.box(t.x, 0, t.z, 0.3, 4.2, 0.3, t.yaw, steel);
@@ -1371,10 +1546,8 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
         }
       }
     }
-    const m = new THREE.Mesh(drapeGeo(g.build(), 4), M.field);
-    m.receiveShadow = true; m.castShadow = near;
-    m.geometry.userData.owned = true;
-    out.add(m);
+    if (u.tris) { const m = new THREE.Mesh(drapeGeo(u.build(), 4), M.ground); m.renderOrder = UNDERLAY.lot; m.receiveShadow = true; m.geometry.userData.owned = true; out.add(m); }
+    if (g.tris) { const m = new THREE.Mesh(drapeGeo(g.build(), 4), M.field); m.receiveShadow = true; m.castShadow = near; m.geometry.userData.owned = true; out.add(m); }
     return { carParks: parks.length, drives: drives.length };
   }
 
@@ -1402,6 +1575,16 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
     const SOLID = new Set(['wall', 'hedge', 'bay']); // the extras a car can hit
     for (const b of list) {
       if (b.skip) continue;
+      // Once for each building off the map, the first time its tile is built: does the box round it
+      // reach a carriageway? A footprint with four corners, or one that fills nine tenths of its
+      // box, is drawn as the box, and the box is the bigger of the two: where the merge had cut a
+      // footprint back along a kerb (tools/building-clearance.mjs) the box put the corner back in
+      // the road, wall and collider with it. Such a building is drawn from its own outline instead,
+      // and one a road runs through has its walls left open over the road (wallsOverRoads).
+      if (b.onRoad === undefined && !b.proc) {
+        b.onRoad = obbOnRoad(b.obb);
+        if (b.onRoad) { b.rect = false; b.through = roadThrough(b) || wallInRoad(b); }
+      }
       const gy = baseY(b);
       if (b.proc) {
         counts.proc = (counts.proc || 0) + 1;
@@ -1459,7 +1642,11 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
         if (near) cs.add(o.cx, o.cz, o.w, o.d, o.yaw);
       } else {
         col.set(b.col);
-        walls.walls(b.poly, gy, gy + b.h, col);
+        // (GB.walls takes the wall's height. It was handed the height of its top, gy + b.h, from the
+        // day the buildings went onto the hills, so every building drawn from its outline had walls
+        // taller than itself by the height of the ground it stood on: nothing at Herne Bay's sea
+        // front, 25 m in Coventry, a brick tower 120 m high for a house on the hills of Leeds.)
+        if (b.through) wallsOverRoads(walls, b, gy, col); else walls.walls(b.poly, gy, b.h, col);
         if (b.pitched) {
           const inset = clamp(Math.min(b.obb.w, b.obb.d) * 0.4, 1.2, 4);
           roofs.hip(b.poly, gy + b.h, roofH, inset, col.set(b.roofCol));
@@ -1470,8 +1657,9 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
             if (q && q.length > 1) chimneys.push({ x: q[0][0], z: q[0][1], y: gy + b.h + roofH * 0.7, yaw: Math.atan2(q[1][0] - q[0][0], q[1][1] - q[0][1]) });
           }
         } else walls.cap(b.poly, gy + b.h, col);
-        // the box round an L-shaped or rambling footprint can reach over a road: no invisible wall there
-        if (near && !obbOnRoad(b.obb)) cs.add(b.obb.cx, b.obb.cz, b.obb.w, b.obb.d, b.obb.yaw);
+        // the box round an L-shaped or rambling footprint can reach over a road: it is cut back to clear it
+        const hb = near ? hitBox(b) : null;
+        if (hb) cs.add(hb.cx, hb.cz, hb.w, hb.d, hb.yaw);
       }
       if (near && !b.sign && (b.kind === 'house' || b.kind === 'terrace' || b.kind === 'shop') && b.h <= 12) addFront(b, fronts, rng, gy);
       if (near && b.sign && hasDOM) addSign(b, out, M, gy);
@@ -1508,8 +1696,8 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
       });
       inst(potItems, M.geoPot, M.chimney, { color: false });
     }
-    const merged = (gb, mat, cast = true) => { if (!gb.tris) return; const m = new THREE.Mesh(gb.build(), mat); m.castShadow = cast; m.receiveShadow = true; m.geometry.userData.owned = true; out.add(m); };
-    merged(walls, M.walls);
+    const merged = (gb, mat, cast = true) => { if (!gb.tris) return null; const m = new THREE.Mesh(gb.build(), mat); m.castShadow = cast; m.receiveShadow = true; m.geometry.userData.owned = true; out.add(m); return m; };
+    { const wm = merged(walls, M.walls); if (wm) wm.name = 'walls'; }
     merged(roofs, M.roof);
     merged(fronts, M.front, false);
     merged(awnings, M.misc);
@@ -1585,16 +1773,19 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
     const col = new THREE.Color();
     const rect = { x0: tile.x0, z0: tile.z0, x1: tile.x1, z1: tile.z1 };
     let n = 0;
-    list.forEach((lu, i) => {
+    // (painted in the order of the kinds, the lowest first: none of them writes depth, so where two
+    // overlap it is the one drawn later that shows, and the triangles of one mesh are drawn in turn)
+    list.map((lu, i) => ({ lu, i })).sort((a, b) => FIELD[a.lu.kind].y - FIELD[b.lu.kind].y || a.i - b.i).forEach(({ lu, i }) => {
       const f = FIELD[lu.kind];
       const poly = clipRect(lu.pts, rect);
       if (!poly || Math.abs(signedArea(poly)) < 4) return;
       col.set(f.col[(i + Math.floor(hash2(lu.bb.x0, lu.bb.z0) * 7)) % f.col.length]);
-      g.cap(poly, fieldY + f.y * 0.003, col); // kinds stack by priority, all below the asphalt at 0.02
+      g.cap(poly, fieldY + f.y * 0.003, col);
       n++;
     });
     if (!g.tris) return 0;
-    const m = new THREE.Mesh(drapeGeo(g.build()), M.field);
+    const m = new THREE.Mesh(drapeGeo(g.build()), M.ground);
+    m.renderOrder = UNDERLAY.field;
     m.receiveShadow = true;
     m.geometry.userData.owned = true;
     out.add(m);
@@ -1617,7 +1808,8 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
       return false;
     };
     const inside = (x, z) => x >= tile.x0 && x < tile.x1 && z >= tile.z0 && z < tile.z1;
-    const add = (x, z, s) => { if (spots.length < cap && !excluded(x, z)) spots.push({ x, y: groundY ? groundY(x, z) : 0, z, s, r: rng() * 6.28 }); };
+    // (the tests below keep a tree so many metres from a road's centre line, which on a road four lanes wide is in it: the trunk also stands 1.5 m clear of every carriageway's edge)
+    const add = (x, z, s) => { if (spots.length < cap && !excluded(x, z) && !nearRoad(x, z, 1.5, null, false)) spots.push({ x, y: groundY ? groundY(x, z) : 0, z, s, r: rng() * 6.28 }); };
     // woods: a jittered grid, both lods
     const sp = near ? 9 : 14;
     for (const lu of lus) {
@@ -1719,7 +1911,9 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
               if (inside(x, z) && !excluded(x, z)) {
                 // a hedge runs up or down the hill: plant it at the LOWEST of its two ends and middle so no end hangs in the air
                 const y = groundY ? Math.min(groundY(x, z), groundY(x + p.dx * len / 2, z + p.dz * len / 2), groundY(x - p.dx * len / 2, z - p.dz * len / 2)) : 0;
-                hedges.push({ x, y, z, len: len + 0.3, h: 1.3 + rng() * 0.7, wd: 1.3 + rng() * 0.5, yaw: Math.atan2(p.dx, p.dz), t: rng() });
+                const hd = { x, y, z, len: len + 0.3, h: 1.3 + rng() * 0.7, wd: 1.3 + rng() * 0.5, yaw: Math.atan2(p.dx, p.dz), t: rng() };
+                // not where it would stand on another road, or across the mouth of a track or a drive (nearRoad)
+                if (!obbOnRoad({ cx: x, cz: z, w: hd.wd, d: hd.len, yaw: hd.yaw }, true, 0.3)) hedges.push(hd);
               }
             }
             s += len;
@@ -1735,8 +1929,9 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
           const nx = p.dz * side, nz = -p.dx * side;
           const off = way.halfW + PAVE - 0.4;
           const x = p.x + nx * off, z = p.z + nz * off;
-          if (!inside(x, z) || excluded(x, z)) continue;
-          lamps.push({ x, z, y: groundY ? groundY(x, z) : 0, rot: Math.atan2(-nx, -nz) }); // the arm reaches over the road; planted on the hill
+          if (!inside(x, z) || excluded(x, z) || nearRoad(x, z, 0.3, null, false) || nearRoad(x, z, 4, w, false)) continue;
+          // planted on the hill, and on the road's own deck where it is raised; the arm reaches over the road
+          lamps.push({ x, z, y: (groundY ? groundY(x, z) : 0) + (w.hasDeck && net.deckAt ? net.deckAt(w, s) : 0), rot: Math.atan2(-nx, -nz) });
         }
       }
     }
@@ -1802,8 +1997,8 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
             const p = pointAt(way, s);
             const nx = p.dz * side, nz = -p.dx * side;
             const x = p.x + nx * off, z = p.z + nz * off;
-            if (!inside(x, z) || excluded(x, z)) continue;
-            place({ x, z, y: groundY ? groundY(x, z) : 0, nx, nz, side });
+            if (!inside(x, z) || excluded(x, z) || nearRoad(x, z, 0.5, null, false) || nearRoad(x, z, 3, way.w, false)) continue;
+            place({ x, z, y: (groundY ? groundY(x, z) : 0) + (way.w.hasDeck && net.deckAt ? net.deckAt(way.w, s) : 0), nx, nz, side });
             n++;
           }
         }
@@ -1847,30 +2042,90 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
   }
 
   // ---- railways and level crossings ----
+  /**
+   * Is a point of the track on a road: any road whose carriageway or footway reaches under the
+   * rails there (they are 0.76 m either side of the line, and a cul-de-sac ends in a turning circle
+   * wider than the road), and which is on the ground at that point, not carried over the line on a
+   * deck. Any road, not the nearest one: where a bridge and the street beside it lie together the
+   * nearest was the bridge, and the track was left across the street.
+   */
+  const roadUnderTrack = (x, z) => {
+    if (!net?.grid) return false;
+    // (a roundabout is road right across: the track goes through Roscoe's Roundabout in Manchester, and its sleepers lay on the tarmac)
+    for (const rb of rbClear) if ((x - rb.x) ** 2 + (z - rb.z) ** 2 < rb.r2) return true;
+    for (const { way, i } of net.grid.near(x, z, 16)) {
+      const a = way.pts[i], b = way.pts[i + 1], dx = b[0] - a[0], dz = b[1] - a[1], L2 = dx * dx + dz * dz;
+      const u = L2 > 1e-9 ? Math.max(0, Math.min(1, ((x - a[0]) * dx + (z - a[1]) * dz) / L2)) : 0;
+      if (Math.hypot(a[0] + dx * u - x, a[1] + dz * u - z) >= corridorOf(way) + 1.1) continue;
+      if (way.hasDeck && net.deckAt && net.deckAt(way, way.cum[i] + Math.sqrt(L2) * u) > 2.5) continue;
+      return true;
+    }
+    return false;
+  };
   function buildRails(tile, lod, out, M, cs) {
     const rails = idx.rails.get(tileKey(tile.tx, tile.tz)) || [];
     if (!rails.length) return { rails: 0, sleepers: 0, crossings: 0 };
     const rect = { x0: tile.x0 - 2, z0: tile.z0 - 2, x1: tile.x1 + 2, z1: tile.z1 + 2 };
-    const g = new GB({ uv: false, color: true });
+    const g = new GB({ uv: false, color: true }), bg = new GB({ uv: false, color: true }), fg = new GB({ uv: false, color: true });
     const ballast = new THREE.Color(0x7d766c), steel = new THREE.Color(0x8e8f92);
     let sleepers = 0;
     const sleeperSpots = [];
+    // Where the line meets a road on the ground. The map has the two crossing and nothing more, and
+    // the track was laid straight over the carriageway: ballast across the tarmac, sleepers and the
+    // rails 20 cm up on top of it. The ballast is paint on the land now (M.ground), so the road is
+    // drawn over it; the sleepers and the rails stop at the road's edge. At a level crossing the rails
+    // carry on across, set flush in the surface; anywhere else the line is on a bridge or under one
+    // in life, and here it simply ends at the kerb and takes up again on the far side.
+    const gaps = []; // each stretch of track on a road: its middle and half its length
+    const cross = data.levelCrossings || [];
     for (const r of rails) {
       for (const piece of clipPolyline(r.pts, rect)) {
-        g.ribbon(piece, -1.9, 1.9, () => 0.03, ballast);
-        for (const off of [-0.72, 0.72]) g.ribbon(piece, off - 0.04, off + 0.04, () => 0.2, steel);
+        bg.ribbon(piece, -1.9, 1.9, () => 0.03, ballast);
+        const cum = [0];
+        for (let i = 1; i < piece.length; i++) cum.push(cum[i - 1] + Math.hypot(piece[i][0] - piece[i - 1][0], piece[i][1] - piece[i - 1][1]));
+        const len = cum[cum.length - 1];
+        const at = (s) => { let i = 1; while (i < cum.length - 1 && cum[i] < s) i++; const a = piece[i - 1], b = piece[i], t = (s - cum[i - 1]) / (cum[i] - cum[i - 1] || 1); return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]; };
+        const on = (s) => { const p = at(s); return roadUnderTrack(p[0], p[1]); };
+        const between = (a, b) => { const o = [at(a)]; for (let i = 1; i < piece.length - 1; i++) if (cum[i] > a + 0.05 && cum[i] < b - 0.05) o.push(piece[i]); o.push(at(b)); return o; };
+        const cuts = [];
+        let was = on(0), from = was ? 0 : null;
+        for (let s = Math.min(2, len); ; s = Math.min(len, s + 2)) {
+          const now = on(s);
+          if (now !== was) { // the edge is in the last 2 m: halve down to it
+            let lo = Math.max(0, s - 2), hi = s;
+            for (let k = 0; k < 5; k++) { const mid = (lo + hi) / 2; if (on(mid) === was) lo = mid; else hi = mid; }
+            if (now) from = (lo + hi) / 2; else { cuts.push([from, (lo + hi) / 2]); from = null; }
+            was = now;
+          }
+          if (s >= len) break;
+        }
+        if (from != null) cuts.push([from, len]);
+        let s0 = 0;
+        for (const [a, b] of [...cuts, [len, len]]) {
+          if (a - s0 > 0.2) { const run = between(s0, a); for (const off of [-0.72, 0.72]) g.ribbon(run, off - 0.04, off + 0.04, () => 0.2, steel); }
+          s0 = b;
+          if (b <= a) continue;
+          const mid = at((a + b) / 2);
+          gaps.push({ x: mid[0], z: mid[1], r: (b - a) / 2 + 0.3 });
+          // (a tram running along the street, as the Metrolink does down Hardy Lane, is set in it for its whole length: that is 40 m and more of road, where a line crossing one is under 25)
+          if (b - a > 40 || cross.some((c) => Math.hypot(c.x - mid[0], c.z - mid[1]) < 15)) { const run = between(Math.max(0, a - 0.4), Math.min(len, b + 0.4)); for (const off of [-0.72, 0.72]) fg.ribbon(run, off - 0.04, off + 0.04, () => 0.034, steel); }
+        }
       }
-      if (lod !== 'near') continue;
+    }
+    if (lod === 'near') for (const r of rails) {
       for (let s = 0.4; s < r.len; s += 0.75) {
         let i = 1;
         while (i < r.cum.length - 1 && r.cum[i] < s) i++;
         const a = r.pts[i - 1], b = r.pts[i], L = r.cum[i] - r.cum[i - 1] || 1, t = (s - r.cum[i - 1]) / L;
         const x = a[0] + (b[0] - a[0]) * t, z = a[1] + (b[1] - a[1]) * t;
         if (x < tile.x0 || x >= tile.x1 || z < tile.z0 || z >= tile.z1) continue;
+        if (gaps.some((q) => Math.hypot(x - q.x, z - q.z) < q.r)) continue;
         sleeperSpots.push({ x, z, yaw: Math.atan2(b[0] - a[0], b[1] - a[1]) }); // local z along the track, the 2.5 m side across it
       }
     }
+    if (bg.tris) { const m = new THREE.Mesh(drapeGeo(bg.build()), M.ground); m.renderOrder = UNDERLAY.ballast; m.receiveShadow = true; m.geometry.userData.owned = true; out.add(m); }
     if (g.tris) { const m = new THREE.Mesh(drapeGeo(g.build()), M.rail); m.receiveShadow = true; m.geometry.userData.owned = true; out.add(m); }
+    if (fg.tris) { const m = new THREE.Mesh(drapeGeo(fg.build(), 4), M.railFlush); m.receiveShadow = true; m.geometry.userData.owned = true; out.add(m); }
     if (sleeperSpots.length) {
       const im = new THREE.InstancedMesh(M.geoSleeper, M.sleeper, sleeperSpots.length);
       const o = new THREE.Object3D();
@@ -2029,7 +2284,7 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
         // canopy on four columns over two pump islands, a kiosk behind, brand colour on the fascia
         const { bg } = brandColours(lm.name);
         const fascia = new THREE.Color(bg);
-        const yaw = roadYaw, c = Math.cos(yaw), s = Math.sin(yaw);
+        const yaw = lm.yaw ?? roadYaw, c = Math.cos(yaw), s = Math.sin(yaw);
         const P = (lx, lz) => [lm.x + lx * c + lz * s, lm.z - lx * s + lz * c];
         const fy = groundY ? groundY(lm.x, lm.z) : 0; // the forecourt is one flat slab on the hill
         for (const [lx, lz] of [[-6, -3.5], [6, -3.5], [-6, 3.5], [6, 3.5]]) { const [x, z] = P(lx, lz); g.box(x, fy, z, 0.5, 4.6, 0.5, yaw, white); cs.add(x, z, 0.6, 0.6, yaw); }
@@ -2045,7 +2300,7 @@ export function makeSceneryBuilder({ net, tickers = [], colliders = null, scene 
         g.box(kx, fy + 3.6, kz, 11.4, 0.4, 7.4, yaw, fascia);
         cs.add(kx, kz, 11, 7, yaw);
       } else if (lm.type === 'supermarket') {
-        const yaw = roadYaw;
+        const yaw = lm.yaw ?? roadYaw;
         const sy = groundY ? groundY(lm.x, lm.z) : 0;
         g.box(lm.x, sy, lm.z, 44, 7, 30, yaw, new THREE.Color(0xd0c8b8));
         cs.add(lm.x, lm.z, 44, 30, yaw);

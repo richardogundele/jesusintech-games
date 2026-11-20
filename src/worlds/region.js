@@ -15,7 +15,7 @@ import { label } from '../materials.js';
 import { RoadNet } from '../kent/net.js';
 import { TileManager } from '../kent/tiles.js';
 import { makeRoadBuilder, makeRoadMaterials } from '../kent/roads.js';
-import { makeSceneryBuilder } from '../kent/scenery.js';
+import { makeSceneryBuilder, UNDERLAY } from '../kent/scenery.js';
 import { makeSignBuilder } from '../kent/signs-place.js';
 import { buildAirfield } from '../kent/airfield.js';
 import { SignalSystem } from '../kent/signals.js';
@@ -49,6 +49,7 @@ export function buildRegion(renderer, { id, name, data, arena = false }) {
     pbr('leafy_grass', { repeat: [1, 1], color: 0x6f9450 }),
   );
   land.receiveShadow = true;
+  land.renderOrder = UNDERLAY.land; // first: the fields and the car parks are painted on to it (scenery.js M.ground)
   scene.add(land);
 
   // painted arrows / words come from the sign renderer, one material per decal

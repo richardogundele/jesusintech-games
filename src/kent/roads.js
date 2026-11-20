@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { drapeGeometry } from '../worlds/terrain.js';
-import { macroVary } from './surface.js';
+import { macroVary, UNDERLAY, underlayOf } from './surface.js';
 import {
   LW, LW_RING_SMALL, PAVE_W, KERB_W, KERB_H, Y_ROAD, Y_MARK, Y_DECAL, Y_PAVE,
   PATTERNS, centrePattern, hazardPattern, lanePattern, edgeWidth, hazardReach, arrowLength, wordHeight,
@@ -29,6 +29,7 @@ const RANK = { trunk: 7, trunk_link: 6, primary: 6, primary_link: 5, secondary: 
 const TOWN_CENTRE_R = 350;   // double yellows this close to a town's place point
 const FLARE_LEN = 40;        // roundabout approach widening
 const GORE_LEN = 60;         // slip-road taper
+const NOSEGS = [];           // no segments here (the lift's fine index)
 const DEG = Math.PI / 180;
 
 export const tileKey = (tx, tz) => `${tx},${tz}`;
@@ -170,6 +171,24 @@ function wayDirAt(way, i, dir) {
   return norm(bx - ax, bz - az);
 }
 
+/**
+ * How far along an arm its way keeps to the straight line it leaves the node on, to within 0.3 m (up
+ * to 25 m, the longest a corner is cut). A corner is drawn for two straight arms: past this the road
+ * is somewhere else, and the corner would leave bare ground on one side of it and lay its kerb on the
+ * carriageway on the other.
+ */
+function straightReach(way, i, dir, ax, az) {
+  const TOL = 0.3, MAX = 25, [x0, z0] = way.pts[i];
+  let pt = 0, pd = 0;
+  for (let j = i + dir; j >= 0 && j < way.pts.length; j += dir) {
+    const dx = way.pts[j][0] - x0, dz = way.pts[j][1] - z0, t = dx * ax + dz * az, d = Math.abs(dx * az - dz * ax);
+    if (d > TOL) return Math.min(MAX, pt + (t - pt) * Math.max(0, Math.min(1, (TOL - pd) / (d - pd || 1))));
+    if (t >= MAX) return MAX;
+    pt = t; pd = d;
+  }
+  return Math.min(MAX, pt); // the way ends first
+}
+
 /** fillet radius by road character: tight in town, generous on rural A-roads */
 const filletRadius = (d) => (d.cls === 'service' ? 4 : d.pave ? 6 : d.rank >= 5 ? 10 : 8);
 
@@ -193,7 +212,7 @@ function nodeInfo(view, id) {
         const j = i + dir;
         if (j < 0 || j >= way.pts.length) continue;
         const [ax, az] = wayDirAt(way, i, dir);
-        arms.push({ way, d, dir, idx: i, ax, az, bearing: Math.atan2(az, ax), hw: d.hw, rank: d.rank, pave: d.pave, rf: filletRadius(d), key: `${way.id}:${dir}`, minor: false, ring: !!d.rb, link: d.link, trim: 0, cap: false, paveCut: { 1: 0, '-1': 0 }, edgeCut: { 1: 0, '-1': 0 } });
+        arms.push({ way, d, dir, idx: i, ax, az, reach: straightReach(way, i, dir, ax, az), bearing: Math.atan2(az, ax), hw: d.hw, rank: d.rank, pave: d.pave, rf: filletRadius(d), key: `${way.id}:${dir}`, minor: false, ring: !!d.rb, link: d.link, trim: 0, cap: false, paveCut: { 1: 0, '-1': 0 }, edgeCut: { 1: 0, '-1': 0 } });
       }
     }
   }
@@ -295,7 +314,10 @@ function fillet(info, A, B) {
   const Cx = info.x + nax * sA * A.hw + ax * t, Cz = info.z + naz * sA * A.hw + az * t;
   let rf = Math.min(A.rf, B.rf);
   let l = rf / Math.tan(theta / 2);
-  if (l > 25) { l = 25; rf = l * Math.tan(theta / 2); }
+  // no longer than 25 m, nor than either arm stays straight beyond the corner point (straightReach)
+  const room = Math.min(25, A.reach - t, B.reach - ((Cx - info.x) * bx + (Cz - info.z) * bz));
+  // (but never under 1.2 m: with no corner at all each arm's footway would run on across the other's mouth)
+  if (l > room) { l = Math.max(room, Math.min(l, 1.2)); rf = l * Math.tan(theta / 2); }
   const TAx = Cx + ax * l, TAz = Cz + az * l, TBx = Cx + bx * l, TBz = Cz + bz * l;
   const [mx, mz] = norm(ax + bx, az + bz);
   const Ox = Cx + mx * rf / Math.sin(theta / 2), Oz = Cz + mz * rf / Math.sin(theta / 2);
@@ -339,6 +361,14 @@ function viaContinuation(view, way, end) {
   if (!other || !other.pts) return null;
   const j = other.nodes.indexOf(id);
   if (j < 0) return null;
+  // Only where the other way ends here as well: two ways meeting end to end, one road drawn in two
+  // pieces. A node with two ways is just as often a side road ending on a road that carries on
+  // through it, and blending there turned the side road's last frame half way round to the through
+  // road's direction: its ribbon came into the junction sheared, off to one side of the mouth the
+  // fillets and the patch were built for, and left a sliver of bare ground down one kerb and a
+  // corner of it by the give-way line. Seven junctions in ten had one.
+  if (j !== 0 && j !== other.nodes.length - 1) return null;
+  if (other.nodes.indexOf(id, j + 1) >= 0) return null; // (a loop that ends where it began)
   // the direction of travel through the node, in this way's point order: arriving at our start,
   // or leaving from our end (so both ways compute the same bisector tangent at the join)
   if (end === 0) return (j === 0 ? wayDirAt(other, 0, 1) : wayDirAt(other, j, -1)).map((v) => -v);
@@ -784,11 +814,11 @@ export function buildRoadTile(net, tile, { lod = 'near', mats, materials, ground
   const inBoxS = (frames) => (s) => { const f = frameAt(frames, s); return inBox(f.x, f.z); };
 
   /** a decal quad (arrow, word) at a point with a forward direction; falls back to white geometry */
-  const decalQuad = (id, opts, x, z, fx, fz, defaultW, defaultH, fallback = null) => {
+  const decalQuad = (id, opts, x, z, fx, fz, defaultW, defaultH, fallback = null, maxW = Infinity) => {
     const mat = mats.decal ? safeDecal(mats.decal, id, opts) : null;
     if (!mat) { if (fallback) fallback(); return; }
     const ud = (mat.map && mat.map.userData) || mat.userData || {};
-    const w = ud.wMm ? ud.wMm / 1000 : ud.wM || defaultW, h = ud.hMm ? ud.hMm / 1000 : ud.hM || defaultH;
+    const w = Math.min(maxW, ud.wMm ? ud.wMm / 1000 : ud.wM || defaultW), h = ud.hMm ? ud.hMm / 1000 : ud.hM || defaultH;
     const box = ud.box || { u0: 0, v0: 0, u1: 1, v1: 1 };
     let D = decals.get(mat);
     if (!D) decals.set(mat, (D = new GeoBatch()));
@@ -807,9 +837,13 @@ export function buildRoadTile(net, tile, { lod = 'near', mats, materials, ground
     decalQuad('lane_arrow_1038', { kind, arrow: kind, length: len * 1000 }, x, z, fx, fz, kind === 'ahead' ? 0.6 : 1.3, len,
       () => placePolygon(batch('white'), arrowPolygon(kind, len), x - fx * len / 2, z - fz * len / 2, fx, fz, Y_MARK));
   };
-  const wordDecal = (id, text, limit, x, z, fx, fz) => {
+  // (maxW: the room there is for it. A word is 0.55 m a letter, and a destination in a lane has the
+  // lane's width less a margin and no more: THE LINKS and FAVERSHAM, five metres each in lanes 3.65 m
+  // wide, were painted through each other on the way in to Eddington. A long name is set narrower,
+  // as it is on the road.)
+  const wordDecal = (id, text, limit, x, z, fx, fz, maxW = Infinity) => {
     const h = wordHeight(limit);
-    decalQuad(id, { text, lines: [text], height: h * 1000 }, x, z, fx, fz, Math.max(1.2, 0.55 * text.length), h);
+    decalQuad(id, { text, lines: [text], height: h * 1000 }, x, z, fx, fz, Math.max(1.2, 0.55 * text.length), h, null, Math.max(1, maxW));
   };
 
   // ---- flyovers: who drew which vertices ----
@@ -820,7 +854,8 @@ export function buildRoadTile(net, tile, { lod = 'near', mats, materials, ground
   // rather than by position because at the crossing itself both carriageways contain the point.
   const marks = [];
   const snapshot = () => { const m = new Map(); for (const gb of Object.values(B)) m.set(gb, gb.n); for (const gb of decals.values()) m.set(gb, gb.n); return m; };
-  const mark = (owner) => marks.push({ owner, at: snapshot() });
+  const snapIdx = () => { const m = new Map(); for (const gb of Object.values(B)) m.set(gb, gb.idx.length); return m; };
+  const mark = (owner) => marks.push({ owner, at: snapshot(), ix: snapIdx(), ex: extraObjects.length });
 
   // ---- ways: ribbons, lines, pavements, kerbs ----
   const wayPreps = [];
@@ -966,6 +1001,22 @@ export function buildRoadTile(net, tile, { lod = 'near', mats, materials, ground
 
   // ---- junction nodes: patch, fillets, give-way / stop lines, minis, dead ends ----
   mark(null);
+  /** is (x, z) inside a carriageway of this tile, `inset` m or more in from its edge? */
+  const onCarriageway = (x, z, inset) => {
+    for (const w of cell.ways) {
+      if (!w.pts) continue;
+      const q = descOf(view, w), lim = q.hw - inset;
+      if (q.rb || lim <= 0) continue;
+      for (let i = 0; i < w.pts.length - 1; i++) {
+        const [x0, z0] = w.pts[i], [x1, z1] = w.pts[i + 1];
+        if (x < Math.min(x0, x1) - lim || x > Math.max(x0, x1) + lim || z < Math.min(z0, z1) - lim || z > Math.max(z0, z1) + lim) continue;
+        const dx = x1 - x0, dz = z1 - z0, L2 = dx * dx + dz * dz;
+        const u = L2 > 1e-9 ? Math.max(0, Math.min(1, ((x - x0) * dx + (z - z0) * dz) / L2)) : 0;
+        if ((x0 + dx * u - x) ** 2 + (z0 + dz * u - z) ** 2 < lim * lim) return true;
+      }
+    }
+    return false;
+  };
   // a point inside a roundabout's circulating carriageway (the ring owns its own kerb + footways):
   // a junction fillet that sweeps in here would lay raised kerb and pavement across the lane
   const inRing = (x, z) => { const rbg = view.net?.rbGrid; if (!rbg) return false; for (const rb of rbg.near(x, z, 16)) if ((x - rb.x) ** 2 + (z - rb.z) ** 2 < (rb.r + 1) ** 2) return true; return false; };
@@ -980,8 +1031,22 @@ export function buildRoadTile(net, tile, { lod = 'near', mats, materials, ground
       for (const f of info.fillets) {
         const arc = filletArc(f);
         J.fan(f.C, arc, Y_ROAD, uvWorld);
+        // A coat of tarmac painted on the land under each side of the corner (surface.js UNDERLAY: it
+        // writes no depth, so the road itself is drawn over it). The corner is built for two straight
+        // arms, and an arm that bends on its way in comes away from the straight edge its corner was
+        // cut to: between them there was bare ground, a green spike down the kerb as long as the
+        // corner. Of Coventry's junctions sampled, one in four had 0.1 m2 or more of it. The coat is
+        // each arm's own half-width on the corner's side, from the node out to where the corner ends.
+        for (const [arm, T, t] of [[f.A, f.TA, f.tA], [f.B, f.TB, f.tB]]) {
+          batch(`apron:${arm.d.mat}`).poly([[info.x, info.z], [info.x + arm.ax * t, info.z + arm.az * t], T, f.C], Y_ROAD - 0.005, uvWorld);
+        }
         if (!near || !f.pave) continue;
         if (inRing(f.TA[0], f.TA[1]) || inRing(f.TB[0], f.TB[1]) || inRing(f.O[0], f.O[1])) continue; // don't lay a bell-mouth kerb inside a roundabout
+        // ...nor across a carriageway. The same bend puts the other side's corner on the road: its
+        // kerb and the footway behind it lay on the tarmac of the arm that had swung over it, and a
+        // corner beside a third road was simply laid across that. (The arc's own ends are on the
+        // two edges it joins, so it is the points between them that are asked.)
+        if (arc.slice(1, -1).some(([x, z]) => onCarriageway(x, z, 0.6))) continue;
         // kerb round the bell mouth and the pavement behind it
         const K = batch('kerb');
         strokeTop(K, arc, KERB_W, KERB_H, 1);
@@ -1052,12 +1117,13 @@ export function buildRoadTile(net, tile, { lod = 'near', mats, materials, ground
     const p = prepWay(view, way);
     wayCuts(view, p);
     const s = cr.__s ?? sNearest(p, cr.x, cr.z).s;
+    mark({ p }); // its own road's, to go up with it (it was whichever road was drawn last)
     drawCrossing(batch('white'), p, s, cr.type || 'uncontrolled');
   }
 
   // ---- roundabouts whose centre is in this tile ----
+  for (const rb of cell.rbs) { mark({ rb }); drawRoundabout(view, rb, { batch, near, obb, laneArrow, wordDecal, uvWorld, mats, extraObjects, roads, groundY }); }
   mark(null);
-  for (const rb of cell.rbs) drawRoundabout(view, rb, { batch, near, obb, laneArrow, wordDecal, uvWorld, mats, extraObjects, roads, groundY });
 
   // ---- dual carriageway reservations + barriers ----
   for (const p of wayPreps) {
@@ -1095,29 +1161,235 @@ export function buildRoadTile(net, tile, { lod = 'near', mats, materials, ground
 
   // ---- flyovers: lift each owner's vertices to its deck ----
   mark(null);
-  const nodeDeck = view.net?.nodeDeck;
+  // A way's own vertices go up by the way's height where they are, level across its width. A
+  // junction's and a roundabout's go up by the heights of the roads that meet there: inside one
+  // road's width that road's height is all there is, so the junction meets each arm's ribbon where
+  // the ribbon ends, at the arm's height and on its slope; between two arms it is theirs in
+  // proportion to how near each is. (A junction used to go up by one flat height, a step of up to
+  // 0.26 m at the end of every arm on a slope, and that only at the nodes of the bridges; on a
+  // ramp it stayed on the ground. A roundabout was never lifted at all: at Eddington in Herne Bay
+  // every arm ended in the air about 4 m over its own roundabout.)
+  // (what each owner's vertices go up by is the one surface net.deckBlend describes, asked from the
+  // owner's own level: a way's own height where the vertex is, a junction's node's, a roundabout's
+  // ring's. A road that is not raised is lifted too where a raised one runs within reach of it.)
+  const N = view.net, tLift = (typeof performance !== 'undefined' ? performance : Date).now();
+  // (net.grid's cells are 100 m: asked once a vertex it handed back every segment of the district.
+  // The tile's own segments, by 16 m cell, each in every cell within 14 m of it.)
+  const SEG = 16, segCells = new Map();
+  const segsAt = (x, z) => segCells.get(Math.floor(x / SEG) * 100003 + Math.floor(z / SEG)) || NOSEGS;
+  // the cells within 24 m of a stretch of road that is raised: only there is there anything to ask
+  // (a way 4 km long is "raised" for the 200 m of its ramp, and its box covers a district)
+  const up = new Set(), ck = (x, z) => Math.floor(x / SEG) * 100003 + Math.floor(z / SEG);
+  if (N?.grid && N.deckBlend) for (const { way, i } of N.grid.query(b.x0 - 80, b.z0 - 80, b.x1 + 80, b.z1 + 80)) {
+    if (!way.hasDeck || (N.deckAt(way, way.cum[i]) < 0.01 && N.deckAt(way, way.cum[i + 1]) < 0.01)) continue;
+    const p = way.pts[i], q = way.pts[i + 1], n = Math.max(1, Math.ceil(Math.hypot(q[0] - p[0], q[1] - p[1]) / 8));
+    for (let k = 0; k <= n; k++) {
+      const x = p[0] + ((q[0] - p[0]) * k) / n, z = p[1] + ((q[1] - p[1]) * k) / n;
+      for (let gx = Math.floor((x - 24) / SEG); gx <= Math.floor((x + 24) / SEG); gx++) for (let gz = Math.floor((z - 24) / SEG); gz <= Math.floor((z + 24) / SEG); gz++) up.add(gx * 100003 + gz);
+    }
+  }
+  if (up.size) for (const { way, i } of N.grid.query(b.x0 - 80, b.z0 - 80, b.x1 + 80, b.z1 + 80)) {
+    const p = way.pts[i], q = way.pts[i + 1], e = { way, i };
+    for (let gx = Math.floor((Math.min(p[0], q[0]) - 14) / SEG); gx <= Math.floor((Math.max(p[0], q[0]) + 14) / SEG); gx++) for (let gz = Math.floor((Math.min(p[1], q[1]) - 14) / SEG); gz <= Math.floor((Math.max(p[1], q[1]) + 14) / SEG); gz++) {
+      const k = gx * 100003 + gz;
+      if (!up.has(k)) continue;
+      let l = segCells.get(k); if (!l) segCells.set(k, (l = [])); l.push(e);
+    }
+  }
+  const liftOf = (owner) => {
+    if (!up.size) return null;
+    if (owner.p) {
+      const p = owner.p, w = p.way;
+      if (w.hasDeck) return (x, z) => (up.has(ck(x, z)) ? N.deckBlend(x, z, N.deckAt(w, sNearest(p, x, z).s), segsAt(x, z)) : 0);
+      return (x, z) => (up.has(ck(x, z)) ? N.deckBlend(x, z, 0, segsAt(x, z)) : 0);
+    }
+    if (owner.nid != null) {
+      const info = nodeInfo(view, owner.nid), ref = N.nodeDeck?.get(owner.nid) || 0;
+      return up.has(ck(info.x, info.z)) ? (x, z) => (up.has(ck(x, z)) ? N.deckBlend(x, z, ref, segsAt(x, z)) : 0) : null;
+    }
+    if (owner.rb) {
+      const rb = owner.rb, ring = (rb.ringWays || []).map((id) => view.ways.get(id)).filter(Boolean);
+      if (!ring.some((w) => w.hasDeck) && !up.has(ck(rb.x, rb.z))) return null;
+      const preps = ring.map((w) => prepWay(view, w));
+      const ringAt = (x, z) => { let bd = Infinity, h = 0; for (const p of preps) { const q = sNearest(p, x, z); if (q.dist < bd) { bd = q.dist; h = p.way.hasDeck ? N.deckAt(p.way, q.s) : 0; } } return h; };
+      // the island is a fan from its centre: its middle at the mean of the ring, each spoke rising or falling to the ring's height at its own end
+      const r = num(rb.r, 15), lanes = Math.max(1, num(rb.lanes, 1)), island = Math.max(1.5, Math.min(r - 3, num(rb.island, r - lanes * num(rb.laneW, r < 12 ? LW_RING_SMALL : LW))));
+      let hc = 0, nc = 0;
+      for (const p of preps) for (let s = 0; s <= p.way.len; s += 4) { hc += p.way.hasDeck ? N.deckAt(p.way, s) : 0; nc++; }
+      hc = nc ? hc / nc : 0;
+      return (x, z) => {
+        const dx = x - rb.x, dz = z - rb.z, rho = Math.hypot(dx, dz);
+        if (rho >= island - 0.01) return up.has(ck(x, z)) ? N.deckBlend(x, z, ringAt(x, z), segsAt(x, z)) : 0;
+        if (rho < 1e-6) return hc;
+        const qx = rb.x + (dx / rho) * island, qz = rb.z + (dz / rho) * island;
+        return hc + (N.deckBlend(qx, qz, ringAt(qx, qz), segsAt(qx, qz)) - hc) * (rho / island);
+      };
+    }
+    return null;
+  };
   for (let k = 0; k < marks.length - 1; k++) {
-    const { owner, at } = marks[k], next = marks[k + 1].at;
+    const { owner, at, ex } = marks[k], next = marks[k + 1].at;
     if (!owner) continue;
-    const p = owner.p, nd = owner.nid != null && nodeDeck ? nodeDeck.get(owner.nid) || 0 : 0;
-    if (p && !p.way.hasDeck) continue;
-    if (!p && !nd) continue;
+    const lift = liftOf(owner);
+    if (!lift) continue;
+    marks[k].lift = lift;
     for (const [gb, from] of at) {
       const to = next.get(gb) ?? gb.n;
-      for (let i = from; i < to; i++) {
-        const x = gb.pos[i * 3], z = gb.pos[i * 3 + 2];
-        gb.pos[i * 3 + 1] += p ? view.net.deckAt(p.way, sNearest(p, x, z).s) : nd;
-      }
+      for (let i = from; i < to; i++) gb.pos[i * 3 + 1] += lift(gb.pos[i * 3], gb.pos[i * 3 + 2]);
     }
     // batches born after this marker belong wholly to it until the next marker
     for (const [gb, to] of next) if (!at.has(gb)) {
-      for (let i = 0; i < to; i++) {
-        const x = gb.pos[i * 3], z = gb.pos[i * 3 + 2];
-        gb.pos[i * 3 + 1] += p ? view.net.deckAt(p.way, sNearest(p, x, z).s) : nd;
+      for (let i = 0; i < to; i++) gb.pos[i * 3 + 1] += lift(gb.pos[i * 3], gb.pos[i * 3 + 2]);
+    }
+    // and what it stood up as objects of their own (the planting on a roundabout's island)
+    for (let i = ex; i < marks[k + 1].ex; i++) extraObjects[i].traverse?.((c) => {
+      if (!c.isInstancedMesh) return;
+      const e = c.instanceMatrix.array;
+      for (let j = 0; j < c.count; j++) e[j * 16 + 13] += lift(e[j * 16 + 12], e[j * 16 + 14]);
+      c.instanceMatrix.needsUpdate = true;
+    });
+  }
+
+  const tStruct = (typeof performance !== 'undefined' ? performance : Date).now();
+  // ---- structures: what a raised road stands on, and what keeps a car on it ----
+  // A lifted road was a sheet of tarmac in the air: from its own carriageway the edge line was the
+  // last thing before a drop to the grass 5 m below, and from beneath it was not there at all.
+  // Every outer edge of a raised surface now has a wall under it down to the ground (the road
+  // stands on fill, as a flyover's approach does), a bridge's own span has the depth of a deck
+  // and an underside, open beneath for the road it crosses, and where the drop is more than
+  // PARAPET_FROM there is a parapet. "Outer" is asked of the surface itself: an edge is outer when
+  // just beyond it there is no road surface at its height, whoever drew it, so the seam between
+  // an arm and its junction is not one and nor is the cut where a road runs on into the next tile.
+  if (up.size && marks.some((m) => m.lift)) {
+    const SURF = new Set(['asphalt', 'asphaltDark', 'trunkTop', 'streetTop', 'laneTop', 'settsTop', 'gravelTop', 'concreteTop', 'paving', 'pavingBlock', 'kerb', 'grass']);
+    const PARAPET_FROM = 1.2, PARAPET_H = 1.0, PARAPET_T = 0.25, DECK_T = 0.9, HC = 4;
+    const D = batch('deck'), hash = new Map(), T = [], hk = (x, z) => Math.floor(x / HC) * 100003 + Math.floor(z / HC);
+    for (let k = 0; k < marks.length - 1; k++) {
+      const m = marks[k], nx = marks[k + 1], span = !!(m.owner && m.owner.p && m.owner.p.way.deckH);
+      for (const [key, gb] of Object.entries(B)) {
+        if (!SURF.has(key) || !nx.ix.has(gb)) continue;
+        const P = gb.pos;
+        for (let i = m.ix.get(gb) ?? 0, e = nx.ix.get(gb); i < e; i += 3) {
+          const a = gb.idx[i] * 3, c = gb.idx[i + 1] * 3, d = gb.idx[i + 2] * 3;
+          const ux = P[c] - P[a], uy = P[c + 1] - P[a + 1], uz = P[c + 2] - P[a + 2], vx = P[d] - P[a], vy = P[d + 1] - P[a + 1], vz = P[d + 2] - P[a + 2];
+          const nX = uy * vz - uz * vy, nY = uz * vx - ux * vz, nZ = ux * vy - uy * vx;
+          if (Math.abs(nY) < 1e-9 || Math.abs(nY) < 0.7 * Math.hypot(nX, nY, nZ)) continue; // a kerb's face, not a surface
+          const t = [P[a], P[a + 1], P[a + 2], P[c], P[c + 1], P[c + 2], P[d], P[d + 1], P[d + 2], span, !!m.lift];
+          T.push(t);
+          for (let gx = Math.floor(Math.min(t[0], t[3], t[6]) / HC); gx <= Math.floor(Math.max(t[0], t[3], t[6]) / HC); gx++) for (let gz = Math.floor(Math.min(t[2], t[5], t[8]) / HC); gz <= Math.floor(Math.max(t[2], t[5], t[8]) / HC); gz++) {
+            const key2 = gx * 100003 + gz; let l = hash.get(key2); if (!l) hash.set(key2, (l = [])); l.push(t);
+          }
+        }
       }
+    }
+    /** the road surface within `tol` of height y at a point: 'solid', 'span' (a bridge's own deck) or null */
+    const surfAt = (x, z, y, tol = 1) => {
+      let got = null;
+      for (const t of hash.get(hk(x, z)) || []) {
+        const d = (t[5] - t[8]) * (t[0] - t[6]) + (t[6] - t[3]) * (t[2] - t[8]);
+        if (Math.abs(d) < 1e-12) continue;
+        const u = ((t[5] - t[8]) * (x - t[6]) + (t[6] - t[3]) * (z - t[8])) / d, v = ((t[8] - t[2]) * (x - t[6]) + (t[0] - t[6]) * (z - t[8])) / d, w = 1 - u - v;
+        if (u < -1e-6 || v < -1e-6 || w < -1e-6 || Math.abs(u * t[1] + v * t[4] + w * t[7] - y) > tol) continue;
+        if (!t[9]) return 'solid';
+        got = 'span';
+      }
+      return got;
+    };
+    // (past the edge of what this tile draws the road goes on: within a way's own width, at its height, is covered too)
+    const wayAt = (x, z, y) => {
+      let got = null;
+      for (const w of cell.ways) {
+        if (!w.pts) continue;
+        const d = descOf(view, w), lim = d.hw + (d.pave ? KERB_W + PAVE_W : 0) + 1;
+        for (let i = 0; i < w.pts.length - 1; i++) {
+          const [x0, z0] = w.pts[i], [x1, z1] = w.pts[i + 1];
+          if (x < Math.min(x0, x1) - lim || x > Math.max(x0, x1) + lim || z < Math.min(z0, z1) - lim || z > Math.max(z0, z1) + lim) continue;
+          const dx = x1 - x0, dz = z1 - z0, L2 = dx * dx + dz * dz, u = L2 > 1e-9 ? Math.max(0, Math.min(1, ((x - x0) * dx + (z - z0) * dz) / L2)) : 0;
+          if ((x0 + dx * u - x) ** 2 + (z0 + dz * u - z) ** 2 > lim * lim) continue;
+          const p = prepWay(view, w);
+          if (Math.abs((w.hasDeck ? view.net.deckAt(w, sNearest(p, x, z).s) : 0) - y) > 1.2) continue;
+          if (!w.deckH) return 'solid';
+          got = 'span';
+        }
+      }
+      return got;
+    };
+    const drawnTo = (x, z) => x > b.x0 + 14 && x < b.x1 - 14 && z > b.z0 + 14 && z < b.z1 - 14; // well inside what this tile draws
+    /** the highest road surface at a point more than 5 cm below height y (-Infinity if there is none) */
+    const lowerAt = (x, z, y) => {
+      let best = -Infinity;
+      for (const t of hash.get(hk(x, z)) || []) {
+        const d = (t[5] - t[8]) * (t[0] - t[6]) + (t[6] - t[3]) * (t[2] - t[8]);
+        if (Math.abs(d) < 1e-12) continue;
+        const u = ((t[5] - t[8]) * (x - t[6]) + (t[6] - t[3]) * (z - t[8])) / d, v = ((t[8] - t[2]) * (x - t[6]) + (t[0] - t[6]) * (z - t[8])) / d, w = 1 - u - v;
+        if (u < -1e-6 || v < -1e-6 || w < -1e-6) continue;
+        const yy = u * t[1] + v * t[4] + w * t[7];
+        if (yy < y - 0.05 && yy > best) best = yy;
+      }
+      return best;
+    };
+    const quad = (v0, v1, v2, v3, nx, ny, nz) => {
+      // the four corners going round; wound to face (nx, ny, nz)
+      const ax = v1[0] - v0[0], ay = v1[1] - v0[1], az = v1[2] - v0[2], bx = v2[0] - v0[0], by = v2[1] - v0[1], bz = v2[2] - v0[2];
+      const flip = (ay * bz - az * by) * nx + (az * bx - ax * bz) * ny + (ax * by - ay * bx) * nz < 0;
+      const q = flip ? [v0, v3, v2, v1] : [v0, v1, v2, v3];
+      const L = Math.hypot(v1[0] - v0[0], v1[2] - v0[2]);
+      const i0 = D.vert(q[0][0], q[0][1], q[0][2], nx, ny, nz, 0, q[0][1]), i1 = D.vert(q[1][0], q[1][1], q[1][2], nx, ny, nz, flip ? 0 : L, q[1][1]);
+      const i2 = D.vert(q[2][0], q[2][1], q[2][2], nx, ny, nz, L, q[2][1]), i3 = D.vert(q[3][0], q[3][1], q[3][2], nx, ny, nz, flip ? L : 0, q[3][1]);
+      D.idx.push(i0, i1, i2, i0, i2, i3);
+    };
+    const E = new Map();
+    const pk = (x, z) => `${Math.round(x * 50)},${Math.round(z * 50)}`;
+    for (const t of T) {
+      if (!t[10]) continue;
+      for (const [i, j, o] of [[0, 3, 6], [3, 6, 0], [6, 0, 3]]) {
+        if (t[i + 1] < 0.3 && t[j + 1] < 0.3) continue; // on the ground there
+        const p = pk(t[i], t[i + 2]), q = pk(t[j], t[j + 2]), key = p < q ? p + '|' + q : q + '|' + p, e = E.get(key);
+        if (e) e.n++; else E.set(key, { n: 1, t, i, j, o });
+      }
+      // a bridge's own span has an underside
+      if (t[9]) {
+        const i0 = D.vert(t[0], t[1] - DECK_T, t[2], 0, -1, 0, t[0], t[2]), i1 = D.vert(t[3], t[4] - DECK_T, t[5], 0, -1, 0, t[3], t[5]), i2 = D.vert(t[6], t[7] - DECK_T, t[8], 0, -1, 0, t[6], t[8]);
+        const up = (t[5] - t[2]) * (t[6] - t[0]) - (t[3] - t[0]) * (t[8] - t[2]) > 0; // as wound, it faces up
+        if (up) D.idx.push(i0, i2, i1); else D.idx.push(i0, i1, i2);
+      }
+    }
+    for (const { n, t, i, j, o } of E.values()) {
+      if (n !== 1) continue;
+      const x1 = t[i], y1 = t[i + 1], z1 = t[i + 2], x2 = t[j], y2 = t[j + 1], z2 = t[j + 2];
+      const dx = x2 - x1, dz = z2 - z1, L = Math.hypot(dx, dz);
+      if (L < 0.02) continue;
+      let nx = dz / L, nz = -dx / L;
+      if ((t[o] - x1) * nx + (t[o + 2] - z1) * nz > 0) { nx = -nx; nz = -nz; } // away from the triangle's own third corner
+      const mx = (x1 + x2) / 2, mz = (z1 + z2) / 2, my = (y1 + y2) / 2, span = t[9];
+      const probe = (dist) => { const x = mx + nx * dist, z = mz + nz * dist; return surfAt(x, z, my) || (drawnTo(x, z) ? null : wayAt(x, z, my)); };
+      // (and 0.35 m on: a hairline crack between two triangles of one road is not its edge)
+      const beyond = probe(0.08) || probe(0.35);
+      if (beyond === 'solid' || (span && beyond === 'span')) continue; // a seam: the road goes on
+      // under a bridge's own span the depth of its deck; elsewhere down to the road surface just past the
+      // edge if there is one below it (a carriageway climbing away beside another: the wall between them
+      // stands on the lower one's tarmac, and went on down through it, 173 walls across a lane in the
+      // city), or else into the ground (where a ramp meets a span, its end is the abutment)
+      const bot1 = span ? y1 - DECK_T : Math.max(-0.3, lowerAt(x1 + nx * 0.1, z1 + nz * 0.1, y1));
+      const bot2 = span ? y2 - DECK_T : Math.max(-0.3, lowerAt(x2 + nx * 0.1, z2 + nz * 0.1, y2));
+      if (y1 - bot1 > 0.02 || y2 - bot2 > 0.02) quad([x1, y1, z1], [x2, y2, z2], [x2, bot2, z2], [x1, bot1, z1], nx, 0, nz);
+      // the parapet: a bridge way draws its own; none across an abutment, none where a road at this height is within 1.5 m, none for a low drop
+      // (nor on the step between two carriageways that overlap at different heights: any road within 2.5 m of this height, just past the edge)
+      if (span || beyond || Math.min(y1, y2) < PARAPET_FROM || probe(0.6) || probe(1.5)) continue;
+      if ([0.08, 0.6, 1.5].some((dd) => surfAt(mx + nx * dd, mz + nz * dd, my, 2.5))) continue;
+      const ox = nx * PARAPET_T, oz = nz * PARAPET_T, h = PARAPET_H;
+      const a0 = [x1, y1, z1], b0 = [x2, y2, z2], a1 = [x1 + ox, y1, z1 + oz], b1 = [x2 + ox, y2, z2 + oz];
+      const a0t = [x1, y1 + h, z1], b0t = [x2, y2 + h, z2], a1t = [x1 + ox, y1 + h, z1 + oz], b1t = [x2 + ox, y2 + h, z2 + oz];
+      quad(a0, b0, b0t, a0t, -nx, 0, -nz);            // the face to the road
+      quad(a1, b1, b1t, a1t, nx, 0, nz);              // the face to the drop
+      quad(a0t, b0t, b1t, a1t, 0, 1, 0);              // the top
+      quad(a0, b0, b1, a1, 0, -1, 0);                 // the ledge it stands on, from beneath
+      quad(a0, a1, a1t, a0t, -dx / L, 0, -dz / L);    // its two ends
+      quad(b0, b1, b1t, b0t, dx / L, 0, dz / L);
     }
   }
 
+  const tMesh = (typeof performance !== 'undefined' ? performance : Date).now();
   // ---- meshes ----
   // On a region with real hills, every ground-hugging piece (tarmac, markings, kerbs, pavement,
   // decals) is laid onto the terrain here. The ribbons are already sampled every 6 m along the way
@@ -1133,13 +1405,15 @@ export function buildRoadTile(net, tile, { lod = 'near', mats, materials, ground
   let tris = 0;
   for (const [k, gb] of Object.entries(B)) {
     if (gb.empty) continue;
-    const mat = mats[k] || mats.asphalt;
+    const under = k.startsWith('apron:'); // painted on the land: the surface's own material, writing no depth
+    const mat = under ? underlayOf(mats[k.slice(6)] || mats.asphalt) : mats[k] || (k === 'deck' ? mats.concrete : null) || mats.asphalt;
     const g = drape(gb.geometry());
     geos.push(g);
     const m = new THREE.Mesh(g, mat);
     m.receiveShadow = true;
-    m.castShadow = k === 'barrier' || k === 'concrete' || k === 'kerb';
-    m.name = k;
+    m.castShadow = k === 'barrier' || k === 'concrete' || k === 'kerb' || k === 'deck';
+    m.name = under ? 'apron' : k;
+    if (under) m.renderOrder = UNDERLAY.apron;
     group.add(m);
     byMat[k] = gb.triangles;
     tris += gb.triangles;
@@ -1158,7 +1432,7 @@ export function buildRoadTile(net, tile, { lod = 'near', mats, materials, ground
   for (const o of extraObjects) group.add(o);
   const ms = (typeof performance !== 'undefined' ? performance : Date).now() - t0;
   return {
-    group, colliders, roads, stats: { tris, byMat, ms, ways: wayPreps.length },
+    group, colliders, roads, stats: { tris, byMat, ms, ways: wayPreps.length, liftMs: tStruct - tLift, structMs: tMesh - tStruct },
     dispose() {
       for (const g of geos) g.dispose();
       for (const o of extraObjects) o.traverse?.((c) => { if (c.isInstancedMesh) c.dispose(); });
@@ -1566,7 +1840,7 @@ function drawRoundabout(view, rb, { batch, near, obb, laneArrow, wordDecal, uvWo
         const inner = a.wMax ? a.wMax * Math.max(0, 1 - (back - trim - 0.6) / a.Ls) + 0.3 : 0;
         // lane 0 = nearside (kerb side): one-way counts from the way's left edge, two-way from the kerb inward
         const o = d.oneway ? hw - (hw * 2 * (k + 0.5)) / a.markLanes : entrySign * (inner + ((hw - inner) * (a.markLanes - k - 0.5)) / a.markLanes);
-        return { f, pt: offsetPt(f, o) };
+        return { f, pt: offsetPt(f, o), laneW: d.oneway ? (hw * 2) / a.markLanes : (hw - inner) / a.markLanes };
       };
       for (let k = 0; k < a.markLanes; k++) {
         for (const back of [20, 50]) {
@@ -1575,8 +1849,8 @@ function drawRoundabout(view, rb, { batch, near, obb, laneArrow, wordDecal, uvWo
         }
         const text = dests[k];
         if (text) {
-          const { f, pt } = laneCentre(12, k);
-          wordDecal('lane_destination_1035', text, limit, pt[0], pt[1], -dir * f.tx, -dir * f.tz);
+          const { f, pt, laneW } = laneCentre(12, k);
+          wordDecal('lane_destination_1035', text, limit, pt[0], pt[1], -dir * f.tx, -dir * f.tz, laneW - 0.6);
         }
       }
     }

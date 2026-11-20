@@ -143,12 +143,108 @@ export function tessellate(geom, maxEdge = 8, maxTris = 200000) {
 }
 
 /**
+ * Cut every triangle along the folds of the ground it lies across, so each piece sits on one flat
+ * triangle of the land. The ground is planar inside a grid triangle and bent only along the grid's
+ * lines and each cell's anti-diagonal (ground.js), so a piece cut there and lifted by the ground
+ * height at its corners lies exactly its own small height above the ground, all over.
+ *
+ * Without this a triangle that spans a fold is a chord across it: under the ground where the land
+ * is a ridge, over it where it is a valley. Roads were sampled every 6 m and left at that, and over
+ * the 100 m grid of Driving City between 1.1% and 3.8% of a town's road-surface triangles were more
+ * than a centimetre off their own height, the worst 40 cm: the land came up through the tarmac on
+ * the hills (269 triangles in the third of Leeds's tiles that were measured), and paint laid 1 cm
+ * above the tarmac from triangles of its own could go under it.
+ *
+ * grid: { x0, z0, step, nx, nz } (heightAt.grid). Takes an indexed or a plain geometry and returns an
+ * indexed one; a vertex made on an edge two triangles share is shared by them, so a ribbon stays one
+ * smooth surface. Every attribute is interpolated.
+ */
+export function splitOnFolds(geom, grid) {
+  const { x0, z0, step, nx, nz } = grid;
+  const names = Object.keys(geom.attributes), pos = geom.attributes.position.array, nv0 = geom.attributes.position.count;
+  const index = geom.index ? geom.index.array : null, nt = index ? index.length / 3 : nv0 / 3;
+  // grid coordinates of every vertex: u along x, v along z, in cells
+  const gu = new Float64Array(nv0), gv = new Float64Array(nv0);
+  for (let i = 0; i < nv0; i++) { gu[i] = (pos[i * 3] - x0) / step; gv[i] = (pos[i * 3 + 2] - z0) / step; }
+  const eu = [], ev = []; // ... and of the vertices made here
+  const U = (i) => (i < nv0 ? gu[i] : eu[i - nv0]), V = (i) => (i < nv0 ? gv[i] : ev[i - nv0]);
+  const added = names.map((n) => ({ src: geom.attributes[n].array, size: geom.attributes[n].itemSize, out: [] }));
+  let nv = nv0;
+  const made = new Map(); // "a|b|family|line" -> the vertex where edge a-b crosses that line
+  const cross = (a, b, da, db, fam, c) => {
+    const lo = a < b ? a : b, hi = a < b ? b : a, key = `${lo}|${hi}|${fam}|${c}`;
+    let m = made.get(key);
+    if (m !== undefined) return m;
+    const t = da / (da - db); // from a towards b
+    for (const A of added) for (let k = 0; k < A.size; k++) {
+      const pa = a < nv0 ? A.src[a * A.size + k] : A.out[(a - nv0) * A.size + k], pb = b < nv0 ? A.src[b * A.size + k] : A.out[(b - nv0) * A.size + k];
+      A.out.push(pa + (pb - pa) * t);
+    }
+    eu.push(U(a) + (U(b) - U(a)) * t); ev.push(V(a) + (V(b) - V(a)) * t);
+    m = nv++;
+    made.set(key, m);
+    return m;
+  };
+  const EPS = 1e-6;
+  const F = [(i) => U(i), (i) => V(i), (i) => U(i) + V(i)]; // the three families of fold: u = c, v = c, u + v = c
+  const hiLine = [nx - 1, nz - 1, nx + nz - 2];
+  const idx = [];
+  let polys = [], next = [];
+  for (let t = 0; t < nt; t++) {
+    const a = index ? index[t * 3] : t * 3, b = index ? index[t * 3 + 1] : t * 3 + 1, c = index ? index[t * 3 + 2] : t * 3 + 2;
+    // the lines of each family that pass strictly between this triangle's corners
+    let any = false;
+    const range = [];
+    for (let f = 0; f < 3; f++) {
+      const fa = F[f](a), fb = F[f](b), fc = F[f](c), lo = Math.min(fa, fb, fc), hi = Math.max(fa, fb, fc);
+      const c0 = Math.max(0, Math.floor(lo + EPS) + 1), c1 = Math.min(hiLine[f], Math.ceil(hi - EPS) - 1);
+      range.push(c0, c1);
+      if (c1 >= c0) any = true;
+    }
+    if (!any) { idx.push(a, b, c); continue; }
+    polys.length = 0; polys.push([a, b, c]);
+    for (let f = 0; f < 3; f++) for (let line = range[f * 2]; line <= range[f * 2 + 1]; line++) {
+      next.length = 0;
+      for (const poly of polys) {
+        const n = poly.length, d = new Array(n);
+        let neg = false, plus = false;
+        for (let i = 0; i < n; i++) { d[i] = F[f](poly[i]) - line; if (d[i] < -EPS) neg = true; else if (d[i] > EPS) plus = true; }
+        if (!neg || !plus) { next.push(poly); continue; }
+        const A = [], B = [];
+        for (let i = 0; i < n; i++) {
+          const j = (i + 1) % n, di = d[i], dj = d[j];
+          if (di <= EPS) A.push(poly[i]);
+          if (di >= -EPS) B.push(poly[i]);
+          if ((di < -EPS && dj > EPS) || (di > EPS && dj < -EPS)) { const m = cross(poly[i], poly[j], di, dj, f, line); A.push(m); B.push(m); }
+        }
+        if (A.length >= 3) next.push(A);
+        if (B.length >= 3) next.push(B);
+      }
+      const swap = polys; polys = next.slice(); next = swap;
+    }
+    for (const poly of polys) for (let k = 1; k < poly.length - 1; k++) idx.push(poly[0], poly[k], poly[k + 1]);
+  }
+  if (nv === nv0) return geom; // nothing lay across a fold
+  const out = new THREE.BufferGeometry();
+  names.forEach((n, i) => {
+    const A = added[i], arr = new Float32Array(nv * A.size);
+    arr.set(A.src.subarray ? A.src.subarray(0, nv0 * A.size) : A.src.slice(0, nv0 * A.size));
+    arr.set(A.out, nv0 * A.size);
+    out.setAttribute(n, new THREE.BufferAttribute(arr, A.size));
+  });
+  out.setIndex(new THREE.BufferAttribute(nv > 65535 ? new Uint32Array(idx) : new Uint16Array(idx), 1));
+  return out;
+}
+
+/**
  * Lay a ground-hugging geometry (tarmac, markings, kerbs, pavement) onto the hill: every vertex
  * keeps its own small height above the road surface and gains the ground height at its x,z.
- * Tessellates first so long triangles follow the slope. Returns the geometry to use.
+ * Where the height function says where the ground folds (heightAt.grid), the geometry is cut along
+ * the folds first and so lies exactly on the land; otherwise it is tessellated to `maxEdge` so that
+ * long triangles follow the slope. Returns the geometry to use.
  */
 export function drapeGeometry(geom, groundY, maxEdge = 8) {
-  const g = tessellate(geom, maxEdge);
+  const g = groundY.grid ? splitOnFolds(geom, groundY.grid) : tessellate(geom, maxEdge);
   const pos = g.attributes.position, a = pos.array;
   for (let i = 0; i < a.length; i += 3) a[i + 1] += groundY(a[i], a[i + 2]);
   pos.needsUpdate = true;

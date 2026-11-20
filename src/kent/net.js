@@ -531,6 +531,10 @@ export class RoadNet {
     // The roads that run onto a deck ramp down from those heights. Not along the decks themselves:
     // a deck is laid by its span, and a node lifted over a dip mid-span must not lift its banks.
     const nodeH = spread(deckSeeds((w, i) => this.nodeDeck.get(w.nodes[i])), false);
+    // ...and every node on such a ramp is as high as the ramp is there. nodeDeck held the nodes of
+    // the bridges alone, and the road builder lifts a junction by its node's height: so on every
+    // ramp the junctions stayed on the ground under the roads that met at them.
+    for (const [nid, h] of nodeH) if (h > (this.nodeDeck.get(nid) || 0)) this.nodeDeck.set(nid, h);
     // each way's deck height: a deck reads its span (a flat 6 m on flat ground); any other way reads
     // nodeH at its own graph nodes, linear by arc length between them, so an approach is a gentle
     // slope and a boundary node agrees for both ways that meet there, with no steps.
@@ -540,6 +544,53 @@ export class RoadNet {
       if (!w.span) for (let i = 0; i < w.nodes.length; i++) { const nid = w.nodes[i]; if (nid) samples.push([w.cum[i], nodeH.get(nid) || 0]); }
       if (!samples.length || samples.every((s) => s[1] <= 0)) { w.deck = null; w.hasDeck = false; continue; }
       for (const s of samples) if (s[1] > this.maxDeck) this.maxDeck = s[1];
+      w.deck = (s) => interp(samples, s);
+      w.hasDeck = true;
+    }
+    // A slip road rides with the carriageway it leaves or joins for as long as the two are one
+    // width of tarmac. Its height was a straight line between its two ends: the A299's slip road
+    // at Herne Bay, 387 m from the carriageway to the roundabout on the bridge, was 1.5 m above
+    // the lane beside it 135 m from the nose, with nothing between the two. Where a link's width
+    // touches a through road's, running the same way, it takes that road's height; its own climb
+    // is the rest of its length, and where that would be steeper than 6.5% it lets go of the
+    // carriageway sooner. Only a link that is one run between its two ends: a junction part way
+    // along it has a height of its own that other roads share. (The same asked of every road that
+    // overlaps a wider one, nodes and all, cleared a sixth more of the steps and stood 66 ways on
+    // end, one at 138%: not done.)
+    const isLink = (w) => !!w.link || /_link$/.test(w.cls || '');
+    for (const w of this.ways.values()) {
+      if (!isLink(w) || w.deckH || w.rb || w.len < 12) continue;
+      if (w.nodes.some((nid, i) => nid && i > 0 && i < w.nodes.length - 1 && (this.nodes.get(nid)?.ways?.length || 0) > 1)) continue;
+      const fixed = [];
+      for (let k = 0, n = Math.ceil(w.len / 6); k <= n; k++) {
+        const s = (w.len * k) / n, p = this.pointAt(w, s), q = this.pointAt(w, Math.min(w.len, s + 1)), q0 = this.pointAt(w, Math.max(0, s - 1));
+        const tx = q[0] - q0[0], tz = q[1] - q0[1], tl = hypot(tx, tz) || 1;
+        let near = Infinity, h = 0;
+        for (const { way: m, i } of this.grid.near(p[0], p[1], 18)) {
+          if (m === w || isLink(m) || m.rb) continue;
+          const a = m.pts[i], b = m.pts[i + 1], [t, px, pz] = projSeg(a[0], a[1], b[0], b[1], p[0], p[1]);
+          const dc = hypot(p[0] - px, p[1] - pz), sl = hypot(b[0] - a[0], b[1] - a[1]) || 1;
+          if (dc >= w.halfW + m.halfW + 0.5 || dc >= near) continue;
+          if (Math.abs((tx * (b[0] - a[0]) + tz * (b[1] - a[1])) / (tl * sl)) < 0.87) continue; // crossing it, not beside it
+          near = dc; h = m.hasDeck ? this.deckAt(m, m.cum[i] + t * sl) : 0;
+        }
+        if (near < Infinity) fixed.push([s, h]);
+      }
+      if (!fixed.length) continue;
+      const nodeS = [];
+      for (let i = 0; i < w.nodes.length; i++) if (w.nodes[i]) nodeS.push([w.cum[i], nodeH.get(w.nodes[i]) || 0]);
+      // (its two ends are its nodes' and stay at their heights, whatever runs beside them: the next way starts from the same node)
+      const lay = (fx0) => { const fx = fx0.filter((f) => f[0] > 7 && f[0] < w.len - 7), out = fx.slice(); for (const q of nodeS) if (!fx.some((f) => Math.abs(f[0] - q[0]) < 7)) out.push(q); return out.sort((a, b) => a[0] - b[0]); };
+      const steepAt = (sm) => { for (let i = 1; i < sm.length; i++) { const ds = sm[i][0] - sm[i - 1][0]; if (ds > 0.5 && Math.abs(sm[i][1] - sm[i - 1][1]) / ds > 0.065) return i; } return 0; };
+      let fx = fixed, samples = lay(fx);
+      for (let at = steepAt(samples), guard = 0; at && fx.length && guard < 400; at = steepAt(samples), guard++) {
+        const s0 = samples[at - 1][0], s1 = samples[at][0];
+        let drop = -1, bd = Infinity;
+        for (let i = 0; i < fx.length; i++) { const d = Math.min(Math.abs(fx[i][0] - s0), Math.abs(fx[i][0] - s1)); if (d < bd) { bd = d; drop = i; } }
+        fx = fx.filter((_, i) => i !== drop); samples = lay(fx);
+      }
+      if (!fx.some((f) => f[0] > 7 && f[0] < w.len - 7)) continue; // nothing it can hold on to: as it was
+      if (samples.every((s) => s[1] <= 0)) { w.deck = null; w.hasDeck = false; continue; }
       w.deck = (s) => interp(samples, s);
       w.hasDeck = true;
     }
@@ -654,7 +705,10 @@ export class RoadNet {
     // Height-continuity only breaks ties between decks that overlap the SAME point — a stacked
     // junction, where the M1 beneath and the slip road over it share (x,z): the car that came up
     // onto the slip stays up, the one underneath stays down.
-    for (const { way, i } of this.grid.near(x, z, 12)) {
+    const segs = this.grid.near(x, z, 14);
+    let raised = false; // is any road within reach raised at all (nearly always not: then the answer is the ground and there is nothing to blend)
+    for (const { way, i } of segs) {
+      if (way.hasDeck) raised = true;
       const a = way.pts[i], b = way.pts[i + 1];
       const [t, px, pz] = projSeg(a[0], a[1], b[0], b[1], x, z);
       const lat = hypot(x - px, z - pz);
@@ -676,8 +730,54 @@ export class RoadNet {
     // here, so a car returning to view carries a height from wherever it last was. Holding that
     // unbounded would float it; holding at most a real deck cannot lift anything above a bridge.
     if (bestScore === Infinity) return Math.min(this.maxDeck || 0, Math.max(0, prevY - terrainY));
-    // ...but if a road IS here and none of it is decked, best stays 0
-    return best;
+    // ...but if a road IS here and none of it is decked, best stays 0. The road the point is on has
+    // been chosen; the height is the surface's there, which is that road's own along its own line
+    // and shared with its neighbours where they run together (deckBlend).
+    return raised ? this.deckBlend(x, z, best, segs) : best;
+  }
+  /**
+   * The height of the road surface at a point, above the ground, given the height (`ref`) of the
+   * road the point belongs to. Each way has its own height along its own length and is level across
+   * its width; where two that are joined run side by side or one over the edge of the other (a slip
+   * road leaving a carriageway, an arm entering a junction or a roundabout) each had its own, and
+   * the two sheets of tarmac parted: 12 cm five metres from the nose of a slip road off Chester Road
+   * in Manchester, and up to a metre and a half where two had run on together, with the car on
+   * whichever centre line was nearer. Here the surface is one:
+   * on a way's own centre line that way's height, between two centre lines theirs in proportion to
+   * the square of how near each is, and a way's say ends G metres beyond its own edge. A road more
+   * than HB above or below `ref` is another level (the road under a bridge, the carriageway a ramp
+   * has left) and has no say at all: this joins surfaces that differ by a slope's worth over a few
+   * metres, and does not tilt a carriageway to meet a ramp a metre above it.
+   * The road builder lifts every vertex it draws by this and the car stands on it. `segs`: the
+   * segments within 14 m if the caller has them to hand.
+   */
+  deckBlend(x, z, ref, segs = null) {
+    const G = 2, HB = 0.75, E2 = 0.09;
+    const best = this._blend || (this._blend = new Map());
+    best.clear();
+    for (const { way, i } of segs || this.grid.near(x, z, 14)) {
+      const a = way.pts[i], b = way.pts[i + 1];
+      const [t, px, pz] = projSeg(a[0], a[1], b[0], b[1], x, z);
+      const dc = hypot(x - px, z - pz);
+      if (dc > way.halfW + G) continue;
+      const e = best.get(way);
+      if (!e) best.set(way, [dc, way.cum[i] + t * hypot(b[0] - a[0], b[1] - a[1])]);
+      else if (dc < e[0]) { e[0] = dc; e[1] = way.cum[i] + t * hypot(b[0] - a[0], b[1] - a[1]); }
+    }
+    // the level is that of the nearest centre line within HB of ref, so that two roads asking about the same point get the same answer
+    let level = ref, nearest = Infinity;
+    for (const [way, e] of best) {
+      e[2] = way.hasDeck ? this.deckAt(way, e[1]) : 0;
+      if (e[0] < nearest && Math.abs(e[2] - ref) < HB) { nearest = e[0]; level = e[2]; }
+    }
+    let sw = 0, sh = 0;
+    for (const [way, e] of best) {
+      const dh = Math.abs(e[2] - level);
+      if (dh >= HB) continue;
+      const k = 1 - Math.max(0, e[0] - way.halfW) / G, w = (k * k * (1 - (dh / HB) * (dh / HB))) / (e[0] * e[0] + E2);
+      sw += w; sh += w * e[2];
+    }
+    return sw > 0 ? sh / sw : ref;
   }
   #buildExtras() {
     this.#buildDecks();

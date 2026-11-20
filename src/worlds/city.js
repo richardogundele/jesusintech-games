@@ -18,7 +18,7 @@ import { label } from '../materials.js';
 import { RoadNet } from '../kent/net.js';
 import { TileManager } from '../kent/tiles.js';
 import { makeRoadBuilder, makeRoadMaterials } from '../kent/roads.js';
-import { makeSceneryBuilder } from '../kent/scenery.js';
+import { makeSceneryBuilder, UNDERLAY } from '../kent/scenery.js';
 import { makeParkedBuilder } from '../kent/parked-build.js';
 import { makeSignBuilder } from '../kent/signs-place.js';
 import { buildKentHouse } from '../kent/house.js';
@@ -54,6 +54,7 @@ export function buildCity(renderer, { data }) {
     macroVary(pbr('leafy_grass', { repeat: [1, 1], color: 0x6f9450 }), { scale: 31, amount: 0.16, warm: 0.05 }),
   );
   land.receiveShadow = true;
+  land.renderOrder = UNDERLAY.land; // first: the fields and the car parks are painted on to it (scenery.js M.ground)
   scene.add(land);
 
   const decals = new Map();

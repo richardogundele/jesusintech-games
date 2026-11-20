@@ -54,3 +54,34 @@ export function macroVary(mat, { scale = 23, amount = 0.14, warm = 0.03 } = {}) 
   mat.customProgramCacheKey = () => `${prevKey ? prevKey() : ''}-macro-${scale}-${amount}-${warm}`;
   return mat;
 }
+
+/**
+ * What is painted on to the land, and in what order (renderOrder): the land itself first, then the
+ * landuse fields, the car park and drive surfaces, the railway's ballast, and the coat of tarmac
+ * under a junction's mouth. Everything else in the scene is drawn after, at the usual 0.
+ *
+ * These lie on the land rather than stand on it, and none of them writes depth (underlayOf): whatever
+ * is drawn after them -- the roads above all -- is compared with the land alone and always comes out
+ * on top. Height could not keep them apart. A field lay 4 to 16 mm under the tarmac, the two laid on
+ * the hills from different triangles, and wherever they disagreed by more than that the field came up
+ * through the road in pale green patches (at 1.9% of the carriageway triangles in the Guildford
+ * tiles sampled, 2.6% of Leeds's, 0.4% of Coventry's).
+ * A world that adds its own land mesh gives it UNDERLAY.land.
+ */
+export const UNDERLAY = { land: -40, field: -30, lot: -28, ballast: -26, apron: -24 };
+
+const UNDER = new WeakMap();
+/** a material's painted-on twin: the same surface, but it writes no depth (see UNDERLAY). One per material, shared. */
+export function underlayOf(mat) {
+  let u = UNDER.get(mat);
+  if (!u) {
+    u = mat.clone();
+    u.depthWrite = false;
+    u.polygonOffset = false;
+    // (clone() leaves these behind: the slow variation above is patched in through them)
+    u.onBeforeCompile = mat.onBeforeCompile;
+    u.customProgramCacheKey = mat.customProgramCacheKey;
+    UNDER.set(mat, u);
+  }
+  return u;
+}
