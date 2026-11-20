@@ -30,6 +30,7 @@ const TOWN_CENTRE_R = 350;   // double yellows this close to a town's place poin
 const FLARE_LEN = 40;        // roundabout approach widening
 const GORE_LEN = 60;         // slip-road taper
 const NOSEGS = [];           // no segments here (the lift's fine index)
+const SPLIT_FROM = 0.5, SPLIT_FULL = 0.55, OVERHANG = 4.6; // (net.deckBlend joins roads up to 0.45 m apart and lets go by 0.9) // prepWay step 6: roads over each other
 const DEG = Math.PI / 180;
 
 export const tileKey = (tx, tz) => `${tx},${tz}`;
@@ -127,7 +128,7 @@ function descOf(view, way) {
     bridge: !!way.bridge, tunnel: !!way.tunnel, layer: num(way.layer, 0), name: way.name || null, ref: way.ref || null,
     turnLanes: Array.isArray(way.turnLanes ?? way.turn_lanes) ? (way.turnLanes ?? way.turn_lanes) : null,
     mat: roadSurface(way, cls, limit, pave),
-    centreLine: !oneway && (rank >= 4 || width >= 6.5),
+    centreLine: !oneway && !way.narrow && (rank >= 4 || width >= 6.5), // (a narrow street has none: there is not room for two lanes)
     edgeLines: !oneway && !pave && rank >= 3,
   };
   // the lanes a driver in each direction has, and the lateral position of the centre line
@@ -436,6 +437,38 @@ function prepWay(view, way) {
   for (const f of frames) if (f.v >= 0 && nodeIds[f.v] != null && view.nodes.has(nodeIds[f.v])) nodeS.set(nodeIds[f.v], f.s);
   p = { way, d, frames, len, nodeS, cuts: null, ringArms: [], closed: nodeIds.length > 2 && nodeIds[0] === nodeIds[nodeIds.length - 1] };
   view.prep.set(way.id, p);
+  // 6. two roads drawn over each other at heights that cannot share tarmac: each gives up its half of
+  // the overlap. The map often lays a road climbing to a bridge, or one running under a ramp, a few
+  // metres from another, and both were drawn their full width: 1.5 km of road in the city had a
+  // carriageway lying across another's at 0.75 m or more apart in height (the Guildford bypass and
+  // its sliproads, Sharston in Manchester), each surface showing through the other or standing a
+  // step above it. Where they differ by SPLIT_FROM or more (blending, net.deckBlend, joins less) the
+  // edge facing the other road comes in towards the line half way across the overlap, fully by
+  // SPLIT_FULL; a retaining wall and a barrier go on that line (the structures, below). Where one is
+  // OVERHANG or more above the other there is headroom, and it passes over instead.
+  const N = view.net;
+  if (N?.grid && N.deckAt) {
+    const hAt = (w, s) => (w.hasDeck ? N.deckAt(w, Math.max(0, Math.min(w.len, s))) : 0);
+    for (const f of frames) {
+      const h = hAt(way, (f.s * way.len) / (len || 1));
+      for (const { way: o, i } of N.grid.near(f.x, f.z, d.hw + 9)) {
+        if (o.id === way.id || o.rb || (!way.hasDeck && !o.hasDeck)) continue;
+        const a = o.pts[i], b = o.pts[i + 1], ex = b[0] - a[0], ez = b[1] - a[1], L2 = ex * ex + ez * ez;
+        const t = L2 > 1e-9 ? Math.max(0, Math.min(1, ((f.x - a[0]) * ex + (f.z - a[1]) * ez) / L2)) : 0, px = a[0] + ex * t, pz = a[1] + ez * t;
+        // (by the whole of each road as drawn, footways too: a raised footway over a lane hung its wall in the lane)
+        const dO = descOf(view, o), padS = d.pave ? KERB_W + PAVE_W : 0, padO = dO.pave ? KERB_W + PAVE_W : 0, hwO = dO.hw + padO;
+        const dist = Math.hypot(px - f.x, pz - f.z);
+        if (d.hw + padS + hwO - dist <= 0.05 || Math.abs((f.tx * ex + f.tz * ez) / (Math.sqrt(L2) || 1)) < 0.87) continue;
+        const dh = Math.abs(h - hAt(o, o.cum[i] + t * Math.sqrt(L2)));
+        if (dh < SPLIT_FROM || dh >= OVERHANG) continue;
+        const k = Math.min(1, (dh - SPLIT_FROM) / (SPLIT_FULL - SPLIT_FROM)), e = Math.max(0.6 + padS, (dist + d.hw + padS - hwO) / 2) - padS;
+        const left = (px - f.x) * f.nx + (pz - f.z) * f.nz > 0;
+        // (drawn out along the mitre, so on a bend the edge is that much wider; and 15 cm short of the line, room for the wall)
+        const sc = Math.hypot(f.mx, f.mz) || 1, cur = left ? f.hwL : f.hwR, want = cur - k * Math.max(0, cur - (e - 0.15) / sc);
+        if (left) f.hwL = Math.min(f.hwL, want); else f.hwR = Math.min(f.hwR, want);
+      }
+    }
+  }
   // 5. flares into roundabouts (two-way arms of multi-lane rings)
   if (!d.rb) for (const [nid, sN] of nodeS) {
     const rb = view.ringNodeRb.get(nid);
@@ -1306,8 +1339,11 @@ export function buildRoadTile(net, tile, { lod = 'near', mats, materials, ground
           if (x < Math.min(x0, x1) - lim || x > Math.max(x0, x1) + lim || z < Math.min(z0, z1) - lim || z > Math.max(z0, z1) + lim) continue;
           const dx = x1 - x0, dz = z1 - z0, L2 = dx * dx + dz * dz, u = L2 > 1e-9 ? Math.max(0, Math.min(1, ((x - x0) * dx + (z - z0) * dz) / L2)) : 0;
           if ((x0 + dx * u - x) ** 2 + (z0 + dz * u - z) ** 2 > lim * lim) continue;
-          const p = prepWay(view, w);
-          if (Math.abs((w.hasDeck ? view.net.deckAt(w, sNearest(p, x, z).s) : 0) - y) > 1.2) continue;
+          const p = prepWay(view, w), q = sNearest(p, x, z);
+          if (Math.abs((w.hasDeck ? view.net.deckAt(w, q.s) : 0) - y) > 1.2) continue;
+          // (as drawn there: a road split from another, prepWay step 6, ends short of its full width on that side)
+          const f = frameAt(p.frames, q.s), side = (x - f.x) * f.nx + (z - f.z) * f.nz > 0 ? f.hwL : f.hwR;
+          if (q.dist > side * (Math.hypot(f.mx, f.mz) || 1) + (d.pave ? KERB_W + PAVE_W : 0) + 0.05) continue;
           if (!w.deckH) return 'solid';
           got = 'span';
         }
@@ -1315,6 +1351,15 @@ export function buildRoadTile(net, tile, { lod = 'near', mats, materials, ground
       return got;
     };
     const drawnTo = (x, z) => x > b.x0 + 14 && x < b.x1 - 14 && z > b.z0 + 14 && z < b.z1 - 14; // well inside what this tile draws
+    /** is there a road more than 4 m below height y within 1 m of a point (one passing underneath) */
+    const wayBelow = (x, z, y) => {
+      for (const { way: w, i } of view.net.grid.near(x, z, 12)) {
+        const a = w.pts[i], c = w.pts[i + 1], dx = c[0] - a[0], dz = c[1] - a[1], L2 = dx * dx + dz * dz, u = L2 > 1e-9 ? Math.max(0, Math.min(1, ((x - a[0]) * dx + (z - a[1]) * dz) / L2)) : 0;
+        if (Math.hypot(a[0] + dx * u - x, a[1] + dz * u - z) > w.halfW + 1) continue;
+        if (y - (w.hasDeck ? view.net.deckAt(w, w.cum[i] + Math.sqrt(L2) * u) : 0) > 4) return true;
+      }
+      return false;
+    };
     /** the highest road surface at a point more than 5 cm below height y (-Infinity if there is none) */
     const lowerAt = (x, z, y) => {
       let best = -Infinity;
@@ -1347,11 +1392,61 @@ export function buildRoadTile(net, tile, { lod = 'near', mats, materials, ground
         const p = pk(t[i], t[i + 2]), q = pk(t[j], t[j + 2]), key = p < q ? p + '|' + q : q + '|' + p, e = E.get(key);
         if (e) e.n++; else E.set(key, { n: 1, t, i, j, o });
       }
-      // a bridge's own span has an underside
-      if (t[9]) {
+      // a bridge's own span has an underside, and so does a raised road where it overhangs one below
+      if (t[9] || (t[10] && Math.min(t[1], t[4], t[7]) >= OVERHANG && (() => { const cx = (t[0] + t[3] + t[6]) / 3, cz = (t[2] + t[5] + t[8]) / 3, lo = lowerAt(cx, cz, Math.min(t[1], t[4], t[7])); return lo > -1 && Math.min(t[1], t[4], t[7]) - lo >= OVERHANG; })())) {
         const i0 = D.vert(t[0], t[1] - DECK_T, t[2], 0, -1, 0, t[0], t[2]), i1 = D.vert(t[3], t[4] - DECK_T, t[5], 0, -1, 0, t[3], t[5]), i2 = D.vert(t[6], t[7] - DECK_T, t[8], 0, -1, 0, t[6], t[8]);
         const up = (t[5] - t[2]) * (t[6] - t[0]) - (t[3] - t[0]) * (t[8] - t[2]) > 0; // as wound, it faces up
         if (up) D.idx.push(i0, i2, i1); else D.idx.push(i0, i1, i2);
+      }
+    }
+    // Piers. A bridge's span was held up by its two ends however long it was: the Clay Lane bridge in
+    // Guildford crossed both carriageways of the A3 and the reservation between them, some 40 m, in one.
+    // Where a span between supports is over PIER_GAP, a pier goes at the free ground nearest its middle:
+    // ground with no road within a metre and a half of it (a central reservation, a verge), and at
+    // least PIER_CLEAR under the deck. A pier is the width of the deck less a metre, a metre thick, and
+    // the car hits it.
+    const PIER_GAP = 24, PIER_CLEAR = 3.5, PIER_T = 1.0;
+    const groundRoadAt = (x, z) => {
+      for (const w of cell.ways) {
+        if (!w.pts || w.deckH) continue;
+        const dd = descOf(view, w), lim = dd.hw + (dd.pave ? KERB_W + PAVE_W : 0) + 1.5;
+        for (let i = 0; i < w.pts.length - 1; i++) {
+          const [x0, z0] = w.pts[i], [x1, z1] = w.pts[i + 1];
+          if (x < Math.min(x0, x1) - lim || x > Math.max(x0, x1) + lim || z < Math.min(z0, z1) - lim || z > Math.max(z0, z1) + lim) continue;
+          const dx = x1 - x0, dz = z1 - z0, L2 = dx * dx + dz * dz, u = L2 > 1e-9 ? Math.max(0, Math.min(1, ((x - x0) * dx + (z - z0) * dz) / L2)) : 0;
+          if ((x0 + dx * u - x) ** 2 + (z0 + dz * u - z) ** 2 > lim * lim) continue;
+          if (w.hasDeck && view.net.deckAt(w, w.cum[i] + Math.sqrt(L2) * u) > 2.5) continue; // up on a deck of its own
+          return true;
+        }
+      }
+      return false;
+    };
+    for (const p of wayPreps) {
+      if (!p.way.deckH || p.len < PIER_GAP) continue;
+      const free = [];
+      for (let s0 = 2; s0 < p.len - 2; s0 += 2) {
+        const f = frameAt(p.frames, s0), h = view.net.deckAt(p.way, (s0 * p.way.len) / p.len);
+        if (inTile(f.x, f.z) && h >= PIER_CLEAR && !groundRoadAt(f.x, f.z)) free.push({ s: s0, f, h });
+      }
+      if (!free.length) continue;
+      const piers = [];
+      const place = (lo, hi) => {
+        if (hi - lo <= PIER_GAP) return;
+        const mid = (lo + hi) / 2;
+        let best = null;
+        for (const q of free) if (q.s > lo + 6 && q.s < hi - 6 && (!best || Math.abs(q.s - mid) < Math.abs(best.s - mid))) best = q;
+        if (!best) return;
+        piers.push(best); place(lo, best.s); place(best.s, hi);
+      };
+      place(0, p.len);
+      for (const { f, h } of piers) {
+        const wAcross = Math.max(2, Math.min(f.hwL, f.hwR) * 2 - 1), c = Math.cos(Math.atan2(f.tx, f.tz)), sn = Math.sin(Math.atan2(f.tx, f.tz));
+        const P = (lx, ly, lz) => [f.x + lx * c + lz * sn, ly, f.z - lx * sn + lz * c];
+        const hw = wAcross / 2, ht = PIER_T / 2, top = h - DECK_T, bot = -0.3;
+        const v = [P(-hw, bot, -ht), P(hw, bot, -ht), P(hw, bot, ht), P(-hw, bot, ht), P(-hw, top, -ht), P(hw, top, -ht), P(hw, top, ht), P(-hw, top, ht)];
+        const face = (i0, i1, i2, i3, nx, nz) => quad(v[i0], v[i1], v[i2], v[i3], nx, 0, nz);
+        face(0, 1, 5, 4, -sn, -c); face(2, 3, 7, 6, sn, c); face(1, 2, 6, 5, c, -sn); face(3, 0, 4, 7, -c, sn);
+        colliders.push({ cx: f.x, cz: f.z, w: wAcross, d: PIER_T, yaw: Math.atan2(f.tx, f.tz), carOnly: true });
       }
     }
     for (const { n, t, i, j, o } of E.values()) {
@@ -1362,7 +1457,7 @@ export function buildRoadTile(net, tile, { lod = 'near', mats, materials, ground
       let nx = dz / L, nz = -dx / L;
       if ((t[o] - x1) * nx + (t[o + 2] - z1) * nz > 0) { nx = -nx; nz = -nz; } // away from the triangle's own third corner
       const mx = (x1 + x2) / 2, mz = (z1 + z2) / 2, my = (y1 + y2) / 2, span = t[9];
-      const probe = (dist) => { const x = mx + nx * dist, z = mz + nz * dist; return surfAt(x, z, my) || (drawnTo(x, z) ? null : wayAt(x, z, my)); };
+      const probe = (dist) => { const x = mx + nx * dist, z = mz + nz * dist; return surfAt(x, z, my, 0.3) || (drawnTo(x, z) ? null : wayAt(x, z, my)); };
       // (and 0.35 m on: a hairline crack between two triangles of one road is not its edge)
       const beyond = probe(0.08) || probe(0.35);
       if (beyond === 'solid' || (span && beyond === 'span')) continue; // a seam: the road goes on
@@ -1370,22 +1465,29 @@ export function buildRoadTile(net, tile, { lod = 'near', mats, materials, ground
       // edge if there is one below it (a carriageway climbing away beside another: the wall between them
       // stands on the lower one's tarmac, and went on down through it, 173 walls across a lane in the
       // city), or else into the ground (where a ramp meets a span, its end is the abutment)
-      const bot1 = span ? y1 - DECK_T : Math.max(-0.3, lowerAt(x1 + nx * 0.1, z1 + nz * 0.1, y1));
-      const bot2 = span ? y2 - DECK_T : Math.max(-0.3, lowerAt(x2 + nx * 0.1, z2 + nz * 0.1, y2));
+      // (a road OVERHANG or more over the one beside it overhangs it: the depth of a deck, not a wall into its lane)
+      const low1 = lowerAt(x1 + nx * 0.1, z1 + nz * 0.1, y1), low2 = lowerAt(x2 + nx * 0.1, z2 + nz * 0.1, y2);
+      const over = !span && Math.max(low1, low2) > -1 && Math.min(y1 - low1, y2 - low2) >= OVERHANG;
+      const bot1 = span || over ? y1 - DECK_T : Math.max(-0.3, low1);
+      const bot2 = span || over ? y2 - DECK_T : Math.max(-0.3, low2);
       if (y1 - bot1 > 0.02 || y2 - bot2 > 0.02) quad([x1, y1, z1], [x2, y2, z2], [x2, bot2, z2], [x1, bot1, z1], nx, 0, nz);
       // the parapet: a bridge way draws its own; none across an abutment, none where a road at this height is within 1.5 m, none for a low drop
-      // (nor on the step between two carriageways that overlap at different heights: any road within 2.5 m of this height, just past the edge)
-      if (span || beyond || Math.min(y1, y2) < PARAPET_FROM || probe(0.6) || probe(1.5)) continue;
-      if ([0.08, 0.6, 1.5].some((dd) => surfAt(mx + nx * dd, mz + nz * dd, my, 2.5))) continue;
-      const ox = nx * PARAPET_T, oz = nz * PARAPET_T, h = PARAPET_H;
+      // (a barrier where the drop is PARAPET_FROM or more, to the ground or to the road below: on the line
+      // between two roads split apart above, and along a ramp; none on a bridge, which draws its own)
+      const drop = Math.min(y1 - Math.max(0, bot1), y2 - Math.max(0, bot2));
+      if (span || beyond || (over ? Math.min(y1, y2) : drop) < PARAPET_FROM || probe(0.6) || probe(1.5)) continue;
+      // (on the raised road's own edge, not over the drop: past the edge may be another road's lane)
+      const ox = -nx * PARAPET_T, oz = -nz * PARAPET_T, h = PARAPET_H;
       const a0 = [x1, y1, z1], b0 = [x2, y2, z2], a1 = [x1 + ox, y1, z1 + oz], b1 = [x2 + ox, y2, z2 + oz];
       const a0t = [x1, y1 + h, z1], b0t = [x2, y2 + h, z2], a1t = [x1 + ox, y1 + h, z1 + oz], b1t = [x2 + ox, y2 + h, z2 + oz];
-      quad(a0, b0, b0t, a0t, -nx, 0, -nz);            // the face to the road
-      quad(a1, b1, b1t, a1t, nx, 0, nz);              // the face to the drop
+      quad(a0, b0, b0t, a0t, nx, 0, nz);              // the face to the drop
+      quad(a1, b1, b1t, a1t, -nx, 0, -nz);            // the face to the road
       quad(a0t, b0t, b1t, a1t, 0, 1, 0);              // the top
-      quad(a0, b0, b1, a1, 0, -1, 0);                 // the ledge it stands on, from beneath
       quad(a0, a1, a1t, a0t, -dx / L, 0, -dz / L);    // its two ends
       quad(b0, b1, b1t, b0t, dx / L, 0, dz / L);
+      // and the car hits it: not where a road passes underneath (one more than 4 m below it, at that point)
+      const c = { cx: (x1 + x2) / 2 + ox / 2, cz: (z1 + z2) / 2 + oz / 2, w: PARAPET_T, d: L, yaw: Math.atan2(dx, dz), carOnly: true };
+      if (!wayBelow(c.cx, c.cz, my)) colliders.push(c);
     }
   }
 

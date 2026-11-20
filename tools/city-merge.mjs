@@ -13,6 +13,7 @@ import { fileURLToPath } from 'node:url';
 import { CITY } from './driving-city.mjs';
 import { groundHeight } from '../src/worlds/ground.js';
 import { clearBuildings } from './building-clearance.mjs';
+import { findNarrow } from './narrow-streets.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = (id) => JSON.parse(fs.readFileSync(path.join(ROOT, `public/assets/${id}/region.json`), 'utf8'));
@@ -878,6 +879,13 @@ const out = {
   out.calming = out.calming.filter((r) => !undrivable.ways.has(r.way));
   gone += beforeCalm - out.calming.length;
   if (gone) console.log(`  ${gone} signals/crossings/minis/level crossings/calming left out with the roads they sat on`);
+}
+// narrow streets, from how close the houses on them stand (tools/narrow-streets.mjs): before the
+// buildings are cut back to the roads, which would otherwise measure the old width back
+{
+  const { n, km, hist } = findNarrow(out.ways, out.buildings);
+  if (process.env.NARROW_HIST) console.log('  front-to-front gaps (km of street by metre):', Object.entries(hist).map(([k, v]) => k + ':' + v.toFixed(0)).join(' '));
+  console.log(`  narrow streets: ${n} side streets, ${km.toFixed(1)} km, laid at their houses' width`);
 }
 // buildings off the roads (tools/building-clearance.mjs), last, so it sees the roads as they ship
 {

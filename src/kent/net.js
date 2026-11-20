@@ -44,6 +44,8 @@ export function laidWidth(w) {
   // line when turning. Aim for a comfortable ~3.4 m lane, but never widen a street by over 2.5 m
   // (pavements and procedural houses are drawn from halfW, so they move out with it).
   let width = w.width;
+  // a street the city build found narrow from its houses (tools/narrow-streets.mjs) is laid as it is
+  if (w.narrow) return width;
   if (!w.rb && !w.link) {
     if (!w.oneway && (RANK[w.cls] ?? 3) <= 4 && w.cls !== 'service') width = Math.min(w.width + 2.5, Math.max(w.width, 7));
     // closes, mews and yards bake at 5 m, which is under two car widths once the hedges go up
@@ -752,7 +754,8 @@ export class RoadNet {
    * segments within 14 m if the caller has them to hand.
    */
   deckBlend(x, z, ref, segs = null) {
-    const G = 2, HB = 0.75, E2 = 0.09;
+    // (roads within HF of each other are one surface; the say of one further apart fades out by HB, where roads.js has split them apart)
+    const G = 2, HF = 0.45, HB = 0.9, E2 = 0.09;
     const best = this._blend || (this._blend = new Map());
     best.clear();
     for (const { way, i } of segs || this.grid.near(x, z, 14)) {
@@ -774,7 +777,7 @@ export class RoadNet {
     for (const [way, e] of best) {
       const dh = Math.abs(e[2] - level);
       if (dh >= HB) continue;
-      const k = 1 - Math.max(0, e[0] - way.halfW) / G, w = (k * k * (1 - (dh / HB) * (dh / HB))) / (e[0] * e[0] + E2);
+      const k = 1 - Math.max(0, e[0] - way.halfW) / G, u = Math.max(0, (dh - HF) / (HB - HF)), w = (k * k * (1 - u * u * (3 - 2 * u))) / (e[0] * e[0] + E2);
       sw += w; sh += w * e[2];
     }
     return sw > 0 ? sh / sw : ref;

@@ -1754,6 +1754,16 @@ function carefulKent(run, car, st, bad) {
   // Ahead of st.blockedT now, so that being held here counts as being blocked and the back-off above
   // can reverse out of it, rather than the car sitting nose to nose for the rest of the run.
   if (car.drive && Math.abs(v) < 1.5 && traffic.some((c) => { const dx = c.x - car.pos.x, dz = c.z - car.pos.z, al = dx * fx + dz * fz; return al > 0 && al < 5.5 && Math.abs(dx * fz - dz * fx) < 2.6; })) want = Math.min(want, 0);
+  // ...nor with one coming across my nose that will be there within 3 s. Pulling out behind a car that had
+  // just gone by, the learner took the gap the next one was driving into, 8 m off at 5 m/s, and the two met
+  // in the junction (Stoke seed 6, Zion Street).
+  // (at the front only: in a queue the car ahead is between me and anything crossing)
+  const queued = traffic.some((c) => { const dx = c.x - car.pos.x, dz = c.z - car.pos.z, al = dx * fx + dz * fz; return al > 0 && al < 8 && Math.abs(dx * fz - dz * fx) < 1.6 && c.fx * fx + c.fz * fz > 0.7; });
+  if (car.drive && Math.abs(v) < 1.5 && !queued && traffic.some((c) => {
+    if (!(c.v > 1) || Math.abs(c.fx * fx + c.fz * fz) > 0.7) return false; // moving, and across me
+    const rx = car.pos.x + fx * 3 - c.x, rz = car.pos.z + fz * 3 - c.z, along = rx * c.fx + rz * c.fz; // to the point 3 m ahead of my nose
+    return along > 0 && along / c.v < 3 && Math.abs(rx * c.fz - rz * c.fx) < 3.5;
+  })) want = Math.min(want, 0);
   st.blockedT = want < 0.3 && Math.abs(v) < 0.3 && free > 2 ? (st.blockedT || 0) + dt : 0;
   if (st.blockedT > 6 && headOn(run, car) && clearBehind(run, car, 8)) { st.blockedT = 0; st.backOff = { to: run.s - 4, t: st.t }; out.mirror = true; }
   // touching a car that can't move (every bump stops it again): back off a car's nose-length if there's room

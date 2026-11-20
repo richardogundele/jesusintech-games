@@ -301,6 +301,20 @@ for (const a of region.areas) {
       // the ways' own heights at a point: [deck there, way] for every way whose width the point is in
       const waysAt = (x, z) => { const out = []; for (const { way, i } of net.grid.near(x, z, maxHW + 1)) { const p = way.pts[i], q = way.pts[i + 1], dx = q[0] - p[0], dz = q[1] - p[1], L2 = dx * dx + dz * dz, u = L2 > 1e-9 ? Math.max(0, Math.min(1, ((x - p[0]) * dx + (z - p[1]) * dz) / L2)) : 0; if (Math.hypot(p[0] + dx * u - x, p[1] + dz * u - z) < way.halfW) out.push(way.hasDeck ? net.deckAt(way, way.cum[i] + Math.sqrt(L2) * u) : 0); } return out; };
       const leftCells = new Set(), lipCells = new Set();
+      // the faces of the walls under raised roads, by 1 m cell: a step with a wall on it is a wall between two roads, not a lip
+      const faces = new Map(), fk = (x, z) => Math.floor(x) * 100003 + Math.floor(z);
+      part.group.traverse((o) => {
+        if (!o.isMesh || o.name !== 'deck') return;
+        const p = o.geometry.attributes.position;
+        // (every 0.5 m along each edge of its triangles: a wall's corners are a road sample, 6 m, apart)
+        const ix = o.geometry.index ? o.geometry.index.array : null, nt = ix ? ix.length / 3 : p.count / 3;
+        for (let t = 0; t < nt; t++) for (let c = 0; c < 3; c++) {
+          const i0 = ix ? ix[t * 3 + c] : t * 3 + c, i1 = ix ? ix[t * 3 + ((c + 1) % 3)] : t * 3 + ((c + 1) % 3);
+          const ax = p.getX(i0), az = p.getZ(i0), bx = p.getX(i1), bz = p.getZ(i1), n = Math.max(1, Math.ceil(Math.hypot(bx - ax, bz - az) / 0.5));
+          for (let k = 0; k <= n; k++) faces.set(fk(ax + ((bx - ax) * k) / n, az + ((bz - az) * k) / n), true);
+        }
+      });
+      const walled = (x, z) => { for (let a = -1; a <= 1; a++) for (let c = -1; c <= 1; c++) if (faces.has(fk(x + a * 0.6, z + c * 0.6))) return true; return false; };
       for (const t of up) {
         const mx = (t[0] + t[3] + t[6]) / 3, mz = (t[2] + t[5] + t[8]) / 3, h = (t[10] + t[11] + t[12]) / 3;
         if (h > 0.6) st.raised++;
@@ -311,7 +325,7 @@ for (const a of region.areas) {
           const dx = t[j] - t[i], dz = t[j + 2] - t[i + 2], L = Math.hypot(dx, dz); if (L < 0.05) continue;
           let nx = dz / L, nz = -dx / L; if ((t[o] - t[i]) * nx + (t[o + 2] - t[i + 2]) * nz > 0) { nx = -nx; nz = -nz; }
           const ex = (t[i] + t[j]) / 2, ez = (t[i + 2] + t[j + 2]) / 2, ey = (t[i + 1] + t[j + 1]) / 2 - H(ex, ez);
-          for (const y of at(ex + nx * 0.1, ez + nz * 0.1)) { const d = Math.abs(y - ey); if (d > 0.04 && d < 1.5) { st.worstLip = Math.max(st.worstLip, d); const k = key(ex, ez); if (!lipCells.has(k)) { lipCells.add(k); st.lips++; if (notes.length < 400) notes.push(`${a.id}: a lip of ${d.toFixed(2)} m between two raised pieces of road at (${ex.toFixed(0)}, ${ez.toFixed(0)}) ${wayAt(ex, ez)}`); } } }
+          for (const y of at(ex + nx * 0.1, ez + nz * 0.1)) { const d = Math.abs(y - ey); if (d > 0.04 && d < 1.5 && !(d >= 0.1 && walled(ex, ez))) { st.worstLip = Math.max(st.worstLip, d); const k = key(ex, ez); if (!lipCells.has(k)) { lipCells.add(k); st.lips++; if (notes.length < 400 && !process.env.NO_LIP_NOTES) notes.push(`${a.id}: a lip of ${d.toFixed(2)} m between two raised pieces of road at (${ex.toFixed(0)}, ${ez.toFixed(0)}) ${wayAt(ex, ez)}`); } } }
         }
       }
       // the structure under a raised road: none of it inside a carriageway at that carriageway's height
@@ -325,7 +339,7 @@ for (const a of region.areas) {
           const x = p.getX(i), z = p.getZ(i), y = p.getY(i) - H(x, z);
           // standing up out of a carriageway: the highest thing the road builder laid under it is tarmac, less than 1.2 m below (a wall whose top is level with the road is the face of a step, counted with the lips; a parapet at the back of a footway stands on the footway)
           const on = (px, pz) => { let top = -Infinity, name = null; for (const q of hcAll2.get(key(px, pz)) || []) { const yy = yAt(q, px, pz); if (yy == null) continue; const s = yy - H(px, pz); if (s < y - 0.15 && s > top) { top = s; name = q[9].name; } } return TARMAC.has(name) && y - top < 1.2; };
-          if (on(x, z) && on(x + 0.4, z) && on(x - 0.4, z) && on(x, z + 0.4) && on(x, z - 0.4)) { const k = key(x, z); if (!inCells.has(k)) { inCells.add(k); st.inWay++; if (notes.length < 400) notes.push(`${a.id}: part of a raised road's wall or parapet stands in the carriageway at (${x.toFixed(0)}, ${z.toFixed(0)}), ${y.toFixed(1)} m up, ${wayAt(x, z)}`); } }
+          if (on(x, z) && on(x + 0.8, z) && on(x - 0.8, z) && on(x, z + 0.8) && on(x, z - 0.8)) /* road all round it: a barrier on a raised edge has the drop on one side */ { const k = key(x, z); if (!inCells.has(k)) { inCells.add(k); st.inWay++; if (notes.length < 400) notes.push(`${a.id}: part of a raised road's wall or parapet stands in the carriageway at (${x.toFixed(0)}, ${z.toFixed(0)}), ${y.toFixed(1)} m up, ${wayAt(x, z)}`); } }
         }
       });
     }
