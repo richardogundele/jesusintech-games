@@ -10,6 +10,9 @@
 // fault stopped (lessons.js:302 ends the test there), had its clock cut short with route left to
 // drive: Leeds's seed 3 came in at 1.4 min against a 14.6 min estimate, which measures the collision
 // and not the route. Those are dropped, and counted separately so you can see how much was dropped.
+// So is a test the examiner brought back by a shorter way or took a longer way round (lessons.js
+// watchClock): it finished, but on another route than the one the estimate was of, and the correction
+// pulls it towards 15 minutes whatever timeK is -- counted, it would make any timeK look right.
 //
 // It prints the multiplier to put in regions.mjs, and it REFUSES to recommend one it cannot stand
 // behind: a handful of runs, or a wide spread, means the number would be noise. A long right tail
@@ -55,13 +58,15 @@ for (const line of text.split('\n')) {
   const why = /did not finish/.test(body) ? 'did not finish'
     : /STOPPED on the dangerous fault/.test(body) ? 'stopped on a dangerous fault'
       : /stopped early/.test(body) ? 'stopped early'
-        : /[1-9]\d* dangerous/.test(body) ? 'stopped on a dangerous fault' : null;
+        : /[1-9]\d* dangerous/.test(body) ? 'stopped on a dangerous fault'
+          : /brought back early/.test(body) ? 'brought back by a shorter way'
+            : /taken a longer way/.test(body) ? 'taken a longer way round' : null;
   const row = { seed, est: e.est, km: e.km, act: Number(sim[1]) };
   if (why) dropped.push({ ...row, why }); else kept.push(row);
 }
 
 if (!kept.length) {
-  console.log(`${label}: no completed run to measure. ${dropped.length} run(s) had the clock cut short.`);
+  console.log(`${label}: no completed run to measure. ${dropped.length} run(s) had the clock cut short or the route changed.`);
   for (const d of dropped) console.log(`  seed ${String(d.seed).padStart(3)}  ${d.why}`);
   process.exit(1);
 }
@@ -70,7 +75,7 @@ const mean = ratios.reduce((s, v) => s + v, 0) / ratios.length;
 const median = ratios.length % 2 ? ratios[(ratios.length - 1) / 2] : (ratios[ratios.length / 2 - 1] + ratios[ratios.length / 2]) / 2;
 const sd = Math.sqrt(ratios.reduce((s, v) => s + (v - mean) * (v - mean), 0) / ratios.length);
 
-console.log(`${label}: ${kept.length} completed run(s) measured, ${dropped.length} dropped (clock cut short)`);
+console.log(`${label}: ${kept.length} completed run(s) measured, ${dropped.length} dropped (clock cut short, or the route changed on the way)`);
 for (const r of kept.sort((a, b) => a.seed - b.seed))
   console.log(`  seed ${String(r.seed).padStart(3)}  ${r.km.toFixed(2)} km  est ${r.est.toFixed(1)}  actual ${r.act.toFixed(1)}  x${(r.act / r.est).toFixed(3)}`);
 for (const d of dropped.sort((a, b) => a.seed - b.seed))
