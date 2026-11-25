@@ -202,5 +202,9 @@
         <p class="coach-note">Your key is stored only in this browser and only sent to api.anthropic.com.</p>
       </div>
     </div>
+    <!-- Counts a page view on the admin dashboard. No cookies, nothing stored in the browser; skipped for Do Not Track. -->
+    <script>
+      (function(){var E='https://admin.jesusintech.com/api/visit',l='';function c(){try{if(navigator.doNotTrack==='1'||navigator.globalPrivacyControl)return;if(!/^driveuk\\.jesusintech\\.com$/.test(location.hostname))return;var p=location.pathname;if(p===l)return;var b=JSON.stringify({p:p,r:l?'':document.referrer});l=p;fetch(E,{method:'POST',body:b,keepalive:true,mode:'no-cors',credentials:'omit'}).catch(function(){})}catch(e){}}c();var h=history.pushState;history.pushState=function(){h.apply(this,arguments);c()};addEventListener('popstate',c)})();
+    </script>
   </body>
 </html>
